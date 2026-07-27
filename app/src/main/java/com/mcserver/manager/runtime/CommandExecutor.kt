@@ -1,5 +1,6 @@
 package com.mcserver.manager.runtime
 
+import android.os.FileObserver
 import android.util.Log
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -7,17 +8,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
+import java.io.RandomAccessFile
 
 /**
- * 命令执行器（生产化）：
- *  - execOnce：一次性命令，阻塞等待结果，输出流入 consoleFlow
- *  - execStream：后台长期命令，用于 tmux + MC 服务进程
- *  - emit：外部（如 ConsoleSocketServer）向 consoleFlow 推送日志
- *  - 所有命令均通过 proot 在 chroot 环境中执行
- *  - proot 命令构造形如：
- *      proot --rootfs=rootDir --link2symlink --kill-on-exit --root-id --cwd=/home/server \
- *        /usr/bin/env -i HOME=/home PATH=/usr/bin:/system/bin TMPDIR=/tmp \
- *        bash -lc "实际命令"
+ * 命令执行器（Termux 原生模式，不依赖 proot）：
+ *  - 直接用 rootfs 里的 bash 执行命令
+ *  - 设置 LD_LIBRARY_PATH 指向 rootfs/usr/lib
+ *  - 日志通过文件监视实现（替代 LocalSocket）
  */
 class CommandExecutor(private val installer: BootstrapInstaller) {
 
@@ -27,19 +24,47 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
     )
     val consoleFlow: SharedFlow<String> = _consoleFlow.asSharedFlow()
 
-    /** 外部推送日志（供 ConsoleSocketServer 使用，统一日志流） */
+    private var logWatcher: FileObserver? = null
+    private var lastLogPos: Long = 0L
+
     fun emit(line: String) {
         _consoleFlow.tryEmit(line)
     }
 
+    /** Termux 原生执行：直接用 rootfs 里的 bash，不需要 proot */
+    private fun buildExecCommand(command: List<String>): List<String> {
+        val bash = File(installer.rootDir, "usr/bin/bash").absolutePath
+        val cmdStr = command.joinToString(" ") { arg ->
+            if (arg.any { it == ' ' || it == '\'' || it == '"' || it == '$' }) {
+                "'${arg.replace("'", "'\\''")}'"
+            } else arg
+        }
+        return listOf(bash, "-lc", cmdStr)
+    }
+
+    /** Termux 环境变量 */
+    fun termuxEnv(): Map<String, String> {
+        val prefix = installer.rootDir.absolutePath
+        return mapOf(
+            "HOME" to "$prefix/home",
+            "PATH" to "$prefix/usr/bin:$prefix/usr/bin/applets:/system/bin:/system/xbin",
+            "TMPDIR" to "$prefix/usr/tmp",
+            "LD_LIBRARY_PATH" to "$prefix/usr/lib:/system/lib64",
+            "PREFIX" to "$prefix/usr",
+            "TERM" to "xterm-256color",
+            "LANG" to "en_US.UTF-8",
+            "COLORTERM" to "true"
+        )
+    }
+
     /** 一次性命令，阻塞等待完成 */
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int {
-        val full = buildProotCommand(command.toList())
+        val full = buildExecCommand(command.toList())
         Log.d(TAG, "execOnce: ${full.joinToString(" ").take(200)}")
         val pb = ProcessBuilder(full).apply {
             redirectErrorStream(true)
             directory(File(installer.rootDir, "home/server").apply { mkdirs() })
-            environment().putAll(prootEnv())
+            environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }
         }
         val process = pb.start()
@@ -50,17 +75,16 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
     }
 
     /**
-     * 后台长期命令（如 tmux new-session -d java -jar server.jar）。
-     * - 输出流入 consoleFlow 供 UI 订阅
-     * - 返回 Process 句柄，调用方可监控退出
+     * 后台长期命令（如 tmux new-session -d）。
+     * 输出流入 consoleFlow 供 UI 订阅
      */
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process {
-        val full = buildProotCommand(command.toList())
+        val full = buildExecCommand(command.toList())
         Log.d(TAG, "execStream[$tag]: ${full.joinToString(" ").take(200)}")
         val pb = ProcessBuilder(full).apply {
             redirectErrorStream(true)
             directory(File(installer.rootDir, "home/server").apply { mkdirs() })
-            environment().putAll(prootEnv())
+            environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }
         }
         val process = pb.start()
@@ -76,62 +100,51 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         return process
     }
 
-    /** 向进程 stdin 写入一行 */
-    fun sendInput(process: Process, line: String) {
-        runCatching {
-            process.outputStream.write((line + "\n").toByteArray())
-            process.outputStream.flush()
-        }
-    }
-
     /**
-     * 构造 proot 命令。
-     * 关键修复：环境变量不再拼成单个字符串，而是作为 /usr/bin/env 的独立参数，
-     * 避免含空格的值破坏参数解析。
-     * 最终命令：
-     *   proot --rootfs=<rootDir> --link2symlink --kill-on-exit --root-id --cwd=/home/server \
-     *     --bind=/dev --bind=/proc --bind=/sys \
-     *     /usr/bin/env -i HOME=/home PATH=... TMPDIR=/tmp bash -lc "cmd"
+     * 启动日志文件监视：当 MC 服务器日志文件更新时，读取新行推送到 consoleFlow。
+     * 替代之前的 ConsoleSocketServer 方案，更简单可靠。
      */
-    private fun buildProotCommand(command: List<String>): List<String> {
-        val prootBin = File(installer.nativeDir, "proot").absolutePath
-        val rootfs = installer.rootDir.absolutePath
-        val bash = File(installer.rootDir, "usr/bin/bash").absolutePath
-
-        // 将命令拼成单个字符串传给 bash -lc
-        val cmdStr = command.joinToString(" ") { arg ->
-            if (arg.any { it == ' ' || it == '\'' || it == '"' || it == '$' }) {
-                "'${arg.replace("'", "'\\''")}'"
-            } else arg
+    fun startLogWatcher(logFile: File) {
+        stopLogWatcher()
+        if (!logFile.exists()) {
+            logFile.parentFile?.mkdirs()
+            logFile.createNewFile()
         }
+        lastLogPos = logFile.length()
 
-        // 环境变量作为 /usr/bin/env 的独立参数（修复空格问题）
-        val envArgs = prootEnv().entries.flatMap { (k, v) -> listOf("$k=$v") }
-
-        return listOf(
-            prootBin,
-            "--rootfs=$rootfs",
-            "--link2symlink",
-            "--kill-on-exit",
-            "--root-id",
-            "--cwd=/home/server",
-            "--bind=/dev",
-            "--bind=/proc",
-            "--bind=/sys",
-            "/usr/bin/env", "-i"
-        ) + envArgs + listOf(bash, "-lc", cmdStr)
+        logWatcher = object : FileObserver(logFile.absolutePath, MODIFY or MOVED_TO) {
+            override fun onEvent(event: Int, path: String?) {
+                try {
+                    val len = logFile.length()
+                    if (len < lastLogPos) {
+                        lastLogPos = 0
+                    }
+                    if (len > lastLogPos) {
+                        RandomAccessFile(logFile, "r").use { raf ->
+                            raf.seek(lastLogPos)
+                            val data = ByteArray((len - lastLogPos).toInt())
+                            raf.readFully(data)
+                            String(data).split("\n").forEach { line ->
+                                if (line.isNotBlank()) {
+                                    _consoleFlow.tryEmit(line)
+                                }
+                            }
+                        }
+                        lastLogPos = len
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "logWatcher error: ${e.message}")
+                }
+            }
+        }
+        logWatcher?.startWatching()
+        Log.i(TAG, "logWatcher started on ${logFile.absolutePath}")
     }
 
-    /** proot 环境变量模板 */
-    private fun prootEnv(): Map<String, String> = mapOf(
-        "HOME" to "/home",
-        "PATH" to "/usr/bin:/usr/local/bin:/system/bin:/system/xbin",
-        "TMPDIR" to "/tmp",
-        "LD_LIBRARY_PATH" to "/usr/lib:/system/lib64",
-        "TERM" to "xterm-256color",
-        "LANG" to "en_US.UTF-8",
-        "PROOT_TMP_DIR" to installer.tmpDir.absolutePath
-    )
+    fun stopLogWatcher() {
+        logWatcher?.stopWatching()
+        logWatcher = null
+    }
 
     companion object { private const val TAG = "CommandExecutor" }
 }

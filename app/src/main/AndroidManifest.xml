@@ -10,6 +10,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Android 13+：specialUse 类型需配套权限 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <!-- Android 13+：通知运行时权限 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -57,7 +58,7 @@
             android:name=".service.McForegroundService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
+            android:foregroundServiceType="specialUse|dataSync">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Run a user-managed Minecraft Java server process inside the app's own proot namespace; the server keeps accepting connections only while this foreground service is alive." />

@@ -23,7 +23,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 
 /**
  * 前台服务：MC 进程托管 + 日志 socket 服务端 + 保活
@@ -46,7 +48,6 @@ class McForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         termux = McApplication.get(this).termuxRuntime
-        termux.startConsoleServer()
         detectSurvivingProcess()
     }
 
@@ -60,7 +61,11 @@ class McForegroundService : Service() {
                     stopSelf()
                 }
                 return START_NOT_STICKY
-        }
+            }
+            else -> {
+                // null intent（系统重启）或其他 action：仍需启动前台通知
+                startForegroundInternal()
+            }
         }
         // START_STICKY：进程被杀后系统会在资源充足时尝试重启 Service
         return START_STICKY
@@ -118,17 +123,27 @@ class McForegroundService : Service() {
      * 唤醒锁 + Wi-Fi 锁，确保 MC 进程在屏幕熄灭时仍可接收玩家连接
      */
     private fun acquireLocks() {
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wakeLock = pm.newWakeLock(
-            PowerManager.PARTIAL_WAKE_LOCK,
-            "MCServerManager::McWake"
-        ).apply { acquire(60 * 60 * 1000L /* 1h，到期续期 */) }
+        val app = McApplication.get(this)
+        val config = runCatching {
+            runBlocking { app.repository.configFlow.first() }
+        }.getOrNull()
+        val keepCpu = config?.keepCpuWakelock ?: true
+        val keepWifi = config?.keepWifiLock ?: true
 
-        val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-        wifiLock = wm.createWifiLock(
-            WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-            "MCServerManager::McWifi"
-        ).apply { acquire() }
+        if (keepCpu) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wakeLock = pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK,
+                "MCServerManager::McWake"
+            ).apply { acquire(60 * 60 * 1000L) }
+        }
+        if (keepWifi) {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            wifiLock = wm.createWifiLock(
+                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                "MCServerManager::McWifi"
+            ).apply { acquire() }
+        }
     }
 
     private fun releaseLocks() {
@@ -184,7 +199,6 @@ class McForegroundService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         scope.cancel()
-        termux.stopConsoleServer()
         releaseLocks()
     }
 

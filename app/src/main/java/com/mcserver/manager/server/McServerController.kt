@@ -34,6 +34,10 @@ class McServerController(
      * 一键安装依赖
      */
     suspend fun installDependencies() = withContext(Dispatchers.IO) {
+        // 先确保 Termux 环境已初始化
+        if (!termux.isReady()) {
+            throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
+        }
         val steps = InstallStep.values()
         steps.forEachIndexed { idx, step ->
             repo.markStep(step, StepStatus.Active, idx * 25)
@@ -202,6 +206,10 @@ class McServerController(
      * 启动 MC 服务
      */
     suspend fun start(config: McConfig) = withContext(Dispatchers.IO) {
+        // 先确保 Termux 环境已初始化
+        if (!termux.isReady()) {
+            throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
+        }
         if (!repo.serverState.value.isInstallComplete) {
             installDependencies()
             downloadCore(config)

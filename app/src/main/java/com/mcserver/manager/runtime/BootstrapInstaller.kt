@@ -16,12 +16,12 @@ import java.security.MessageDigest
 
 
 /**
- * Bootstrap 安装器（生产化）：
- * 1. 下载 proot 原生二进制（从 Termux APT 仓库）→ filesDir/native/
- * 2. 下载 Termux bootstrap rootfs（从 Termux 官方镜像）→ filesDir/tmp/
- * 3. 校验 SHA256，解压到 filesDir/home/
- * 4. 初始化目录结构
+ * Bootstrap 安装器（Termux 原生模式，不依赖 proot）：
+ * 1. 下载 Termux bootstrap rootfs（从 Termux 官方镜像）→ filesDir/tmp/
+ * 2. 校验 SHA256，解压到 filesDir/home/
+ * 3. 初始化目录结构（server 目录、eula、plugins、apt sources.list）
  *
+ * 命令直接用 rootfs 里的 usr/bin/bash 执行，不需要 proot。
  * 所有下载操作均支持断点续传（HTTP Range）+ 进度回调。
  * XZ/tar 解压使用纯 Java 库（org.tukaani:xz + commons-compress），不依赖系统命令。
  */
@@ -32,9 +32,12 @@ class BootstrapInstaller(private val context: Context) {
     val tmpDir: File get() = File(context.filesDir, "tmp").apply { mkdirs() }
     val runtimeDir: File get() = File(context.filesDir, "runtime").apply { mkdirs() }
 
+    /** MC 服务器日志文件路径（startLogWatcher 监视此文件） */
+    val logFile: File get() = File(rootDir, "home/server/logs/latest.log")
+
     val socketFile: File get() = File(runtimeDir, "mc.sock")
 
-    /** ConsoleSocketServer 使用的 socket 文件（位于 rootDir/tmp，proot 内可通过 /tmp 访问） */
+    /** ConsoleSocketServer 使用的 socket 文件（位于 rootDir/tmp） */
     fun ensureSocketFile(): File {
         val dir = File(rootDir, "tmp").apply { mkdirs() }
         return File(dir, "mc.sock")
@@ -51,7 +54,6 @@ class BootstrapInstaller(private val context: Context) {
     }
 
     fun isReady(): Boolean = readyFile.exists() &&
-            File(nativeDir, "proot").canExecute() &&
             File(rootDir, "usr/bin/bash").exists()
 
     /**
@@ -62,15 +64,8 @@ class BootstrapInstaller(private val context: Context) {
         if (isReady()) return true
         return withContext(Dispatchers.IO) {
             try {
-                // 步骤 1: 下载 proot 原生二进制
-                onProgress(InstallPhase.DOWNLOAD_PROOT, 5)
-                val prootFile = File(nativeDir, "proot")
-                if (!prootFile.canExecute()) {
-                    downloadProot(prootFile) { p -> onProgress(InstallPhase.DOWNLOAD_PROOT, p) }
-                }
-
-                // 步骤 2: 下载 bootstrap rootfs
-                onProgress(InstallPhase.DOWNLOAD_ROOTFS, 15)
+                // 步骤 1: 下载 bootstrap rootfs
+                onProgress(InstallPhase.DOWNLOAD_ROOTFS, 5)
                 val rootfsFile = File(tmpDir, "bootstrap-${termuxArch}.tar.xz")
                 val sha256File = File(tmpDir, "bootstrap-${termuxArch}.tar.xz.sha256")
                 if (!rootfsFile.exists() || !rootfsSha256Matches(rootfsFile, sha256File)) {
@@ -79,11 +74,11 @@ class BootstrapInstaller(private val context: Context) {
                     }
                 }
 
-                // 步骤 3: 解压 rootfs（纯 Java，不依赖系统 tar/xz）
+                // 步骤 2: 解压 rootfs（纯 Java，不依赖系统 tar/xz）
                 onProgress(InstallPhase.EXTRACT_ROOTFS, 50)
                 extractRootfs(rootfsFile)
 
-                // 步骤 4: 后置初始化
+                // 步骤 3: 后置初始化
                 onProgress(InstallPhase.POST_SETUP, 90)
                 postSetup()
 
@@ -97,79 +92,7 @@ class BootstrapInstaller(private val context: Context) {
         }
     }
 
-    // ── 下载 proot ────────────────────────────────────────────────
-
-    private fun downloadProot(target: File, onProgress: (Int) -> Unit) {
-        nativeDir.mkdirs()
-        // Termux APT 仓库 proot 包的 .deb 链接
-        // 从 deb 中提取 data.tar.xz → usr/bin/proot
-        val debUrl = "https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.4.2_${termuxArch}.deb"
-        val debFile = File(tmpDir, "proot_${termuxArch}.deb")
-        httpDownload(debUrl, debFile, 5..30, onProgress)
-
-        // 从 .deb 中提取 proot 二进制（deb 是 ar 归档，内嵌 data.tar.xz）
-        extractDeb(debFile, target)
-        target.setExecutable(true)
-        Log.i(TAG, "proot binary ready: ${target.absolutePath}")
-    }
-
-    /** 极简 ar 归档提取：只取 data.tar.xz → 解压 → 取 ./usr/bin/proot */
-    private fun extractDeb(debFile: File, prootOut: File) {
-        // deb = ar 归档：文件头 "!<arch>"，每项 60 字节 header + 数据
-        val tempData = File(tmpDir, "data.tar.xz")
-        FileInputStream(debFile).buffered().use { `in` ->
-            val header = ByteArray(8)
-            `in`.read(header) // "!<arch>\n"
-            while (true) {
-                val entry = ByteArray(60)
-                val bytesRead = `in`.read(entry)
-                if (bytesRead < 60) break
-                val name = String(entry, 0, 16).trim()
-                val sizeStr = String(entry, 48, 10).trim()
-                val size = sizeStr.toLongOrNull() ?: 0L
-                if (name.startsWith("data.tar")) {
-                    tempData.outputStream().use { out ->
-                        `in`.copyTo(out, size.toInt())
-                    }
-                    // 用纯 Java 解压 data.tar.xz 并提取 proot 二进制
-                    extractFileFromTarXz(tempData, prootOut, "usr/bin/proot")
-                    break
-                } else {
-                    `in`.skip(size + (size % 2))
-                }
-            }
-        }
-    }
-
     // ── 纯 Java XZ + tar 解压（核心生产化实现）─────────────────────
-
-    /**
-     * 从 .tar.xz 中提取单个文件。
-     * 使用 org.tukaani:xz 解压 XZ 层，commons-compress 解 tar 层。
-     */
-    private fun extractFileFromTarXz(tarXz: File, outFile: File, pathInTar: String) {
-        outFile.parentFile?.mkdirs()
-        FileInputStream(tarXz).buffered().use { fis ->
-            XZInputStream(fis).use { xzIn ->
-                TarArchiveInputStream(xzIn).use { tarIn ->
-                    var entry: TarArchiveEntry? = tarIn.nextEntry as? TarArchiveEntry
-                    while (entry != null) {
-                        val name = entry.name.removePrefix("./")
-                        if (name == pathInTar) {
-                            FileOutputStream(outFile).use { out ->
-                                tarIn.copyTo(out)
-                            }
-                            outFile.setExecutable(true)
-                            Log.i(TAG, "extracted $pathInTar → ${outFile.absolutePath}")
-                            return
-                        }
-                        entry = tarIn.nextEntry as? TarArchiveEntry
-                    }
-                }
-            }
-        }
-        throw RuntimeException("File '$pathInTar' not found in tar.xz")
-    }
 
     /**
      * 解压整个 .tar.xz 到目标目录（用于 bootstrap rootfs）。
@@ -332,7 +255,6 @@ class BootstrapInstaller(private val context: Context) {
     }
 
     enum class InstallPhase(val label: String) {
-        DOWNLOAD_PROOT("下载 proot 运行环境"),
         DOWNLOAD_ROOTFS("下载 Linux 文件系统"),
         EXTRACT_ROOTFS("解压文件系统"),
         POST_SETUP("初始化配置"),
