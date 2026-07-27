@@ -98,6 +98,30 @@ class BootstrapInstaller(private val context: Context) {
                 extractRootfs(rootfsFile)
                 log("解压完成")
 
+                // 诊断：验证关键文件
+                val bashFile = File(rootDir, "usr/bin/bash")
+                if (!bashFile.exists()) {
+                    log("错误: usr/bin/bash 不存在！")
+                    // 列出 usr/bin/ 目录内容
+                    val binDir = File(rootDir, "usr/bin")
+                    if (binDir.exists()) {
+                        log("usr/bin/ 目录内容: ${binDir.list()?.take(20)?.joinToString(", ")}")
+                    } else {
+                        log("usr/bin/ 目录不存在")
+                        log("rootDir 内容: ${rootDir.list()?.joinToString(", ")}")
+                    }
+                } else {
+                    log("bash 文件大小: ${bashFile.length()} 字节")
+                    // 检查 ELF 魔数
+                    val magic = ByteArray(4)
+                    FileInputStream(bashFile).use { it.read(magic) }
+                    val isElf = magic[0] == 0x7f.toByte() && magic[1] == 'E'.code.toByte() &&
+                                magic[2] == 'L'.code.toByte() && magic[3] == 'F'.code.toByte()
+                    log("bash ELF 魔数: ${if (isElf) "有效" else "无效!"}")
+                    bashFile.setExecutable(true, false)
+                    log("bash 可执行权限: ${bashFile.canExecute()}")
+                }
+
                 // 步骤 3: 后置初始化
                 log("初始化配置...")
                 onProgress(InstallPhase.POST_SETUP, 90)

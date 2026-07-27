@@ -42,10 +42,10 @@ class McServerController(
         steps.forEachIndexed { idx, step ->
             repo.markStep(step, StepStatus.Active, idx * 25)
             val code = when (step) {
-                InstallStep.Jdk -> termux.execOnce("pkg", "install", "-y", "openjdk-17")
-                InstallStep.Tmux -> termux.execOnce("pkg", "install", "-y", "tmux")
-                InstallStep.Wget -> termux.execOnce("pkg", "install", "-y", "wget")
-                InstallStep.Frp -> termux.execOnce("pkg", "install", "-y", "frp")
+                InstallStep.Jdk -> termux.execOnce("apt-get", "install", "-y", "openjdk-17")
+                InstallStep.Tmux -> termux.execOnce("apt-get", "install", "-y", "tmux")
+                InstallStep.Wget -> termux.execOnce("apt-get", "install", "-y", "wget")
+                InstallStep.Frp -> termux.execOnce("apt-get", "install", "-y", "frp")
             }
             if (code == 0) {
                 repo.markStep(step, StepStatus.Done, (idx + 1) * 25)

@@ -39,16 +39,18 @@ class TermuxRuntime(context: Context) {
     /**
      * 完整初始化流程：
      * 1. 下载 + 解压 Termux bootstrap rootfs
-     * 2. pkg install openjdk-17 tmux wget curl
+     * 2. apt-get install openjdk-17 tmux wget curl
      */
     suspend fun bootstrap(onProgress: (BootstrapInstaller.InstallPhase, Int) -> Unit): Boolean {
         val ok = installer.ensureInstalled(onProgress)
         if (!ok) return false
 
         onProgress(BootstrapInstaller.InstallPhase.POST_SETUP, 92)
-        executor.execOnce("pkg", "update", "-y")
-        executor.execOnce("pkg", "install", "-y", "openjdk-17", "tmux", "wget", "curl")
-        executor.execOnce("pkg", "clean")
+        // 用 apt-get 替代 pkg（pkg 是 bash 脚本，依赖 bash shebang）
+        installer.onLog?.invoke("[bootstrap] 安装依赖包（JDK/tmux/wget）...")
+        executor.execOnce("apt-get", "update", "-y")
+        executor.execOnce("apt-get", "install", "-y", "openjdk-17", "tmux", "wget", "curl")
+        executor.execOnce("apt-get", "clean")
 
         onProgress(BootstrapInstaller.InstallPhase.DONE, 100)
         return true
@@ -66,11 +68,12 @@ class TermuxRuntime(context: Context) {
         executor.startLogWatcher(logFile)
 
         // 用 tmux 启动 MC，stdout/stderr 重定向到日志文件
+        // 注意：tmux 内部用 sh 而非 bash，避免依赖 Termux bash
         val javaCmd = "java -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m -jar $jarPath nogui"
         val proc = executor.execStream(
             tag = "mc",
             "tmux", "new-session", "-d", "-s", "mc-server",
-            "bash", "-c", "$javaCmd 2>&1 | tee $logFile"
+            "sh", "-c", "$javaCmd 2>&1 | tee $logFile"
         )
         Thread({
             val code = proc.waitFor()

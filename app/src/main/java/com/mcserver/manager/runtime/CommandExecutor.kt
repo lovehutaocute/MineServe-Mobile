@@ -31,15 +31,15 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         _consoleFlow.tryEmit(line)
     }
 
-    /** Termux 原生执行：直接用 rootfs 里的 bash，不需要 proot */
+    /** 使用 Android 系统 sh 执行，避免 app_data_file 执行限制 */
     private fun buildExecCommand(command: List<String>): List<String> {
-        val bash = File(installer.rootDir, "usr/bin/bash").absolutePath
+        val sh = "/system/bin/sh"
         val cmdStr = command.joinToString(" ") { arg ->
             if (arg.any { it == ' ' || it == '\'' || it == '"' || it == '$' }) {
                 "'${arg.replace("'", "'\\''")}'"
             } else arg
         }
-        return listOf(bash, "-lc", cmdStr)
+        return listOf(sh, "-c", cmdStr)
     }
 
     /** Termux 环境变量 */
