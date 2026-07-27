@@ -1,6 +1,7 @@
 package com.mcserver.manager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -84,20 +85,29 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
             .padding(20.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // 环形进度：conic-gradient 78%
-            RingProgress(percent = state.healthPercent.takeIf { it > 0 } ?: 78)
+            // 环形进度：服务器未运行时显示 0%
+            RingProgress(percent = if (state.isRunning) state.healthPercent else 0)
             Spacer(Modifier.size(18.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "服务器健康度 · $coreLabel",
+                    if (state.isRunning) "服务器健康度 · $coreLabel" else "服务器未启动",
                     color = Color.White.copy(alpha = 0.85f),
                     fontSize = 13.sp
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    HeroStat(String.format("%.1f", state.tps.takeIf { it > 0 } ?: 19.8), "TPS")
-                    HeroStat("${state.onlinePlayers.takeIf { it > 0 } ?: 3}/${state.maxPlayers}", "在线")
-                    HeroStat(formatMemory(state.usedMemoryMb.takeIf { it > 0 } ?: 1228), "内存")
+                    HeroStat(
+                        if (state.isRunning) String.format("%.1f", state.tps) else "--",
+                        "TPS"
+                    )
+                    HeroStat(
+                        if (state.isRunning) "${state.onlinePlayers}/${state.maxPlayers}" else "--/--",
+                        "在线"
+                    )
+                    HeroStat(
+                        if (state.isRunning) formatMemory(state.usedMemoryMb) else "--",
+                        "内存"
+                    )
                 }
             }
         }
@@ -273,8 +283,8 @@ fun SegPill(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) Indigo else FieldGray)
+            .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 8.dp)
-            .let { it }
     ) {
         Text(
             text,
@@ -300,6 +310,7 @@ fun PillButton(
         modifier = modifier
             .clip(RoundedCornerShape(20.dp))
             .background(bg)
+            .clickable { onClick() }
             .padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Text(

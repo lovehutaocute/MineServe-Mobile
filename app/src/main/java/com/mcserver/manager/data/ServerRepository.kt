@@ -74,8 +74,8 @@ class ServerRepository(
     }
 
     private fun defaultPlugins() = listOf(
-        PluginInfo("luckperms", "LuckPerms", "权限与用户组管理", "LP", installed = true),
-        PluginInfo("essentialsx", "EssentialsX", "基础指令与传送", "EX", installed = true),
+        PluginInfo("luckperms", "LuckPerms", "权限与用户组管理", "LP", installed = false),
+        PluginInfo("essentialsx", "EssentialsX", "基础指令与传送", "EX", installed = false),
         PluginInfo("vault", "Vault", "经济系统接口", "VZ", installed = false),
         PluginInfo("worldedit", "WorldEdit", "世界编辑神器", "WE", installed = false),
         PluginInfo("coreprotect", "CoreProtect", "方块日志与回滚", "CP", installed = false)
