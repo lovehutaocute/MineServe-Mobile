@@ -169,7 +169,7 @@ class BootstrapInstaller(private val context: Context) {
         onProgress: (Int) -> Unit
     ) {
         tmpDir.mkdirs()
-        val version = "bootstrap-2026.05.24-r1+apt-android-7"
+        val version = "bootstrap-2026.05.24-r1%2Bapt.android-7"
         val arch = termuxArch
 
         // GitHub 直连 + 镜像备选
