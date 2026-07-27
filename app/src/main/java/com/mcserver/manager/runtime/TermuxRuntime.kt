@@ -18,6 +18,16 @@ class TermuxRuntime(context: Context) {
 
     val consoleFlow: SharedFlow<String> get() = executor.consoleFlow
 
+    /** 设置日志回调，bootstrap 过程的日志会通过此回调输出 */
+    fun setBootstrapLogCallback(cb: (String) -> Unit) {
+        installer.onLog = cb
+    }
+
+    /** 向 consoleFlow 推送一条日志 */
+    fun emitLog(line: String) {
+        executor.emit(line)
+    }
+
     fun isReady(): Boolean = installer.isReady()
 
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =

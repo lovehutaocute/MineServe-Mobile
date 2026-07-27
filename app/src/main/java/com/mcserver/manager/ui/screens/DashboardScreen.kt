@@ -70,6 +70,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
     val state by vm.serverState.collectAsState()
     val plugins by vm.plugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
+    val bootstrapError by vm.bootstrapError.collectAsState()
+    val consoleLines by vm.consoleLines.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -104,24 +106,68 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
                 McCard(title = "初始化运行环境") {
-                    Text(
-                        "正在下载并解压 Termux 运行环境，请耐心等待...",
-                        color = Muted,
-                        fontSize = 12.sp
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    LinearProgressIndicator(
-                        progress = state.currentProgress / 100f,
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Indigo,
-                        trackColor = IndigoSoft
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "${state.currentProgress}%",
-                        color = Muted,
-                        fontSize = 10.sp
-                    )
+                    if (bootstrapError != null) {
+                        // 失败时显示错误和重试按钮
+                        Text(
+                            "初始化失败",
+                            color = Coral,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            bootstrapError!!,
+                            color = Muted,
+                            fontSize = 11.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        // 显示最近的 bootstrap 日志
+                        consoleLines.takeLast(3).forEach { line ->
+                            Text(
+                                line,
+                                color = Muted.copy(alpha = 0.7f),
+                                fontSize = 10.sp
+                            )
+                        }
+                        Spacer(Modifier.height(12.dp))
+                        Button(
+                            onClick = { vm.retryBootstrap() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("重试", color = Color.White, fontWeight = FontWeight.SemiBold)
+                        }
+                    } else {
+                        // 初始化中
+                        Text(
+                            "正在下载并解压 Termux 运行环境，请耐心等待...",
+                            color = Muted,
+                            fontSize = 12.sp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        LinearProgressIndicator(
+                            progress = state.currentProgress / 100f,
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Indigo,
+                            trackColor = IndigoSoft
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "${state.currentProgress}%",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                        // 显示实时日志
+                        Spacer(Modifier.height(8.dp))
+                        consoleLines.takeLast(5).forEach { line ->
+                            Text(
+                                line,
+                                color = Muted.copy(alpha = 0.7f),
+                                fontSize = 10.sp
+                            )
+                        }
+                    }
                 }
             }
 

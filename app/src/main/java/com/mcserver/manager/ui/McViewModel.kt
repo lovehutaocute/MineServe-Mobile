@@ -49,6 +49,14 @@ class McViewModel(
     /** Termux 环境是否初始化完成 */
     val isBootstrapped: StateFlow<Boolean> = McApplication.get().isBootstrapped
 
+    /** Termux 环境初始化错误信息 */
+    val bootstrapError: StateFlow<String?> = McApplication.get().bootstrapError
+
+    /** 重试 Termux 环境初始化 */
+    fun retryBootstrap() {
+        McApplication.get().startBootstrap()
+    }
+
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
 

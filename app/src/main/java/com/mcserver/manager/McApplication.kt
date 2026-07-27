@@ -34,6 +34,10 @@ class McApplication : Application(), Configuration.Provider {
     private val _isBootstrapped = MutableStateFlow(false)
     val isBootstrapped: StateFlow<Boolean> = _isBootstrapped.asStateFlow()
 
+    /** Termux 环境初始化错误信息，UI 层可观察 */
+    private val _bootstrapError = MutableStateFlow<String?>(null)
+    val bootstrapError: StateFlow<String?> = _bootstrapError.asStateFlow()
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -42,8 +46,20 @@ class McApplication : Application(), Configuration.Provider {
         createNotificationChannel()
         WorkManager.initialize(this, workManagerConfiguration)
 
-        // 异步初始化 Termux 环境，失败不崩溃只记录日志
+        // 设置 bootstrap 日志回调，推送到 consoleFlow
+        termuxRuntime.setBootstrapLogCallback { msg ->
+            termuxRuntime.emitLog("[bootstrap] $msg")
+        }
+
+        // 异步初始化 Termux 环境
+        startBootstrap()
+    }
+
+    /** 启动/重试 bootstrap 初始化 */
+    fun startBootstrap() {
+        if (_isBootstrapped.value) return
         GlobalScope.launch(Dispatchers.IO) {
+            _bootstrapError.value = null
             val ok = try {
                 termuxRuntime.bootstrap { phase, progress ->
                     android.util.Log.i("McApplication", "bootstrap: ${phase.label} $progress%")
@@ -51,13 +67,18 @@ class McApplication : Application(), Configuration.Provider {
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("McApplication", "bootstrap crashed", t)
+                _bootstrapError.value = t.message ?: "未知错误"
                 false
             }
             if (ok) {
                 _isBootstrapped.value = true
                 android.util.Log.i("McApplication", "bootstrap completed")
+                repository.updateServerState { it.copy(currentProgress = 100) }
             } else {
                 android.util.Log.e("McApplication", "bootstrap failed")
+                if (_bootstrapError.value == null) {
+                    _bootstrapError.value = "初始化失败，请检查网络后重试"
+                }
             }
         }
     }

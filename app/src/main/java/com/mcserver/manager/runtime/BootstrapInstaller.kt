@@ -43,6 +43,14 @@ class BootstrapInstaller(private val context: Context) {
 
     private val readyFile: File get() = File(context.filesDir, ".bootstrap_ready")
 
+    /** 日志回调，供 UI 显示下载进度 */
+    var onLog: ((String) -> Unit)? = null
+
+    private fun log(msg: String) {
+        Log.i(TAG, msg)
+        onLog?.invoke(msg)
+    }
+
     /** 当前设备 ABI 对应的 Termux 架构名 */
     private val termuxArch: String get() = when {
         android.os.Build.SUPPORTED_ABIS.any { it.startsWith("arm64") } -> "aarch64"
@@ -59,10 +67,14 @@ class BootstrapInstaller(private val context: Context) {
      * 所有步骤失败时抛出可恢复异常，由 UI 层捕获并引导用户重试。
      */
     suspend fun ensureInstalled(onProgress: (InstallPhase, Int) -> Unit): Boolean {
-        if (isReady()) return true
+        if (isReady()) {
+            log("Termux 环境已就绪")
+            return true
+        }
         return withContext(Dispatchers.IO) {
             try {
                 // 步骤 1: 下载 bootstrap rootfs (.zip)
+                log("开始下载 Termux 运行环境")
                 onProgress(InstallPhase.DOWNLOAD_ROOTFS, 5)
                 val rootfsFile = File(tmpDir, "bootstrap-${termuxArch}.zip")
                 val sha256File = File(tmpDir, "CHECKSUMS-sha256.txt")
@@ -70,21 +82,28 @@ class BootstrapInstaller(private val context: Context) {
                     downloadBootstrap(rootfsFile, sha256File) { p ->
                         onProgress(InstallPhase.DOWNLOAD_ROOTFS, p)
                     }
+                } else {
+                    log("已存在缓存的 rootfs，跳过下载")
                 }
 
-                // 步骤 2: 解压 rootfs（纯 Java ZipInputStream）
+                // 步骤 2: 解压 rootfs
+                log("开始解压...")
                 onProgress(InstallPhase.EXTRACT_ROOTFS, 50)
                 extractRootfs(rootfsFile)
+                log("解压完成")
 
                 // 步骤 3: 后置初始化
+                log("初始化配置...")
                 onProgress(InstallPhase.POST_SETUP, 90)
                 postSetup()
 
                 readyFile.writeText(System.currentTimeMillis().toString())
                 onProgress(InstallPhase.DONE, 100)
+                log("Termux 环境初始化完成")
                 true
             } catch (e: Exception) {
                 Log.e(TAG, "bootstrap failed: ${e.message}", e)
+                log("初始化失败: ${e.message}")
                 false
             }
         }
@@ -145,19 +164,41 @@ class BootstrapInstaller(private val context: Context) {
     ) {
         tmpDir.mkdirs()
         // Termux bootstrap 从 GitHub releases 下载，格式为 .zip
-        val baseUrl = "https://github.com/termux/termux-packages/releases/download"
-        val version = "bootstrap-2026.07.26-r1+apt-android-7"
+        // 版本 2026.05.24 (最新稳定版)
+        val version = "bootstrap-2026.05.24-r1+apt-android-7"
         val arch = termuxArch
 
+        // GitHub 直连 + 镜像备选（国内访问慢时用镜像）
+        val githubBase = "https://github.com/termux/termux-packages/releases/download"
+        val mirrorBase = "https://ghproxy.net/https://github.com/termux/termux-packages/releases/download"
+        val sha256Url = "$githubBase/$version/CHECKSUMS-sha256.txt"
+        val rootfsUrl = "$githubBase/$version/bootstrap-$arch.zip"
+        val rootfsMirrorUrl = "$mirrorBase/$version/bootstrap-$arch.zip"
+
         // 下载 SHA256 校验文件
-        httpDownload("$baseUrl/$version/CHECKSUMS-sha256.txt", sha256File, 10..15, onProgress)
-        // 下载 rootfs (.zip 格式)
-        httpDownload("$baseUrl/$version/bootstrap-$arch.zip", rootfsFile, 15..45, onProgress)
+        log("下载校验文件...")
+        httpDownload(sha256Url, sha256File, 10..15, onProgress)
+
+        // 下载 rootfs，GitHub 失败则用镜像
+        log("下载 Termux 运行环境 (~30MB)...")
+        try {
+            httpDownload(rootfsUrl, rootfsFile, 15..45, onProgress) { msg ->
+                log(msg)
+            }
+        } catch (e: Exception) {
+            log("GitHub 直连失败: ${e.message}，尝试镜像...")
+            rootfsFile.delete()
+            httpDownload(rootfsMirrorUrl, rootfsFile, 15..45, onProgress) { msg ->
+                log(msg)
+            }
+        }
 
         // 校验
+        log("校验文件完整性...")
         if (!rootfsSha256Matches(rootfsFile, sha256File)) {
-            throw RuntimeException("SHA256 mismatch for bootstrap rootfs")
+            throw RuntimeException("SHA256 校验失败，文件可能损坏")
         }
+        log("校验通过")
     }
 
     private fun rootfsSha256Matches(rootfs: File, sha256File: File): Boolean {
@@ -223,13 +264,15 @@ class BootstrapInstaller(private val context: Context) {
         urlStr: String,
         target: File,
         range: IntRange,
-        onProgress: (Int) -> Unit
+        onProgress: (Int) -> Unit,
+        onLog: ((String) -> Unit)? = null
     ) {
         target.parentFile?.mkdirs()
         val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 60_000
-        conn.setRequestProperty("User-Agent", "MCServerManager/1.0 (https://github.com/mcserver-manager)")
+        conn.connectTimeout = 10_000
+        conn.readTimeout = 30_000
+        conn.instanceFollowRedirects = true
+        conn.setRequestProperty("User-Agent", "MCServerManager/1.0")
         // 支持断点续传
         val existing = if (target.exists()) target.length() else 0L
         if (existing > 0) {
@@ -237,19 +280,43 @@ class BootstrapInstaller(private val context: Context) {
         }
 
         conn.connect()
-        val total = conn.contentLengthLong + existing
+        val code = conn.responseCode
+        if (code !in 200..299 && code != 416) {
+            conn.disconnect()
+            throw RuntimeException("HTTP $code: $urlStr")
+        }
+
+        val contentLength = conn.contentLengthLong
+        val total = if (contentLength > 0) contentLength + existing else -1L
         val input = conn.inputStream
         val output = FileOutputStream(target, existing > 0)
 
         val buf = ByteArray(8192)
         var read: Int
         var downloaded = existing
+        var lastLogPct = -1
         while (input.read(buf).also { read = it } != -1) {
             output.write(buf, 0, read)
             downloaded += read
+
             if (total > 0) {
                 val pct = range.first + ((range.last - range.first) * downloaded / total).toInt()
                 onProgress(pct.coerceIn(range.first, range.last))
+
+                // 每下载 10% 输出一次日志
+                val logPct = (downloaded * 100 / total).toInt() / 10 * 10
+                if (logPct != lastLogPct && logPct > 0) {
+                    lastLogPct = logPct
+                    onLog?.invoke("已下载 $logPct% (${downloaded / 1024 / 1024}MB)")
+                }
+            } else {
+                // chunked encoding: 没有 Content-Length，按已下载字节数估算
+                val mb = (downloaded / 1024 / 1024).toInt()
+                onProgress(range.first + (mb.coerceAtMost(30) * (range.last - range.first) / 30).toInt())
+                if (mb != lastLogPct) {
+                    lastLogPct = mb
+                    onLog?.invoke("已下载 ${mb}MB")
+                }
             }
         }
         output.close()
