@@ -48,7 +48,8 @@ class McForegroundService : Service() {
     override fun onCreate() {
         super.onCreate()
         termux = McApplication.get(this).termuxRuntime
-        detectSurvivingProcess()
+        // 移到 IO 线程，避免主线程阻塞导致 ANR
+        scope.launch { detectSurvivingProcess() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

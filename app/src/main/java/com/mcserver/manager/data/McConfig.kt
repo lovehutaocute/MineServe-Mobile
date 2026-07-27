@@ -29,8 +29,8 @@ enum class TunnelType(val displayName: String) {
 @Serializable
 enum class InstallStep(val label: String) {
     Jdk("JDK 17 运行环境"),
-    Proot("Proot Linux 环境"),
     Tmux("Tmux 后台保活"),
+    Wget("Wget 下载工具"),
     Frp("Frp 内网穿透")
 }
 

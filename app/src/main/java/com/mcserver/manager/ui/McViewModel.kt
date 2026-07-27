@@ -12,9 +12,11 @@ import com.mcserver.manager.data.TunnelType
 import com.mcserver.manager.server.McServerController
 import com.mcserver.manager.server.PluginManager
 import com.mcserver.manager.server.TunnelManager
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
@@ -25,6 +27,7 @@ import kotlinx.coroutines.launch
  * 顶层共享 ViewModel：
  *  - 暴露 McConfig / ServerState / Plugins / ConsoleLog
  *  - 转发用户操作到 Controller / Manager
+ *  - 所有操作捕获异常，通过 errorFlow 传递给 UI，不崩溃
  */
 class McViewModel(
     private val repo: ServerRepository,
@@ -43,8 +46,19 @@ class McViewModel(
         viewModelScope, SharingStarted.Eagerly, emptyList()
     )
 
+    /** Termux 环境是否初始化完成 */
+    val isBootstrapped: StateFlow<Boolean> = McApplication.get().isBootstrapped
+
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
+
+    /** 错误消息流，UI 层收集后用 Snackbar 显示 */
+    private val _errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val errorFlow = _errorFlow.asSharedFlow()
+
+    /** 操作结果消息流，UI 层收集后用 Snackbar 显示 */
+    private val _messageFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
+    val messageFlow = _messageFlow.asSharedFlow()
 
     init {
         // 订阅 consoleFlow 并缓存最近 1000 行供 LogsPage 展示
@@ -57,7 +71,11 @@ class McViewModel(
 
     fun updateConfig(transform: (McConfig) -> McConfig) {
         viewModelScope.launch {
-            repo.saveConfig(transform(config.value))
+            try {
+                repo.saveConfig(transform(config.value))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("配置保存失败: ${e.message}")
+            }
         }
     }
 
@@ -75,33 +93,104 @@ class McViewModel(
     fun setKeepCpuWakelock(v: Boolean) = updateConfig { it.copy(keepCpuWakelock = v) }
 
     fun installDependencies() {
-        viewModelScope.launch { controller.installDependencies() }
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                controller.installDependencies()
+                _messageFlow.tryEmit("依赖安装完成")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("依赖安装失败: ${e.message}")
+            }
+        }
     }
 
     fun startServer() {
-        viewModelScope.launch { controller.start(config.value) }
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                controller.start(config.value)
+                _messageFlow.tryEmit("服务器启动指令已发送")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("服务器启动失败: ${e.message}")
+            }
+        }
     }
 
     fun stopServer() {
-        viewModelScope.launch { controller.stop() }
+        viewModelScope.launch {
+            try {
+                controller.stop()
+                _messageFlow.tryEmit("服务器停止指令已发送")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("服务器停止失败: ${e.message}")
+            }
+        }
     }
 
-    fun sendCommand(line: String) = controller.sendCommand(line)
+    fun sendCommand(line: String) {
+        try {
+            controller.sendCommand(line)
+        } catch (e: Exception) {
+            _errorFlow.tryEmit("命令发送失败: ${e.message}")
+        }
+    }
 
     fun installPlugin(p: PluginInfo) {
-        viewModelScope.launch { pluginManager.install(p) }
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                pluginManager.install(p)
+                _messageFlow.tryEmit("${p.name} 安装完成")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("${p.name} 安装失败: ${e.message}")
+            }
+        }
     }
 
     fun uninstallPlugin(p: PluginInfo) {
-        viewModelScope.launch { pluginManager.uninstall(p) }
+        viewModelScope.launch {
+            try {
+                pluginManager.uninstall(p)
+                _messageFlow.tryEmit("${p.name} 卸载完成")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("${p.name} 卸载失败: ${e.message}")
+            }
+        }
     }
 
     fun startTunnel() {
-        viewModelScope.launch { tunnelManager.start(config.value) }
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                tunnelManager.start(config.value)
+                _messageFlow.tryEmit("内网穿透已启动")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("内网穿透启动失败: ${e.message}")
+            }
+        }
     }
 
     fun stopTunnel() {
-        viewModelScope.launch { tunnelManager.stop() }
+        viewModelScope.launch {
+            try {
+                tunnelManager.stop()
+                _messageFlow.tryEmit("内网穿透已停止")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("内网穿透停止失败: ${e.message}")
+            }
+        }
     }
 
     companion object {

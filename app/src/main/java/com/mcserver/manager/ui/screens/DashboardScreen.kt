@@ -20,12 +20,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -54,6 +56,7 @@ import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.IndigoSoft
 import com.mcserver.manager.ui.theme.Mint
 import com.mcserver.manager.ui.theme.Muted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
@@ -66,12 +69,25 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
     val plugins by vm.plugins.collectAsState()
+    val isBootstrapped by vm.isBootstrapped.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var isInstalling by remember { mutableStateOf(false) }
     var isStarting by remember { mutableStateOf(false) }
     var isStopping by remember { mutableStateOf(false) }
+
+    // 收集 errorFlow 和 messageFlow，显示 Snackbar
+    LaunchedEffect(Unit) {
+        vm.errorFlow.collectLatest { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
+    LaunchedEffect(Unit) {
+        vm.messageFlow.collectLatest { msg ->
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -84,6 +100,30 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
         ) {
             HeaderBlock(eyebrow = "Local Server", title = "云控面板")
             HeroBlock(state = state, coreLabel = "${config.selectedCore.displayName} ${config.mcVersion}")
+
+            // bootstrap 初始化进度（未完成时显示）
+            if (!isBootstrapped) {
+                McCard(title = "初始化运行环境") {
+                    Text(
+                        "正在下载并解压 Termux 运行环境，请耐心等待...",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    LinearProgressIndicator(
+                        progress = state.currentProgress / 100f,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = Indigo,
+                        trackColor = IndigoSoft
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "${state.currentProgress}%",
+                        color = Muted,
+                        fontSize = 10.sp
+                    )
+                }
+            }
 
             // 一键安装依赖
             McCard(
@@ -113,13 +153,12 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 Button(
                     onClick = {
                         isInstalling = true
+                        vm.installDependencies()
                         scope.launch {
-                            vm.installDependencies()
-                            snackbarHostState.showSnackbar("依赖安装已开始，请查看日志")
                             isInstalling = false
                         }
                     },
-                    enabled = !isInstalling,
+                    enabled = !isInstalling && isBootstrapped,
                     colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -133,7 +172,11 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                         Spacer(Modifier.size(8.dp))
                     }
                     Text(
-                        if (isInstalling) "安装中..." else "开始安装",
+                        when {
+                            !isBootstrapped -> "环境初始化中..."
+                            isInstalling -> "安装中..."
+                            else -> "开始安装"
+                        },
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -147,12 +190,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                         SegPill(
                             text = core.displayName,
                             selected = config.selectedCore == core,
-                            onClick = {
-                                vm.selectCore(core)
-                                scope.launch {
-                                    snackbarHostState.showSnackbar("已选择 ${core.displayName} 核心")
-                                }
-                            }
+                            onClick = { vm.selectCore(core) }
                         )
                     }
                 }
@@ -173,13 +211,10 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                     Button(
                         onClick = {
                             isStarting = true
-                            scope.launch {
-                                vm.startServer()
-                                snackbarHostState.showSnackbar("服务器启动指令已发送")
-                                isStarting = false
-                            }
+                            vm.startServer()
+                            scope.launch { isStarting = false }
                         },
-                        enabled = !isStarting && !state.isRunning,
+                        enabled = !isStarting && !state.isRunning && isBootstrapped,
                         colors = ButtonDefaults.buttonColors(containerColor = Mint),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
@@ -202,11 +237,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                     Button(
                         onClick = {
                             isStopping = true
-                            scope.launch {
-                                vm.stopServer()
-                                snackbarHostState.showSnackbar("服务器停止指令已发送")
-                                isStopping = false
-                            }
+                            vm.stopServer()
+                            scope.launch { isStopping = false }
                         },
                         enabled = !isStopping && state.isRunning,
                         colors = ButtonDefaults.buttonColors(containerColor = Coral),
@@ -268,17 +300,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                             text = if (p.installed) "卸载" else "安装",
                             install = !p.installed,
                             onClick = {
-                                if (p.installed) {
-                                    vm.uninstallPlugin(p)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("${p.name} 卸载指令已发送")
-                                    }
-                                } else {
-                                    vm.installPlugin(p)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar("${p.name} 安装指令已发送")
-                                    }
-                                }
+                                if (p.installed) vm.uninstallPlugin(p)
+                                else vm.installPlugin(p)
                             }
                         )
                     }

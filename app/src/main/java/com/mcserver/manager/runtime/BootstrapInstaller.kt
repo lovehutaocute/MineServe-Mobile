@@ -4,15 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.apache.commons.compress.archivers.tar.TarArchiveEntry
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.tukaani.xz.XZInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
+import java.util.zip.ZipInputStream
 
 
 /**
@@ -64,17 +62,17 @@ class BootstrapInstaller(private val context: Context) {
         if (isReady()) return true
         return withContext(Dispatchers.IO) {
             try {
-                // 步骤 1: 下载 bootstrap rootfs
+                // 步骤 1: 下载 bootstrap rootfs (.zip)
                 onProgress(InstallPhase.DOWNLOAD_ROOTFS, 5)
-                val rootfsFile = File(tmpDir, "bootstrap-${termuxArch}.tar.xz")
-                val sha256File = File(tmpDir, "bootstrap-${termuxArch}.tar.xz.sha256")
+                val rootfsFile = File(tmpDir, "bootstrap-${termuxArch}.zip")
+                val sha256File = File(tmpDir, "CHECKSUMS-sha256.txt")
                 if (!rootfsFile.exists() || !rootfsSha256Matches(rootfsFile, sha256File)) {
                     downloadBootstrap(rootfsFile, sha256File) { p ->
                         onProgress(InstallPhase.DOWNLOAD_ROOTFS, p)
                     }
                 }
 
-                // 步骤 2: 解压 rootfs（纯 Java，不依赖系统 tar/xz）
+                // 步骤 2: 解压 rootfs（纯 Java ZipInputStream）
                 onProgress(InstallPhase.EXTRACT_ROOTFS, 50)
                 extractRootfs(rootfsFile)
 
@@ -92,55 +90,50 @@ class BootstrapInstaller(private val context: Context) {
         }
     }
 
-    // ── 纯 Java XZ + tar 解压（核心生产化实现）─────────────────────
+    // ── 纯 Java ZIP 解压（核心生产化实现）─────────────────────
 
     /**
-     * 解压整个 .tar.xz 到目标目录（用于 bootstrap rootfs）。
-     * 纯 Java 实现，不依赖系统 tar/xz 命令。
+     * 解压 .zip 到目标目录（用于 Termux bootstrap rootfs）。
+     * 纯 Java 实现，不依赖系统 unzip 命令。
      */
-    private fun extractTarXzToDir(tarXz: File, destDir: File) {
+    private fun extractZipToDir(zipFile: File, destDir: File) {
         destDir.mkdirs()
         var fileCount = 0
-        FileInputStream(tarXz).buffered().use { fis ->
-            XZInputStream(fis).use { xzIn ->
-                TarArchiveInputStream(xzIn).use { tarIn ->
-                    var entry: TarArchiveEntry? = tarIn.nextEntry as? TarArchiveEntry
-                    while (entry != null) {
-                        if (!tarIn.canReadEntryData(entry)) {
-                            entry = tarIn.nextEntry as? TarArchiveEntry
-                            continue
-                        }
-                        val entryName = entry.name.removePrefix("./")
-                        val outFile = File(destDir, entryName)
+        FileInputStream(zipFile).buffered().use { fis ->
+            ZipInputStream(fis).use { zis ->
+                var entry = zis.nextEntry
+                while (entry != null) {
+                    val entryName = entry.name.removePrefix("./")
+                    val outFile = File(destDir, entryName)
 
-                        // 防 zip-slip / path traversal
-                        val canonicalDest = destDir.canonicalPath + File.separator
-                        val canonicalEntry = outFile.canonicalPath
-                        if (!canonicalEntry.startsWith(canonicalDest)) {
-                            Log.w(TAG, "skip unsafe path: $entryName")
-                            entry = tarIn.nextEntry as? TarArchiveEntry
-                            continue
-                        }
-
-                        if (entry.isDirectory) {
-                            outFile.mkdirs()
-                        } else {
-                            outFile.parentFile?.mkdirs()
-                            FileOutputStream(outFile).use { out ->
-                                tarIn.copyTo(out)
-                            }
-                            // 还原可执行权限
-                            if (entry.mode and 0b001_000_000 != 0) {
-                                outFile.setExecutable(true)
-                            }
-                            fileCount++
-                        }
-                        entry = tarIn.nextEntry as? TarArchiveEntry
+                    // 防 zip-slip / path traversal
+                    val canonicalDest = destDir.canonicalPath + File.separator
+                    val canonicalEntry = outFile.canonicalPath
+                    if (!canonicalEntry.startsWith(canonicalDest)) {
+                        Log.w(TAG, "skip unsafe path: $entryName")
+                        entry = zis.nextEntry
+                        continue
                     }
+
+                    if (entry.isDirectory) {
+                        outFile.mkdirs()
+                    } else {
+                        outFile.parentFile?.mkdirs()
+                        FileOutputStream(outFile).use { out ->
+                            zis.copyTo(out)
+                        }
+                        // 还原可执行权限（Unix 权限位在 zip entry 的 extra 字段中）
+                        // Termux bootstrap 里的二进制需要可执行
+                        if (entryName.startsWith("usr/bin/") || entryName.startsWith("usr/libexec/")) {
+                            outFile.setExecutable(true, false)
+                        }
+                        fileCount++
+                    }
+                    entry = zis.nextEntry
                 }
             }
         }
-        Log.i(TAG, "extracted $fileCount files from ${tarXz.name} → ${destDir.absolutePath}")
+        Log.i(TAG, "extracted $fileCount files from ${zipFile.name} → ${destDir.absolutePath}")
     }
 
     // ── 下载 bootstrap rootfs ─────────────────────────────────────
@@ -151,13 +144,15 @@ class BootstrapInstaller(private val context: Context) {
         onProgress: (Int) -> Unit
     ) {
         tmpDir.mkdirs()
-        val baseUrl = "https://packages.termux.dev/apt/termux-main/bootstrap"
+        // Termux bootstrap 从 GitHub releases 下载，格式为 .zip
+        val baseUrl = "https://github.com/termux/termux-packages/releases/download"
+        val version = "bootstrap-2026.07.26-r1+apt-android-7"
         val arch = termuxArch
 
         // 下载 SHA256 校验文件
-        httpDownload("$baseUrl/bootstrap-$arch.tar.xz.sha256", sha256File, 15..20, onProgress)
-        // 下载 rootfs
-        httpDownload("$baseUrl/bootstrap-$arch.tar.xz", rootfsFile, 20..45, onProgress)
+        httpDownload("$baseUrl/$version/CHECKSUMS-sha256.txt", sha256File, 10..15, onProgress)
+        // 下载 rootfs (.zip 格式)
+        httpDownload("$baseUrl/$version/bootstrap-$arch.zip", rootfsFile, 15..45, onProgress)
 
         // 校验
         if (!rootfsSha256Matches(rootfsFile, sha256File)) {
@@ -167,9 +162,18 @@ class BootstrapInstaller(private val context: Context) {
 
     private fun rootfsSha256Matches(rootfs: File, sha256File: File): Boolean {
         if (!rootfs.exists() || !sha256File.exists()) return false
-        val expected = sha256File.readText().trim().split("\\s+".toRegex()).firstOrNull() ?: return false
-        val actual = sha256Hex(rootfs)
-        return expected.equals(actual, ignoreCase = true)
+        // CHECKSUMS-sha256.txt 格式: "<sha256>  bootstrap-aarch64.zip"
+        val targetName = "bootstrap-$termuxArch.zip"
+        val lines = sha256File.readText().trim().lines()
+        for (line in lines) {
+            val parts = line.trim().split("\\s+".toRegex())
+            if (parts.size >= 2 && parts[1].endsWith(targetName)) {
+                val expected = parts[0]
+                val actual = sha256Hex(rootfs)
+                return expected.equals(actual, ignoreCase = true)
+            }
+        }
+        return false
     }
 
     private fun sha256Hex(file: File): String {
@@ -188,9 +192,8 @@ class BootstrapInstaller(private val context: Context) {
 
     private fun extractRootfs(rootfsFile: File) {
         rootDir.mkdirs()
-        // 纯 Java 解压，不再依赖系统 tar/xz
-        Log.i(TAG, "extracting rootfs via Java XZInputStream + TarArchiveInputStream")
-        extractTarXzToDir(rootfsFile, rootDir)
+        Log.i(TAG, "extracting rootfs via Java ZipInputStream")
+        extractZipToDir(rootfsFile, rootDir)
     }
 
     // ── 后置初始化 ─────────────────────────────────────────────────
