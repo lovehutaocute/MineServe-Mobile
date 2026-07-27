@@ -47,9 +47,9 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         val prefix = installer.rootDir.absolutePath
         return mapOf(
             "HOME" to "$prefix/home",
-            "PATH" to "$prefix/usr/bin:$prefix/usr/bin/applets:/system/bin:/system/xbin",
+            "PATH" to "$prefix/usr/bin:$prefix/bin:$prefix/usr/bin/applets:$prefix/usr/libexec:/system/bin:/system/xbin",
             "TMPDIR" to "$prefix/usr/tmp",
-            "LD_LIBRARY_PATH" to "$prefix/usr/lib:/system/lib64",
+            "LD_LIBRARY_PATH" to "$prefix/usr/lib:$prefix/lib:/system/lib64",
             "PREFIX" to "$prefix/usr",
             "TERM" to "xterm-256color",
             "LANG" to "en_US.UTF-8",

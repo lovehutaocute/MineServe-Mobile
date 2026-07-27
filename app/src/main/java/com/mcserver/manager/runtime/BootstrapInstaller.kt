@@ -71,6 +71,8 @@ class BootstrapInstaller(private val context: Context) {
             log("Termux 环境已就绪")
             return true
         }
+        // 清除旧的 readyFile（可能上次提取失败但写了 readyFile）
+        readyFile.delete()
         return withContext(Dispatchers.IO) {
             try {
                 // 步骤 1: 下载 bootstrap rootfs (.zip)
@@ -92,35 +94,40 @@ class BootstrapInstaller(private val context: Context) {
                     log("已存在缓存的 rootfs，跳过下载")
                 }
 
-                // 步骤 2: 解压 rootfs
+                // 如果 rootDir 已有旧内容（上次提取失败），先清除
+                if (rootDir.exists() && !File(rootDir, "usr/bin/bash").exists()) {
+                    log("清除上次失败的提取...")
+                    rootDir.deleteRecursively()
+                }
+
+                // 步骤 2: 解压 rootfs（含符号链接处理）
                 log("开始解压...")
                 onProgress(InstallPhase.EXTRACT_ROOTFS, 50)
                 extractRootfs(rootfsFile)
                 log("解压完成")
 
-                // 诊断：验证关键文件
+                // 验证关键文件
                 val bashFile = File(rootDir, "usr/bin/bash")
                 if (!bashFile.exists()) {
-                    log("错误: usr/bin/bash 不存在！")
-                    // 列出 usr/bin/ 目录内容
+                    log("错误: usr/bin/bash 不存在！解压失败")
                     val binDir = File(rootDir, "usr/bin")
                     if (binDir.exists()) {
                         log("usr/bin/ 目录内容: ${binDir.list()?.take(20)?.joinToString(", ")}")
                     } else {
                         log("usr/bin/ 目录不存在")
+                        val usrDir = File(rootDir, "usr")
+                        log("usr 是目录: ${usrDir.isDirectory}, 是文件: ${usrDir.isFile}")
                         log("rootDir 内容: ${rootDir.list()?.joinToString(", ")}")
                     }
-                } else {
-                    log("bash 文件大小: ${bashFile.length()} 字节")
-                    // 检查 ELF 魔数
-                    val magic = ByteArray(4)
-                    FileInputStream(bashFile).use { it.read(magic) }
-                    val isElf = magic[0] == 0x7f.toByte() && magic[1] == 'E'.code.toByte() &&
-                                magic[2] == 'L'.code.toByte() && magic[3] == 'F'.code.toByte()
-                    log("bash ELF 魔数: ${if (isElf) "有效" else "无效!"}")
-                    bashFile.setExecutable(true, false)
-                    log("bash 可执行权限: ${bashFile.canExecute()}")
+                    throw RuntimeException("解压后 usr/bin/bash 不存在")
                 }
+                log("bash 文件大小: ${bashFile.length()} 字节")
+                val magic = ByteArray(4)
+                FileInputStream(bashFile).use { it.read(magic) }
+                val isElf = magic[0] == 0x7f.toByte() && magic[1] == 'E'.code.toByte() &&
+                            magic[2] == 'L'.code.toByte() && magic[3] == 'F'.code.toByte()
+                log("bash ELF 魔数: ${if (isElf) "有效" else "无效!"}")
+                bashFile.setExecutable(true, false)
 
                 // 步骤 3: 后置初始化
                 log("初始化配置...")
@@ -144,15 +151,19 @@ class BootstrapInstaller(private val context: Context) {
     /**
      * 解压 .zip 到目标目录（用于 Termux bootstrap rootfs）。
      * 纯 Java 实现，不依赖系统 unzip 命令。
+     * 关键：处理 SYMLINKS.txt 中的符号链接（ZIP 中符号链接存储为普通文件）。
      */
     private fun extractZipToDir(zipFile: File, destDir: File) {
         destDir.mkdirs()
         var fileCount = 0
+        val entryNames = mutableListOf<String>()
+
         FileInputStream(zipFile).buffered().use { fis ->
             ZipInputStream(fis).use { zis ->
                 var entry = zis.nextEntry
                 while (entry != null) {
                     val entryName = entry.name.removePrefix("./")
+                    entryNames.add(entryName)
                     val outFile = File(destDir, entryName)
 
                     // 防 zip-slip / path traversal
@@ -165,15 +176,26 @@ class BootstrapInstaller(private val context: Context) {
                     }
 
                     if (entry.isDirectory) {
+                        // 如果路径上已有同名文件（符号链接被提取为文件），先删除
+                        if (outFile.exists() && !outFile.isDirectory) outFile.delete()
                         outFile.mkdirs()
                     } else {
+                        // 如果父路径是文件（符号链接被提取为文件），逐级删除
+                        var parent = outFile.parentFile
+                        while (parent != null && parent.exists() && !parent.isDirectory) {
+                            parent.delete()
+                            parent = parent.parentFile
+                        }
                         outFile.parentFile?.mkdirs()
                         FileOutputStream(outFile).use { out ->
                             zis.copyTo(out)
                         }
-                        // 还原可执行权限（Unix 权限位在 zip entry 的 extra 字段中）
-                        // Termux bootstrap 里的二进制需要可执行
-                        if (entryName.startsWith("usr/bin/") || entryName.startsWith("usr/libexec/")) {
+                        // 设置可执行权限
+                        if (entryName.startsWith("usr/bin/") ||
+                            entryName.startsWith("usr/libexec/") ||
+                            entryName.startsWith("bin/") ||
+                            entryName.endsWith("/bash") ||
+                            entryName.endsWith("/sh")) {
                             outFile.setExecutable(true, false)
                         }
                         fileCount++
@@ -183,6 +205,46 @@ class BootstrapInstaller(private val context: Context) {
             }
         }
         Log.i(TAG, "extracted $fileCount files from ${zipFile.name} → ${destDir.absolutePath}")
+        log("ZIP 提取完成: $fileCount 个文件, ${entryNames.size} 个条目")
+        log("前20个条目: ${entryNames.take(20).joinToString(", ")}")
+
+        // ── 创建符号链接（SYMLINKS.txt）──
+        // Termux bootstrap 中 bin -> usr/bin, lib -> usr/lib 等是符号链接
+        // ZIP 中它们被存为普通文件（内容是目标路径），需要转为真正的符号链接
+        val symlinksFile = File(destDir, "SYMLINKS.txt")
+        if (symlinksFile.exists()) {
+            log("处理符号链接 (SYMLINKS.txt)...")
+            var linkCount = 0
+            symlinksFile.readLines().forEach { line ->
+                val parts = line.trim().split("\\s+".toRegex())
+                if (parts.size >= 2) {
+                    val linkPath = parts[0]
+                    val target = parts[1]
+                    val linkFile = File(destDir, linkPath)
+                    // 删除被提取为普通文件的符号链接
+                    if (linkFile.exists()) {
+                        linkFile.delete()
+                    }
+                    try {
+                        android.system.Os.symlink(target, linkFile.absolutePath)
+                        linkCount++
+                    } catch (e: Exception) {
+                        log("符号链接失败: $linkPath → $target: ${e.message}")
+                    }
+                }
+            }
+            log("创建了 $linkCount 个符号链接")
+        } else {
+            log("警告: SYMLINKS.txt 不存在!")
+        }
+
+        // 设置 usr/bin/ 下所有文件可执行
+        val binDir = File(destDir, "usr/bin")
+        if (binDir.isDirectory) {
+            binDir.listFiles()?.forEach { f ->
+                if (f.isFile) f.setExecutable(true, false)
+            }
+        }
     }
 
     // ── 下载 bootstrap rootfs ─────────────────────────────────────
