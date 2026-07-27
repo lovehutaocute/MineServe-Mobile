@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -50,6 +51,7 @@ import com.mcserver.manager.ui.theme.Muted
  * 概览页：完全对齐参考界面 hero + 安装步骤 + 核心选择 + 启停按钮
  * 插件与端口字段拆到对应 Tab，但概览页提供入口按钮（参考界面把插件/端口也放在首页）
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
     val config by vm.config.collectAsState()

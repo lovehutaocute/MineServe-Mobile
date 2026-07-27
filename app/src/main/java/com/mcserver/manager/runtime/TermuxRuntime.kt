@@ -5,71 +5,70 @@ import android.util.Log
 import kotlinx.coroutines.flow.SharedFlow
 
 /**
- * Termux 运行时入口（不暴露任何 Termux UI）。
- * 聚合 BootstrapInstaller + CommandExecutor + ConsoleSocketServer。
+ * Termux 运行时入口（生产化）：
+ *  - bootstrap()：完整初始化流程（proot → rootfs → apt update → pkg install openjdk-17 tmux）
+ *  - startMc()：在 tmux 内启动 MC 服务，进程脱离 APP 进程组
+ *  - stopMc()：优雅停止
+ *  - consoleFlow：实时日志流（统一来源：CommandExecutor）
  *
- * 关键 API：
- *  - bootstrap()         首次初始化
- *  - execOnce(cmd)       一次性命令（如安装 jdk: pkg install openjdk-17）
- *  - startMc()           启动 MC 进程（在 tmux 内常驻）
- *  - stopMc()            停止 MC 进程
- *  - sendCommand(line)   向 MC 控制台发送 /op 等指令
- *  - consoleFlow         实时日志流（UI 订阅）
+ * 日志流统一：ConsoleSocketServer 的日志通过 onLog 回调转发到 CommandExecutor.emit()，
+ * UI 只需订阅 TermuxRuntime.consoleFlow 即可获取所有日志。
  */
 class TermuxRuntime(context: Context) {
 
     private val installer = BootstrapInstaller(context)
     private val executor = CommandExecutor(installer)
-    private val socketServer = ConsoleSocketServer(installer)
 
-    /** 是否已检测到上次 APP 被杀后存活的 MC 进程（通过 socket 客户端存在性判断） */
+    /** ConsoleSocketServer 的日志通过回调转发到 executor，统一日志流 */
+    private val socketServer = ConsoleSocketServer(installer) { line ->
+        executor.emit(line)
+    }
+
     val hasSurvivingProcess: Boolean get() = socketServer.isProcessAlive
-
-    /** 日志流：UI 端 collect 后渲染到 LogsPage */
     val consoleFlow: SharedFlow<String> get() = executor.consoleFlow
 
-    /** 启动 socket 服务端，监听 Termux 子进程输出 */
     fun startConsoleServer() = socketServer.start()
     fun stopConsoleServer() = socketServer.stop()
 
-    /**
-     * 一次性命令：返回退出码
-     */
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
         executor.execOnce(*command, env = env)
 
-    /**
-     * 后台长期命令：返回 Process 句柄
-     */
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
         executor.execStream(tag, *command, env = env)
 
     /**
-     * 首次初始化：释放 native helper、解压 rootfs、apt update、安装 openjdk
-     * @param onProgress (phase, percent) UI 进度回调
+     * 完整初始化流程：
+     * 1. 下载 proot + bootstrap rootfs + 解压
+     * 2. apt update
+     * 3. 安装 openjdk-17, tmux, wget, curl, frp
      */
     suspend fun bootstrap(onProgress: (BootstrapInstaller.InstallPhase, Int) -> Unit): Boolean {
+        // 步骤 1: 基础环境安装
         val ok = installer.ensureInstalled(onProgress)
         if (!ok) return false
-        // 实际安装 jdk + tmux + frp 等
-        // execOnce("pkg", "install", "-y", "openjdk-17", "tmux", "wget", "curl")
+
+        // 步骤 2: 启动 console socket 服务（用于接收 proot 内进程的日志输出）
+        startConsoleServer()
+
+        // 步骤 3: apt update + 安装包
+        onProgress(BootstrapInstaller.InstallPhase.POST_SETUP, 92)
+        execOnce("apt", "update", "-y")
+        execOnce("apt", "install", "-y", "openjdk-17", "tmux", "wget", "curl", "frp", "tar", "xz-utils")
+        execOnce("apt", "clean")
+
+        onProgress(BootstrapInstaller.InstallPhase.DONE, 100)
         return true
     }
 
-    /**
-     * 在 tmux session 中启动 MC 服务进程。
-     * 用 setsid + nohup + tmux new-session -d 形式：
-     *  - 进程脱离 APP 进程组（APP 被杀不影响 MC）
-     *  - tmux 会话持久化，可重新 attach
-     */
+    /** 在 tmux session 中启动 MC 服务 */
     fun startMc(jarPath: String, maxHeapMb: Int, onExit: (Int) -> Unit): Process {
         Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m")
+        // 用 tmux new-session -d -s mc-server 启动 JVM，进程完全脱离 APP
         val proc = executor.execStream(
             tag = "mc",
             "tmux", "new-session", "-d", "-s", "mc-server",
-            "'java -Xmx${maxHeapMb}m -jar $jarPath nogui'"
+            "java -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m -jar $jarPath nogui"
         )
-        // 启动监控线程：进程退出时回调
         Thread({
             val code = proc.waitFor()
             Log.w(TAG, "MC process exited code=$code")
@@ -78,9 +77,7 @@ class TermuxRuntime(context: Context) {
         return proc
     }
 
-    /**
-     * 停止 MC：先通过控制台 stop 优雅退出，3 秒后仍未退出则 kill tmux session
-     */
+    /** 停止 MC：先 stop 优雅退出，3 秒后强制 kill tmux */
     fun stopMc(): Boolean {
         socketServer.broadcastCommand("stop")
         Thread.sleep(3000)
@@ -88,15 +85,13 @@ class TermuxRuntime(context: Context) {
         return true
     }
 
-    /**
-     * 向 MC 控制台发指令（如 /say、/op）
-     */
+    /** 向 MC 控制台发指令 */
     fun sendCommand(line: String) = socketServer.broadcastCommand(line)
 
-    /** tmux session 是否存在 → MC 是否在运行 */
+    /** 检查 tmux session 是否存在 */
     fun isMcRunning(): Boolean {
         val code = runCatching {
-            executor.execOnce("tmux", "has-session", "-t", "mc-server")
+            execOnce("tmux", "has-session", "-t", "mc-server")
         }.getOrDefault(1)
         return code == 0
     }

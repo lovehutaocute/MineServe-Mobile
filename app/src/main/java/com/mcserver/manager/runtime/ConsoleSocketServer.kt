@@ -1,64 +1,59 @@
 package com.mcserver.manager.runtime
 
+import android.net.LocalServerSocket
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.PrintWriter
-import java.net.ServerSocket
-import java.net.Socket
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Console Socket 服务端：
- *  - 监听 Unix Domain Socket（API 24+）或回环 TCP（兼容旧机）
- *  - Termux 端把 stdout 行写入 socket
- *  - APP 端订阅 consoleFlow 获得实时日志（按需展示在 LogsPage）
- *  - 多客户端订阅：广播；断线自动重连
+ * Console Socket 服务端（生产化）：
+ *  - 使用 android.net.LocalServerSocket + LocalSocketAddress(FILESYSTEM)
+ *  - socket 文件创建在 rootDir/tmp/mc.sock，proot 内通过 /tmp/mc.sock 访问
+ *  - Termux/proot 端把 stdout 写入 socket → APP 端通过 onLog 回调推送
+ *  - 多客户端广播 + 断线自动清理
+ *  - 支持向 MC 控制台 stdin 发送指令（stop / op / say）
  *
- * 兼容性说明：
- *  - Android API 24+ 支持 android.net.LocalSocket / LocalServerSocket（unix domain）
- *  - 旧机器回退到 127.0.0.1:7890（仅本机可达，安全）
- *
- * 此处用 java.net.ServerSocket 简化（生产建议改用 android.net.LocalServerSocket 走 unix domain）
+ * 日志不再维护独立 SharedFlow，改为通过 onLog 回调转发到 CommandExecutor.consoleFlow，
+ * 确保日志流统一。
  */
 class ConsoleSocketServer(
-    private val installer: BootstrapInstaller
+    private val installer: BootstrapInstaller,
+    private val onLog: (String) -> Unit
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var serverJob: Job? = null
     private val clients = ConcurrentLinkedQueue<ClientConn>()
     private val running = AtomicBoolean(false)
 
-    /** 给 UI 订阅的日志流（按行） */
-    private val _consoleFlow = MutableSharedFlow<String>(replay = 256, extraBufferCapacity = 1024)
-    val consoleFlow: SharedFlow<String> = _consoleFlow.asSharedFlow()
-
-    /** 当前是否已有 MC 进程正在往 socket 写入 */
+    /** 是否有客户端连接（即 MC 进程是否在写入日志） */
     val isProcessAlive: Boolean get() = clients.any { it.alive }
+
+    private var serverSocket: LocalServerSocket? = null
 
     fun start() {
         if (!running.compareAndSet(false, true)) return
         serverJob = scope.launch {
-            val port = 7890 // 回环端口，仅本机
-            Log.i(TAG, "ConsoleSocketServer listening on 127.0.0.1:$port")
-            ServerSocket(port).use { server ->
-                server.soTimeout = 0
+            // 使用抽象命名空间 socket（Android LocalServerSocket(String) 的标准方式）
+            // APP 与 proot 共享同一 Linux 内核，抽象命名空间 socket 可跨进程访问
+            val socketName = "mc-console"
+            Log.i(TAG, "ConsoleSocketServer listening on abstract:$socketName")
+            LocalServerSocket(socketName).use { server ->
+                serverSocket = server
                 while (isActive && running.get()) {
                     val client = try {
                         server.accept()
                     } catch (e: Exception) {
-                        Log.w(TAG, "accept failed: ${e.message}")
+                        if (running.get()) Log.w(TAG, "accept failed: ${e.message}")
                         continue
                     }
                     val conn = ClientConn(client)
@@ -72,30 +67,42 @@ class ConsoleSocketServer(
     fun stop() {
         if (!running.compareAndSet(true, false)) return
         serverJob?.cancel()
+        serverSocket?.close()
+        serverSocket = null
         clients.forEach { it.close() }
         clients.clear()
         scope.cancel()
     }
 
-    /** 给 UI 调用：向所有 MC 控制台 stdin 广播一行指令（如 /say /stop） */
+    /** 向所有连接的 MC 控制台 stdin 广播指令 */
     fun broadcastCommand(line: String) {
-        clients.forEach { c -> runCatching { c.writer?.println(line) } }
-    }
-
-    private fun handleClient(conn: ClientConn) {
-        conn.writer = PrintWriter(conn.socket.getOutputStream(), true)
-        BufferedReader(InputStreamReader(conn.socket.getInputStream())).use { r ->
-            var line = r.readLine()
-            while (line != null && conn.alive) {
-                _consoleFlow.tryEmit(line)
-                line = r.readLine()
+        clients.forEach { c ->
+            runCatching {
+                c.writer?.println(line)
+                c.writer?.flush()
             }
         }
-        conn.close()
-        clients.remove(conn)
     }
 
-    private data class ClientConn(val socket: Socket) {
+    private suspend fun handleClient(conn: ClientConn) {
+        conn.writer = PrintWriter(conn.socket.outputStream, true)
+        try {
+            BufferedReader(InputStreamReader(conn.socket.inputStream)).use { r ->
+                var line = r.readLine()
+                while (line != null && conn.alive && running.get()) {
+                    onLog(line)
+                    line = r.readLine()
+                }
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "client disconnected: ${e.message}")
+        } finally {
+            conn.close()
+            clients.remove(conn)
+        }
+    }
+
+    private data class ClientConn(val socket: android.net.LocalSocket) {
         @Volatile var writer: PrintWriter? = null
         @Volatile var alive: Boolean = true
         fun close() {

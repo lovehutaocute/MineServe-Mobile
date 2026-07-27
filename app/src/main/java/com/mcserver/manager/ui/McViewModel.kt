@@ -105,23 +105,18 @@ class McViewModel(
     }
 
     companion object {
-        val Factory = viewModelFactory {
-            initializer {
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
                 val app = McApplication.get()
                 val repo = app.repository
-                McViewModel(
+                return McViewModel(
                     repo = repo,
                     controller = McServerController(repo.termuxRuntime, repo),
                     pluginManager = PluginManager(repo.termuxRuntime, repo),
                     tunnelManager = TunnelManager(repo.termuxRuntime)
-                )
+                ) as T
             }
         }
-
-        private fun viewModelFactory(initializer: () -> McViewModel) =
-            object : ViewModelProvider.Factory {
-                @Suppress("UNCHECKED_CAST")
-                override fun <T : ViewModel> create(modelClass: Class<T>): T = initializer() as T
-            }
     }
 }
