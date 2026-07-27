@@ -77,7 +77,14 @@ class BootstrapInstaller(private val context: Context) {
                 log("开始下载 Termux 运行环境")
                 onProgress(InstallPhase.DOWNLOAD_ROOTFS, 5)
                 val rootfsFile = File(tmpDir, "bootstrap-${termuxArch}.zip")
-                if (!rootfsFile.exists()) {
+                val expectedSha = bootstrapSha256[termuxArch]
+                val needDownload = !rootfsFile.exists() ||
+                    (expectedSha != null && !expectedSha.equals(sha256Hex(rootfsFile), ignoreCase = true))
+                if (needDownload) {
+                    if (rootfsFile.exists()) {
+                        log("缓存的 rootfs 损坏，重新下载")
+                        rootfsFile.delete()
+                    }
                     downloadBootstrap(rootfsFile) { p ->
                         onProgress(InstallPhase.DOWNLOAD_ROOTFS, p)
                     }
