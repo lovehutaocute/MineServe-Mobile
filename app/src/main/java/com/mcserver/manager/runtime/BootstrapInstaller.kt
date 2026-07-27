@@ -179,37 +179,48 @@ class BootstrapInstaller(private val context: Context) {
         val version = "bootstrap-2026.05.24-r1%2Bapt.android-7"
         val arch = termuxArch
 
-        // GitHub 直连 + 镜像备选
-        val githubBase = "https://github.com/termux/termux-packages/releases/download"
-        val mirrorBase = "https://ghproxy.net/https://github.com/termux/termux-packages/releases/download"
-        val rootfsUrl = "$githubBase/$version/bootstrap-$arch.zip"
-        val rootfsMirrorUrl = "$mirrorBase/$version/bootstrap-$arch.zip"
+        // 多镜像源列表，逐个尝试直到成功
+        val mirrors = listOf(
+            "https://github.com/termux/termux-packages/releases/download",
+            "https://gh-proxy.com/https://github.com/termux/termux-packages/releases/download",
+            "https://mirror.ghproxy.com/https://github.com/termux/termux-packages/releases/download",
+            "https://ghproxy.net/https://github.com/termux/termux-packages/releases/download",
+            "https://github.moeyy.xyz/https://github.com/termux/termux-packages/releases/download",
+            "https://gh.api.99988866.xyz/https://github.com/termux/termux-packages/releases/download",
+            "https://ghfast.top/https://github.com/termux/termux-packages/releases/download"
+        )
+        val fileName = "bootstrap-$arch.zip"
 
-        // 下载 rootfs，GitHub 失败则用镜像
         log("下载 Termux 运行环境 (~30MB)...")
-        try {
-            httpDownload(rootfsUrl, rootfsFile, 15..45, onProgress) { msg ->
-                log(msg)
-            }
-        } catch (e: Exception) {
-            log("GitHub 直连失败: ${e.message}，尝试镜像...")
-            rootfsFile.delete()
-            httpDownload(rootfsMirrorUrl, rootfsFile, 15..45, onProgress) { msg ->
-                log(msg)
-            }
-        }
-
-        // 校验
-        log("校验文件完整性...")
-        val expected = bootstrapSha256[arch]
-        if (expected != null) {
-            val actual = sha256Hex(rootfsFile)
-            if (!expected.equals(actual, ignoreCase = true)) {
+        var lastError: Exception? = null
+        for ((idx, mirror) in mirrors.withIndex()) {
+            val url = "$mirror/$version/$fileName"
+            val label = if (idx == 0) "GitHub 直连" else "镜像${idx}"
+            log("尝试 $label: ${url.take(80)}...")
+            try {
                 rootfsFile.delete()
-                throw RuntimeException("SHA256 校验失败，文件可能损坏")
+                httpDownload(url, rootfsFile, 15..45, onProgress) { msg ->
+                    log(msg)
+                }
+                // 下载成功，校验
+                log("校验文件完整性...")
+                val expected = bootstrapSha256[arch]
+                if (expected != null) {
+                    val actual = sha256Hex(rootfsFile)
+                    if (!expected.equals(actual, ignoreCase = true)) {
+                        rootfsFile.delete()
+                        throw RuntimeException("SHA256 校验失败")
+                    }
+                }
+                log("校验通过")
+                return
+            } catch (e: Exception) {
+                log("$label 失败: ${e.message}")
+                lastError = e
+                rootfsFile.delete()
             }
         }
-        log("校验通过")
+        throw RuntimeException("所有镜像源均下载失败: ${lastError?.message}")
     }
 
     private fun sha256Hex(file: File): String {
