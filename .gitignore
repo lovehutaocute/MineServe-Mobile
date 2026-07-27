@@ -1,0 +1,23 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+/app/build/
+*.apk
+*.aab
+*.keystore
+!debug.keystore
+
+# Kotlin
+*.kotlin_metadata
+
+# Gradle wrapper binary (用户首次执行 gradle wrapper 生成)
+gradle/wrapper/gradle-wrapper.jar
+gradlew
+gradlew.bat
