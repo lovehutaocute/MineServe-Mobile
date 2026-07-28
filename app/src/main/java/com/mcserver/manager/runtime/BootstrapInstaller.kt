@@ -84,10 +84,14 @@ class BootstrapInstaller(private val context: Context) {
     suspend fun ensureInstalled(onProgress: (InstallPhase, Int) -> Unit): Boolean {
         if (isReady()) {
             log("Termux 环境已就绪")
-            // 检查 CA 证书是否存在（旧版本初始化时未生成）
+            // 检查关键文件是否存在（旧版本可能未生成）
             val caBundle = File(rootDir, "etc/ssl/certs/ca-certificates.crt")
-            if (!caBundle.exists() || caBundle.length() == 0L) {
-                log("补充 CA 证书（旧版本初始化时未生成）...")
+            val gpgvWrapper = File(rootDir, "lib/apt/methods/gpgv")
+            val needPostSetup = !caBundle.exists() || caBundle.length() == 0L ||
+                // gpgv 包装脚本需要包含 Capabilities（旧版本是 exit 0）
+                (gpgvWrapper.exists() && !gpgvWrapper.readText().contains("Capabilities"))
+            if (needPostSetup) {
+                log("补充配置（旧版本初始化时未生成）...")
                 withContext(Dispatchers.IO) { postSetup() }
             }
             return true
@@ -626,10 +630,54 @@ exit 0
                 methodsGpgvReal.setExecutable(true, false)
             }
             if (methodsGpgvReal.exists()) {
+                // gpgv 方法驱动需要通过 stdin/stdout 与 apt-get 通信
+                // 使用 apt 方法驱动协议：发送 Capabilities，响应 URI Acquire 请求
                 val methodsGpgvScript = """#!/system/bin/sh
-# gpgv method wrapper: 绕过 InRelease/Release 签名验证
-exit 0
-"""
+# gpgv method wrapper: 模拟 apt 方法驱动协议，跳过签名验证
+# apt-get 方法驱动通过 stdin/stdout 通信，不能直接 exit 0
+
+# 1. 发送 Capabilities 消息（方法驱动启动时必须发送）
+printf '100 Capabilities\n'
+printf 'Version: 1.0\n'
+printf 'Single-Instance: true\n'
+printf 'Send-Config: true\n'
+printf '\n'
+
+# 2. 读取 apt-get 的请求并响应
+while IFS= read -r line; do
+    case "__D__line" in
+        600\ URI\ Acquire*)
+            # 解析 URI 和 Filename
+            uri=""
+            filename=""
+            # 读取后续行直到空行
+            while IFS= read -r subline; do
+                case "__D__subline" in
+                    URI:*) uri="__D__{subline#URI: }" ;;
+                    Filename:*) filename="__D__{subline#Filename: }" ;;
+                    "") break ;;
+                esac
+            done
+            # 返回验证成功
+            printf '201 URI Done\n'
+            printf 'URI: %s\n' "__D__uri"
+            printf 'Filename: %s\n' "__D__filename"
+            printf 'GPG-Status: GOODSIG\n'
+            printf 'GPG-Output: GOODSIG\n'
+            printf '\n'
+            ;;
+        601\ Configuration*|602\ *)
+            # 读取后续行直到空行
+            while IFS= read -r subline; do
+                [ -z "__D__subline" ] && break
+            done
+            ;;
+        "")
+            # 空行，忽略
+            ;;
+    esac
+done
+""".replace("__D__", "\$")
                 File(rootDir, "lib/apt/methods/gpgv").writeText(methodsGpgvScript)
                 File(rootDir, "lib/apt/methods/gpgv").setExecutable(true, false)
             }
