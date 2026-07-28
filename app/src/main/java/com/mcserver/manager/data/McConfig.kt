@@ -15,12 +15,11 @@ enum class ServerCore(val displayName: String) {
 
 /**
  * 内网穿透方式
+ * 注：ngrok 和 CF Tunnel 因未提供二进制安装，已移除，仅保留 frp
  */
 @Serializable
 enum class TunnelType(val displayName: String) {
-    Frp("frp"),
-    Ngrok("ngrok"),
-    CloudflareTunnel("CF Tunnel")
+    Frp("frp")
 }
 
 /**
@@ -54,7 +53,10 @@ data class McConfig(
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
     val keepWifiLock: Boolean = true,
-    val keepCpuWakelock: Boolean = true
+    val keepCpuWakelock: Boolean = true,
+    /** 已下载到本地的核心类型与版本，用于检测切换核心后需要重新下载 */
+    val downloadedCore: ServerCore? = null,
+    val downloadedVersion: String? = null
 )
 
 /**

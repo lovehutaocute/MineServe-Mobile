@@ -8,19 +8,25 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -37,6 +43,8 @@ import kotlinx.coroutines.launch
 fun BackupScreen(vm: McViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val isBootstrapped by vm.isBootstrapped.collectAsState()
+    var isSnapshotting by remember { mutableStateOf(false) }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) }
@@ -59,11 +67,12 @@ fun BackupScreen(vm: McViewModel) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
-                            vm.sendCommand("save-on")
+                            vm.sendCommand("save-all")
                             scope.launch {
-                                snackbarHostState.showSnackbar("已发送保存指令")
+                                snackbarHostState.showSnackbar("已发送 save-all 指令")
                             }
                         },
+                        enabled = isBootstrapped,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
@@ -76,6 +85,7 @@ fun BackupScreen(vm: McViewModel) {
                                 snackbarHostState.showSnackbar("已发送暂停保存指令")
                             }
                         },
+                        enabled = isBootstrapped,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) { Text("暂停保存", color = Indigo) }
@@ -84,36 +94,39 @@ fun BackupScreen(vm: McViewModel) {
 
             McCard(title = "快照管理") {
                 Text(
-                    "将 world/ 目录打包为 zip 备份，便于回滚到任意时间点。",
+                    "将 world/ 目录打包为 zip 备份，保存到 /home/snapshots/ 目录。",
                     color = Muted,
                     fontSize = 11.sp
                 )
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = {
-                        vm.sendCommand("say backup starting...")
+                        isSnapshotting = true
                         scope.launch {
-                            snackbarHostState.showSnackbar("备份指令已发送，请查看日志")
+                            val path = vm.createSnapshot()
+                            isSnapshotting = false
+                            if (path != null) {
+                                snackbarHostState.showSnackbar("快照已创建: $path")
+                            } else {
+                                snackbarHostState.showSnackbar("快照创建失败（world 目录不存在或未启动）")
+                            }
                         }
                     },
+                    enabled = isBootstrapped && !isSnapshotting,
                     colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("创建快照", color = Color.White, fontWeight = FontWeight.SemiBold) }
-            }
-
-            McCard(title = "历史快照") {
-                Text(
-                    "选择一个快照文件后，APP 将停止服务、覆盖 world/、再重启服务。",
-                    color = Muted,
-                    fontSize = 11.sp
-                )
-                Spacer(Modifier.height(12.dp))
-                Text(
-                    "暂无历史快照",
-                    color = Muted,
-                    fontSize = 12.sp
-                )
+                ) {
+                    if (isSnapshotting) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text("创建快照", color = Color.White, fontWeight = FontWeight.SemiBold)
+                }
             }
             Spacer(Modifier.height(16.dp))
         }

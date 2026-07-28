@@ -1,5 +1,6 @@
 package com.mcserver.manager.server
 
+import android.util.Log
 import com.mcserver.manager.data.InstallStep
 import com.mcserver.manager.data.McConfig
 import com.mcserver.manager.data.ServerCore
@@ -7,6 +8,7 @@ import com.mcserver.manager.data.ServerRepository
 import com.mcserver.manager.data.StepStatus
 import com.mcserver.manager.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -32,6 +34,11 @@ class McServerController(
 
     @Volatile
     private var isInstalling = false
+
+    /** 崩溃自动重启的最大重试次数，防止无限循环 */
+    private val maxRestartAttempts = 3
+    @Volatile
+    private var restartAttempts = 0
 
     /**
      * 一键安装依赖
@@ -214,24 +221,71 @@ class McServerController(
 
     /**
      * 启动 MC 服务
+     * - 首次启动或核心/版本变化时重新下载 server.jar
+     * - 支持崩溃自动重启（config.autoRestartOnCrash）
      */
     suspend fun start(config: McConfig) = withContext(Dispatchers.IO) {
         // 先确保 Termux 环境已初始化
         if (!termux.isReady()) {
             throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
         }
+        // 首次安装依赖
         if (!repo.serverState.value.isInstallComplete) {
             val ok = installDependencies()
             if (!ok) {
                 throw RuntimeException("依赖安装失败，请先安装依赖后再启动服务器")
             }
-            downloadCore(config)
         }
+        // 检测核心或版本是否变化，变化则重新下载 server.jar
+        val needRedownload = config.downloadedCore != config.selectedCore ||
+            config.downloadedVersion != config.mcVersion
+        if (needRedownload) {
+            Log.i(TAG, "核心或版本变化(${config.downloadedCore}/${config.downloadedVersion} -> " +
+                "${config.selectedCore}/${config.mcVersion})，重新下载 server.jar")
+            downloadCore(config)
+            // 持久化已下载的核心信息
+            repo.saveConfig(config.copy(
+                downloadedCore = config.selectedCore,
+                downloadedVersion = config.mcVersion
+            ))
+        }
+        // 启动时重置崩溃重试计数
+        restartAttempts = 0
+        launchMc(config)
+    }
+
+    /**
+     * 实际启动 MC 进程（内部方法，供 start 和崩溃重启调用）
+     */
+    private suspend fun launchMc(config: McConfig) {
         termux.startMc(
             jarPath = "/home/server/server.jar",
             maxHeapMb = config.maxHeapMb,
             onExit = { code ->
                 repo.updateServerState { it.copy(isRunning = false) }
+                Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
+                // 崩溃自动重启（exit code 非 0 且用户开启）
+                if (config.autoRestartOnCrash && code != 0) {
+                    if (restartAttempts < maxRestartAttempts) {
+                        restartAttempts++
+                        Log.i(TAG, "崩溃自动重启中... (attempt $restartAttempts/$maxRestartAttempts)")
+                        // 延迟 3 秒后重启，避免快速崩溃循环
+                        Thread {
+                            try {
+                                Thread.sleep(3000)
+                                // 用 runBlocking 启动协程重启
+                                kotlinx.coroutines.runBlocking {
+                                    launchMc(config)
+                                    repo.updateServerState { it.copy(isRunning = true) }
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "崩溃重启失败: ${e.message}", e)
+                            }
+                        }.start()
+                    } else {
+                        Log.e(TAG, "已达到最大重试次数($maxRestartAttempts)，停止重启")
+                    }
+                }
             }
         )
         repo.updateServerState { it.copy(isRunning = true) }
@@ -245,4 +299,6 @@ class McServerController(
     fun sendCommand(line: String) {
         termux.sendCommand(if (line.startsWith("/")) line.substring(1) else line)
     }
+
+    companion object { private const val TAG = "McServerController" }
 }

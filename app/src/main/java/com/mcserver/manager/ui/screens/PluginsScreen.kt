@@ -44,12 +44,7 @@ fun PluginsScreen(vm: McViewModel) {
             .verticalScroll(rememberScrollState())
     ) {
         HeaderBlock(eyebrow = "Plugin Market", title = "插件管理")
-        McCard(
-            title = "已安装插件",
-            trailing = {
-                Text("+ 浏览市场", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-            }
-        ) {
+        McCard(title = "已安装插件") {
             plugins.forEach { p ->
                 Row(
                     modifier = Modifier

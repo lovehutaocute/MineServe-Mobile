@@ -106,15 +106,35 @@ class McForegroundService : Service() {
     }
 
     /**
-     * 健康 watchdog：每 30 秒检查 MC 进程是否存活，更新 StateFlow
+     * 健康 watchdog：每 30 秒检查 MC 进程是否存活，更新 StateFlow。
+     * 每 60 秒发送 list 命令获取玩家数，Paper 核心发送 tps 命令获取 TPS。
      */
     private fun startWatchdog() {
         scope.launch {
+            var tick = 0
             while (true) {
                 val alive = try { termux.isMcRunning() } catch (e: Exception) { false }
-                McApplication.get(this@McForegroundService).repository.updateServerState {
-                    it.copy(isRunning = alive)
+                val app = McApplication.get(this@McForegroundService)
+                app.repository.updateServerState { it.copy(isRunning = alive) }
+                // 服务器运行时，每 60 秒（2 个 tick）发送一次查询命令获取真实数据
+                if (alive && tick % 2 == 0) {
+                    try {
+                        val config = runCatching {
+                            runBlocking { app.repository.configFlow.first() }
+                        }.getOrNull()
+                        if (config != null) {
+                            // list 命令获取在线玩家数（所有核心支持）
+                            termux.sendCommand("list")
+                            // Paper 核心额外发送 tps 命令
+                            if (config.selectedCore == com.mcserver.manager.data.ServerCore.Paper) {
+                                termux.sendCommand("tps")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "watchdog query failed: ${e.message}")
+                    }
                 }
+                tick++
                 kotlinx.coroutines.delay(30_000L)
             }
         }

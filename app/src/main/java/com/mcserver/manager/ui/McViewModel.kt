@@ -20,8 +20,10 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 顶层共享 ViewModel：
@@ -78,11 +80,64 @@ class McViewModel(
     val isInstalling: StateFlow<Boolean> = _isInstalling.asStateFlow()
 
     init {
-        // 订阅 consoleFlow 并缓存最近 1000 行供 LogsPage 展示
+        // 订阅 consoleFlow 并缓存最近 1000 行供 LogsPage 展示，同时解析运行时状态
         viewModelScope.launch {
             repo.termuxRuntime.consoleFlow.collect { line ->
                 _consoleLines.value = (_consoleLines.value + line).takeLast(1000)
+                parseConsoleLine(line)
             }
+        }
+    }
+
+    /**
+     * 解析 MC 控制台输出，提取 TPS / 玩家数 / 启动状态等运行时信息。
+     * - "joined the game" / "left the game" → 实时玩家计数
+     * - "There are X of a max of Y players online" → list 命令输出
+     * - "TPS from last 1m..." → Paper tps 命令输出
+     * - "Done (...)" → 启动完成
+     */
+    private fun parseConsoleLine(line: String) {
+        try {
+            when {
+                line.contains("joined the game") -> {
+                    repo.updateServerState {
+                        it.copy(onlinePlayers = (it.onlinePlayers + 1).coerceAtLeast(0))
+                    }
+                }
+                line.contains("left the game") -> {
+                    repo.updateServerState {
+                        it.copy(onlinePlayers = (it.onlinePlayers - 1).coerceAtLeast(0))
+                    }
+                }
+                line.contains("players online") -> {
+                    val m = Regex("There are (\\d+) of a max of (\\d+) players online").find(line)
+                    if (m != null) {
+                        val online = m.groupValues[1].toIntOrNull() ?: return
+                        val max = m.groupValues[2].toIntOrNull() ?: return
+                        repo.updateServerState { it.copy(onlinePlayers = online, maxPlayers = max) }
+                    }
+                }
+                line.contains("TPS from last 1m") -> {
+                    val m = Regex("TPS from last 1m.*?:\\s*([\\d.]+)").find(line)
+                    if (m != null) {
+                        val tps = m.groupValues[1].toDoubleOrNull() ?: return
+                        val health = ((tps / 20.0) * 100).toInt().coerceIn(0, 100)
+                        repo.updateServerState {
+                            it.copy(tps = tps, healthPercent = health,
+                                maxMemoryMb = config.value.maxHeapMb.toLong())
+                        }
+                    }
+                }
+                line.contains("Done (") && line.contains("For help") -> {
+                    // 服务器启动完成
+                    repo.updateServerState {
+                        it.copy(tps = 20.0, healthPercent = 100,
+                            maxMemoryMb = config.value.maxHeapMb.toLong())
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            // 解析失败不影响正常运行
         }
     }
 
@@ -98,6 +153,9 @@ class McViewModel(
 
     fun selectCore(core: com.mcserver.manager.data.ServerCore) =
         updateConfig { it.copy(selectedCore = core) }
+
+    fun setMcVersion(version: String) =
+        updateConfig { it.copy(mcVersion = version) }
 
     fun selectTunnel(tunnel: TunnelType) =
         updateConfig { it.copy(tunnelType = tunnel) }
@@ -215,6 +273,14 @@ class McViewModel(
             } catch (e: Exception) {
                 _errorFlow.tryEmit("内网穿透停止失败: ${e.message}")
             }
+        }
+    }
+
+    /** 创建 world 目录快照（zip 打包），返回快照文件路径或 null */
+    suspend fun createSnapshot(): String? {
+        if (!isBootstrapped.value) return null
+        return withContext(Dispatchers.IO) {
+            repo.termuxRuntime.createSnapshot()
         }
     }
 

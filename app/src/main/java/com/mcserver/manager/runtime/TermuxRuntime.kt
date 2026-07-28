@@ -3,6 +3,14 @@ package com.mcserver.manager.runtime
 import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.flow.SharedFlow
+import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
 
 /**
  * Termux 运行时（Termux 原生模式，不依赖 proot）：
@@ -15,6 +23,9 @@ class TermuxRuntime(context: Context) {
 
     private val installer = BootstrapInstaller(context)
     private val executor = CommandExecutor(installer)
+
+    /** tmux 可执行文件完整路径，避免 PATH 搜索问题 */
+    private val tmuxPath: String get() = "${installer.rootDir.absolutePath}/bin/tmux"
 
     val consoleFlow: SharedFlow<String> get() = executor.consoleFlow
 
@@ -78,7 +89,7 @@ class TermuxRuntime(context: Context) {
         val javaCmd = "java -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m -jar $jarPath nogui"
         val proc = executor.execStream(
             tag = "mc",
-            "tmux", "new-session", "-d", "-s", "mc-server",
+            tmuxPath, "new-session", "-d", "-s", "mc-server",
             "sh", "-c", "$javaCmd 2>&1 | tee $logFile"
         )
         Thread({
@@ -92,11 +103,11 @@ class TermuxRuntime(context: Context) {
     /** 停止 MC：先 tmux send-keys 发送 stop，3 秒后强制 kill */
     fun stopMc(): Boolean {
         runCatching {
-            executor.execOnce("tmux", "send-keys", "-t", "mc-server", "stop", "Enter")
+            executor.execOnce(tmuxPath, "send-keys", "-t", "mc-server", "stop", "Enter")
         }
         Thread.sleep(3000)
         runCatching {
-            executor.execOnce("tmux", "kill-session", "-t", "mc-server")
+            executor.execOnce(tmuxPath, "kill-session", "-t", "mc-server")
         }
         executor.stopLogWatcher()
         return true
@@ -106,16 +117,53 @@ class TermuxRuntime(context: Context) {
     fun sendCommand(line: String) {
         val cmd = if (line.startsWith("/")) line.substring(1) else line
         runCatching {
-            executor.execOnce("tmux", "send-keys", "-t", "mc-server", cmd, "Enter")
+            executor.execOnce(tmuxPath, "send-keys", "-t", "mc-server", cmd, "Enter")
         }
     }
 
     /** 检查 tmux session 是否存在 */
     fun isMcRunning(): Boolean {
         val code = runCatching {
-            executor.execOnce("tmux", "has-session", "-t", "mc-server")
+            executor.execOnce(tmuxPath, "has-session", "-t", "mc-server")
         }.getOrDefault(1)
         return code == 0
+    }
+
+    /**
+     * 创建 world 目录快照（zip 打包）。
+     * 快照保存到 /home/snapshots/world_yyyyMMdd_HHmmss.zip
+     * 返回快照文件路径，失败返回 null。
+     */
+    fun createSnapshot(): String? {
+        val worldDir = File(installer.rootDir, "home/server/world")
+        val snapshotDir = File(installer.rootDir, "home/snapshots").apply { mkdirs() }
+        val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val outFile = File(snapshotDir, "world_$ts.zip")
+
+        if (!worldDir.exists()) {
+            Log.w(TAG, "createSnapshot: world 目录不存在")
+            return null
+        }
+        return try {
+            ZipOutputStream(FileOutputStream(outFile)).use { zos ->
+                worldDir.walkTopDown().forEach { file ->
+                    val relPath = file.relativeTo(worldDir).path
+                    if (file.isDirectory) {
+                        zos.putNextEntry(ZipEntry("$relPath/"))
+                        zos.closeEntry()
+                    } else {
+                        zos.putNextEntry(ZipEntry(relPath))
+                        FileInputStream(file).use { it.copyTo(zos) }
+                        zos.closeEntry()
+                    }
+                }
+            }
+            Log.i(TAG, "快照已创建: ${outFile.absolutePath} (${outFile.length()} 字节)")
+            outFile.absolutePath
+        } catch (e: Exception) {
+            Log.e(TAG, "createSnapshot failed: ${e.message}", e)
+            null
+        }
     }
 
     companion object { private const val TAG = "TermuxRuntime" }

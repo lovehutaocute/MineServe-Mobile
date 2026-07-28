@@ -34,12 +34,20 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
     /** 使用 Android 系统 sh 执行，避免 app_data_file 执行限制 */
     private fun buildExecCommand(command: List<String>): List<String> {
         val sh = "/system/bin/sh"
+        val prefix = installer.rootDir.absolutePath
+        // 显式设置 PATH 和 LD_LIBRARY_PATH，确保 /system/bin/sh 能找到 Termux 命令
+        // ProcessBuilder.environment() 在某些 Android 版本上可能不正确传递 PATH
+        val envSetup = "export PATH='$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:/system/lib64'; " +
+            "export PREFIX='$prefix'; " +
+            "export HOME='$prefix/home'; " +
+            "export TMPDIR='$prefix/tmp'; "
         val cmdStr = command.joinToString(" ") { arg ->
             if (arg.any { it == ' ' || it == '\'' || it == '"' || it == '$' }) {
                 "'${arg.replace("'", "'\\''")}'"
             } else arg
         }
-        return listOf(sh, "-c", cmdStr)
+        return listOf(sh, "-c", envSetup + cmdStr)
     }
 
     /** Termux 环境变量 */

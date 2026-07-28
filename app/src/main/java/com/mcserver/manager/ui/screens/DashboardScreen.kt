@@ -61,6 +61,9 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+/** MC 常用版本列表 */
+private val MC_VERSIONS = listOf("1.21.4", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5")
+
 /**
  * 概览页：完全对齐参考界面 hero + 安装步骤 + 核心选择 + 启停按钮
  * 插件与端口字段拆到对应 Tab，但概览页提供入口按钮（参考界面把插件/端口也放在首页）
@@ -255,9 +258,21 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                         )
                     }
                 }
+                Spacer(Modifier.height(12.dp))
+                Text("MC 版本", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MC_VERSIONS.forEach { ver ->
+                        SegPill(
+                            text = ver,
+                            selected = config.mcVersion == ver,
+                            onClick = { vm.setMcVersion(ver) }
+                        )
+                    }
+                }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "当前选择：${config.selectedCore.displayName} · ${config.mcVersion} · ${config.coreSubDescription}",
+                    "当前选择：${config.selectedCore.displayName} · ${config.mcVersion}",
                     color = Muted,
                     fontSize = 11.sp
                 )

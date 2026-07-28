@@ -87,9 +87,12 @@ class BootstrapInstaller(private val context: Context) {
             // 检查关键文件是否存在（旧版本可能未生成）
             val caBundle = File(rootDir, "etc/ssl/certs/ca-certificates.crt")
             val gpgvWrapper = File(rootDir, "lib/apt/methods/gpgv")
+            val dpkgWrapper = File(rootDir, "bin/dpkg")
             val needPostSetup = !caBundle.exists() || caBundle.length() == 0L ||
                 // gpgv 包装脚本需要包含 Capabilities（旧版本是 exit 0）
-                (gpgvWrapper.exists() && !gpgvWrapper.readText().contains("Capabilities"))
+                (gpgvWrapper.exists() && !gpgvWrapper.readText().contains("Capabilities")) ||
+                // dpkg 包装脚本需要包含兼容符号链接（旧版本未创建导致 .deb 解压位置错误）
+                (dpkgWrapper.exists() && !dpkgWrapper.readText().contains("compat symlink"))
             if (needPostSetup) {
                 log("补充配置（旧版本初始化时未生成）...")
                 withContext(Dispatchers.IO) { postSetup() }
@@ -390,6 +393,41 @@ class BootstrapInstaller(private val context: Context) {
     private fun postSetup() {
         val prefix = rootDir.absolutePath
 
+        // 修复旧版本 dpkg-wrapper 解压位置错误的问题
+        // 旧版本 .deb 包被解压到 PREFIX/data/data/com.termux/files/usr/bin/tmux
+        // 但正确位置应该是 PREFIX/bin/tmux
+        // 如果发现错误位置的目录（非符号链接），将文件移动到 PREFIX，然后删除目录
+        val compatUsr = File(rootDir, "data/data/com.termux/files/usr")
+        val isSymlink = try {
+            java.nio.file.Files.isSymbolicLink(compatUsr.toPath())
+        } catch (_: Exception) { false }
+        if (compatUsr.exists() && !isSymlink) {
+            // compatUsr 是真实目录（不是符号链接），需要修复
+            log("发现旧版本解压的错误目录，开始修复...")
+            try {
+                // 递归复制 compatUsr 内容到 rootDir
+                compatUsr.walkTopDown().forEach { src ->
+                    val rel = src.relativeTo(compatUsr)
+                    val dst = File(rootDir, rel.path)
+                    if (src.isDirectory) {
+                        dst.mkdirs()
+                    } else if (src.isFile) {
+                        if (dst.exists() && !dst.isDirectory) {
+                            dst.delete()
+                        }
+                        if (!dst.isDirectory) {
+                            src.copyTo(dst, overwrite = true)
+                        }
+                    }
+                }
+                // 删除错误目录
+                File(rootDir, "data").deleteRecursively()
+                log("错误目录已修复")
+            } catch (e: Exception) {
+                log("修复错误目录失败: ${e.message}")
+            }
+        }
+
         // 创建 MC 工作目录与 eula 同意
         val serverDir = File(rootDir, "home/server").apply { mkdirs() }
         val eula = File(serverDir, "eula.txt")
@@ -474,6 +512,26 @@ class BootstrapInstaller(private val context: Context) {
         // 创建 dpkg 配置文件
         File(rootDir, "etc/dpkg/dpkg.cfg").writeText("")
 
+        // 创建 Termux 路径兼容符号链接
+        // .deb 包内文件路径是 data/data/com.termux/files/usr/bin/tmux
+        // 创建符号链接 PREFIX/data/data/com.termux/files/usr -> PREFIX
+        // 让 dpkg-deb -x 解压时文件落在正确位置（PREFIX/bin/tmux）
+        val compatDir = File(rootDir, "data/data/com.termux/files").apply { mkdirs() }
+        val compatUsrLink = File(compatDir, "usr")
+        try {
+            val isLink = java.nio.file.Files.isSymbolicLink(compatUsrLink.toPath())
+            if (!isLink) {
+                if (compatUsrLink.exists()) {
+                    // 如果是真实目录，删除（前面的修复逻辑应该已经处理了）
+                    compatUsrLink.deleteRecursively()
+                }
+                android.system.Os.symlink(rootDir.absolutePath, compatUsrLink.absolutePath)
+                log("创建兼容符号链接: ${compatUsrLink.absolutePath} -> ${rootDir.absolutePath}")
+            }
+        } catch (e: Exception) {
+            log("创建兼容符号链接失败: ${e.message}")
+        }
+
         // 创建 dpkg 包装脚本
         // dpkg 的配置目录在编译时硬编码为 /data/data/com.termux/files/usr/etc/dpkg/
         // 该路径属于另一个 app，无法访问，导致 dpkg 启动即崩溃
@@ -496,6 +554,17 @@ DPKG_DEB="__P__{PREFIX}/bin/dpkg-deb"
 # 日志函数（输出到 stderr，被 apt-get 捕获）
 log() { echo "[dpkg-wrapper] __D__*" >&2; }
 
+# Termux .deb 包内文件路径是 data/data/com.termux/files/usr/bin/tmux
+# 但我们的 PREFIX 是 /data/data/com.mcserver.manager/files/home
+# 需要创建兼容符号链接：PREFIX/data/data/com.termux/files/usr -> PREFIX
+# 这样 dpkg-deb -x 解压时文件会落在正确位置（PREFIX/bin/tmux）
+TERMUX_COMPAT="__P__{PREFIX}/data/data/com.termux/files"
+if [ ! -e "__P__{TERMUX_COMPAT}/usr" ]; then
+    mkdir -p "__P__{TERMUX_COMPAT}"
+    ln -sf "__P__{PREFIX}" "__P__{TERMUX_COMPAT}/usr"
+    log "created compat symlink: __P__{TERMUX_COMPAT}/usr -> __P__{PREFIX}"
+fi
+
 # 提取单个 .deb 文件并记录到 status
 extract_deb() {
   deb="__D__1"
@@ -517,6 +586,17 @@ extract_deb() {
       echo "Architecture: aarch64" >> "__D__STATUS"
       echo "" >> "__D__STATUS"
       log "installed: __D__pkg __D__ver"
+    fi
+    # 设置 bin/ 下所有文件可执行权限（dpkg-deb -x 不会保留 Unix 权限位）
+    if [ -d "__D__{PREFIX}/bin" ]; then
+      chmod 755 "__D__{PREFIX}/bin/"* 2>/dev/null
+      log "set executable: __D__{PREFIX}/bin/"
+    fi
+    if [ -d "__D__{PREFIX}/libexec" ]; then
+      chmod 755 "__D__{PREFIX}/libexec/"* 2>/dev/null
+    fi
+    if [ -d "__D__{PREFIX}/lib/apt/methods" ]; then
+      chmod 755 "__D__{PREFIX}/lib/apt/methods/"* 2>/dev/null
     fi
   else
     log "ERROR: extract failed for __D__deb"
