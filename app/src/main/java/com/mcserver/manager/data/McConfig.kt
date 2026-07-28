@@ -24,11 +24,11 @@ enum class TunnelType(val displayName: String) {
 
 /**
  * 依赖安装步骤
+ * 注：已去掉 Tmux 步骤（改用 Android 原生 ProcessBuilder 管理进程）
  */
 @Serializable
 enum class InstallStep(val label: String) {
     Jdk("JDK 17 运行环境"),
-    Tmux("Tmux 后台保活"),
     Wget("Wget 下载工具"),
     Frp("Frp 内网穿透")
 }
