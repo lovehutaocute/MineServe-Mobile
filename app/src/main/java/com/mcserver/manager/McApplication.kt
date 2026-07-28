@@ -83,6 +83,28 @@ class McApplication : Application(), Configuration.Provider {
         }
     }
 
+    /**
+     * 删除 Termux 运行环境并重置状态。
+     * 删除后自动重新开始初始化流程。
+     */
+    fun deleteBootstrap() {
+        GlobalScope.launch(Dispatchers.IO) {
+            _isBootstrapped.value = false
+            _bootstrapError.value = null
+            repository.updateServerState {
+                it.copy(
+                    currentProgress = 0,
+                    installSteps = com.mcserver.manager.data.InstallStep.values().map { step ->
+                        com.mcserver.manager.data.StepState(step, com.mcserver.manager.data.StepStatus.Wait)
+                    }
+                )
+            }
+            termuxRuntime.deleteBootstrap()
+            // 重新开始初始化
+            startBootstrap()
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

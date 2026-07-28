@@ -1,5 +1,9 @@
 package com.mcserver.manager.ui.screens
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -30,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -50,6 +56,7 @@ import com.mcserver.manager.ui.theme.Muted
 fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     val lines by vm.consoleLines.collectAsState()
     var input by remember { mutableStateOf("") }
+    val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部带返回按钮的 Header
@@ -63,9 +70,21 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text("LOG STREAM", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Text("控制台日志", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+            }
+            // 一键复制日志按钮
+            IconButton(onClick = {
+                if (lines.isNotEmpty()) {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(ClipData.newPlainText("MCServer Logs", lines.joinToString("\n")))
+                    Toast.makeText(context, "已复制 ${lines.size} 行日志", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, "暂无日志可复制", Toast.LENGTH_SHORT).show()
+                }
+            }) {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = "复制日志", tint = Indigo)
             }
         }
 

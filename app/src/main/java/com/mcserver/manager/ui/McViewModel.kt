@@ -57,6 +57,11 @@ class McViewModel(
         McApplication.get().startBootstrap()
     }
 
+    /** 删除 Termux 运行环境（会自动重新初始化） */
+    fun deleteBootstrap() {
+        McApplication.get().deleteBootstrap()
+    }
+
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
 
@@ -67,6 +72,10 @@ class McViewModel(
     /** 操作结果消息流，UI 层收集后用 Snackbar 显示 */
     private val _messageFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val messageFlow = _messageFlow.asSharedFlow()
+
+    /** 依赖安装中状态，UI 层据此控制按钮和加载动画 */
+    private val _isInstalling = MutableStateFlow(false)
+    val isInstalling: StateFlow<Boolean> = _isInstalling.asStateFlow()
 
     init {
         // 订阅 consoleFlow 并缓存最近 1000 行供 LogsPage 展示
@@ -105,12 +114,20 @@ class McViewModel(
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
         }
+        if (_isInstalling.value) return
+        _isInstalling.value = true
         viewModelScope.launch {
             try {
-                controller.installDependencies()
-                _messageFlow.tryEmit("依赖安装完成")
+                val ok = controller.installDependencies()
+                if (ok) {
+                    _messageFlow.tryEmit("依赖安装完成")
+                } else {
+                    _errorFlow.tryEmit("依赖安装失败，请查看日志")
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit("依赖安装失败: ${e.message}")
+            } finally {
+                _isInstalling.value = false
             }
         }
     }

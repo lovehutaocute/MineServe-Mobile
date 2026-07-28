@@ -19,7 +19,7 @@ import java.util.zip.ZipInputStream
  * 2. 校验 SHA256，解压到 filesDir/home/
  * 3. 初始化目录结构（server 目录、eula、plugins、apt sources.list）
  *
- * 命令直接用 rootfs 里的 usr/bin/bash 执行，不需要 proot。
+ * 命令直接用 rootfs 里的 bin/bash 执行，不需要 proot。
  * 所有下载操作均支持断点续传（HTTP Range）+ 进度回调。
  * XZ/tar 解压使用纯 Java 库（org.tukaani:xz + commons-compress），不依赖系统命令。
  */
@@ -60,7 +60,22 @@ class BootstrapInstaller(private val context: Context) {
     }
 
     fun isReady(): Boolean = readyFile.exists() &&
-            File(rootDir, "usr/bin/bash").exists()
+            File(rootDir, "bin/bash").exists()
+
+    /**
+     * 删除整个 Termux 运行环境（rootfs + 缓存 + readyFile）。
+     * 用于用户主动重置环境或排查问题。
+     */
+    fun deleteBootstrap() {
+        log("开始删除 Termux 运行环境...")
+        readyFile.delete()
+        rootDir.deleteRecursively()
+        // 清除缓存的 rootfs zip（所有架构）
+        tmpDir.listFiles()?.filter { it.name.startsWith("bootstrap-") }?.forEach { it.delete() }
+        // 清除 runtime 目录（socket 等）
+        runtimeDir.listFiles()?.forEach { it.deleteRecursively() }
+        log("Termux 运行环境已删除")
+    }
 
     /**
      * 完整安装流程。返回是否成功。
@@ -69,6 +84,12 @@ class BootstrapInstaller(private val context: Context) {
     suspend fun ensureInstalled(onProgress: (InstallPhase, Int) -> Unit): Boolean {
         if (isReady()) {
             log("Termux 环境已就绪")
+            // 检查 CA 证书是否存在（旧版本初始化时未生成）
+            val caBundle = File(rootDir, "etc/ssl/certs/ca-certificates.crt")
+            if (!caBundle.exists() || caBundle.length() == 0L) {
+                log("补充 CA 证书（旧版本初始化时未生成）...")
+                withContext(Dispatchers.IO) { postSetup() }
+            }
             return true
         }
         // 清除旧的 readyFile（可能上次提取失败但写了 readyFile）
@@ -95,7 +116,7 @@ class BootstrapInstaller(private val context: Context) {
                 }
 
                 // 如果 rootDir 已有旧内容（上次提取失败），先清除
-                if (rootDir.exists() && !File(rootDir, "usr/bin/bash").exists()) {
+                if (rootDir.exists() && !File(rootDir, "bin/bash").exists()) {
                     log("清除上次失败的提取...")
                     rootDir.deleteRecursively()
                 }
@@ -107,19 +128,17 @@ class BootstrapInstaller(private val context: Context) {
                 log("解压完成")
 
                 // 验证关键文件
-                val bashFile = File(rootDir, "usr/bin/bash")
+                val bashFile = File(rootDir, "bin/bash")
                 if (!bashFile.exists()) {
-                    log("错误: usr/bin/bash 不存在！解压失败")
-                    val binDir = File(rootDir, "usr/bin")
+                    log("错误: bin/bash 不存在！解压失败")
+                    val binDir = File(rootDir, "bin")
                     if (binDir.exists()) {
-                        log("usr/bin/ 目录内容: ${binDir.list()?.take(20)?.joinToString(", ")}")
+                        log("bin/ 目录内容: ${binDir.list()?.take(20)?.joinToString(", ")}")
                     } else {
-                        log("usr/bin/ 目录不存在")
-                        val usrDir = File(rootDir, "usr")
-                        log("usr 是目录: ${usrDir.isDirectory}, 是文件: ${usrDir.isFile}")
+                        log("bin/ 目录不存在")
                         log("rootDir 内容: ${rootDir.list()?.joinToString(", ")}")
                     }
-                    throw RuntimeException("解压后 usr/bin/bash 不存在")
+                    throw RuntimeException("解压后 bin/bash 不存在")
                 }
                 log("bash 文件大小: ${bashFile.length()} 字节")
                 val magic = ByteArray(4)
@@ -191,11 +210,15 @@ class BootstrapInstaller(private val context: Context) {
                             zis.copyTo(out)
                         }
                         // 设置可执行权限
-                        if (entryName.startsWith("usr/bin/") ||
-                            entryName.startsWith("usr/libexec/") ||
-                            entryName.startsWith("bin/") ||
+                        if (entryName.startsWith("bin/") ||
+                            entryName.startsWith("libexec/") ||
                             entryName.endsWith("/bash") ||
-                            entryName.endsWith("/sh")) {
+                            entryName.endsWith("/sh") ||
+                            entryName.endsWith("/apt-get") ||
+                            entryName.endsWith("/tmux") ||
+                            entryName.endsWith("/java") ||
+                            entryName.endsWith("/wget") ||
+                            entryName.endsWith("/curl")) {
                             outFile.setExecutable(true, false)
                         }
                         fileCount++
@@ -209,39 +232,68 @@ class BootstrapInstaller(private val context: Context) {
         log("前20个条目: ${entryNames.take(20).joinToString(", ")}")
 
         // ── 创建符号链接（SYMLINKS.txt）──
-        // Termux bootstrap 中 bin -> usr/bin, lib -> usr/lib 等是符号链接
-        // ZIP 中它们被存为普通文件（内容是目标路径），需要转为真正的符号链接
+        // Termux bootstrap 的符号链接信息在 SYMLINKS.txt 中
+        // 格式: <target> ← <link_path> (Unicode 左箭头 U+2190 分隔)
         val symlinksFile = File(destDir, "SYMLINKS.txt")
         if (symlinksFile.exists()) {
             log("处理符号链接 (SYMLINKS.txt)...")
             var linkCount = 0
+            var failCount = 0
             symlinksFile.readLines().forEach { line ->
-                val parts = line.trim().split("\\s+".toRegex())
-                if (parts.size >= 2) {
-                    val linkPath = parts[0]
-                    val target = parts[1]
+                val trimmed = line.trim()
+                if (trimmed.isEmpty()) return@forEach
+                // 用 Unicode 左箭头 ← (U+2190) 分割: target ← link_path
+                val arrowIdx = trimmed.indexOf("←")
+                if (arrowIdx > 0) {
+                    val target = trimmed.substring(0, arrowIdx).trim()
+                    val linkPath = trimmed.substring(arrowIdx + 1).trim().removePrefix("./")
                     val linkFile = File(destDir, linkPath)
-                    // 删除被提取为普通文件的符号链接
+                    // 删除被提取为普通文件的符号链接（包括非空目录）
                     if (linkFile.exists()) {
-                        linkFile.delete()
+                        if (linkFile.isDirectory) {
+                            linkFile.deleteRecursively()
+                        } else {
+                            linkFile.delete()
+                        }
                     }
+                    // 创建父目录
+                    linkFile.parentFile?.mkdirs()
                     try {
                         android.system.Os.symlink(target, linkFile.absolutePath)
                         linkCount++
                     } catch (e: Exception) {
-                        log("符号链接失败: $linkPath → $target: ${e.message}")
+                        failCount++
+                        if (failCount <= 5) {
+                            log("符号链接失败: $linkPath → $target: ${e.message}")
+                        }
                     }
                 }
             }
-            log("创建了 $linkCount 个符号链接")
+            log("创建了 $linkCount 个符号链接, $failCount 个失败")
         } else {
             log("警告: SYMLINKS.txt 不存在!")
         }
 
-        // 设置 usr/bin/ 下所有文件可执行
-        val binDir = File(destDir, "usr/bin")
+        // 设置 bin/ 下所有文件可执行
+        val binDir = File(destDir, "bin")
         if (binDir.isDirectory) {
             binDir.listFiles()?.forEach { f ->
+                if (f.isFile) f.setExecutable(true, false)
+            }
+        }
+
+        // 设置 lib/apt/methods/ 下所有文件可执行（apt 下载驱动 https/http）
+        val methodsDir = File(destDir, "lib/apt/methods")
+        if (methodsDir.isDirectory) {
+            methodsDir.listFiles()?.forEach { f ->
+                if (f.isFile) f.setExecutable(true, false)
+            }
+        }
+
+        // 设置 libexec/ 下所有文件可执行
+        val libexecDir = File(destDir, "libexec")
+        if (libexecDir.isDirectory) {
+            libexecDir.listFiles()?.forEach { f ->
                 if (f.isFile) f.setExecutable(true, false)
             }
         }
@@ -332,6 +384,8 @@ class BootstrapInstaller(private val context: Context) {
     // ── 后置初始化 ─────────────────────────────────────────────────
 
     private fun postSetup() {
+        val prefix = rootDir.absolutePath
+
         // 创建 MC 工作目录与 eula 同意
         val serverDir = File(rootDir, "home/server").apply { mkdirs() }
         val eula = File(serverDir, "eula.txt")
@@ -339,15 +393,297 @@ class BootstrapInstaller(private val context: Context) {
         // 创建 plugins 目录
         File(serverDir, "plugins").mkdirs()
 
-        // 配置 apt 源
-        val etcDir = File(rootDir, "usr/etc")
-        etcDir.mkdirs()
-        File(etcDir, "apt/sources.list").let { f ->
-            f.parentFile?.mkdirs()
-            if (!f.exists()) {
-                f.writeText("deb https://packages.termux.dev/apt/termux-main stable main\n")
+        // 创建 apt/dpkg 所需目录结构
+        listOf(
+            "etc/apt/apt.conf.d",
+            "etc/apt/preferences.d",
+            "etc/apt/sources.list.d",
+            "etc/apt/trusted.gpg.d",
+            "etc/dpkg/dpkg.cfg.d",
+            "var/lib/apt/lists/partial",
+            "var/cache/apt/archives/partial",
+            "var/lib/dpkg",
+            "var/lib/dpkg/updates",
+            "var/lib/dpkg/info",
+            "var/lib/dpkg/triggers",
+            "var/log/apt"
+        ).forEach { File(rootDir, it).mkdirs() }
+
+        // 强制覆盖 apt 源（ZIP 自带的 sources.list 用 https，改用 http 避免证书问题）
+        File(rootDir, "etc/apt/sources.list").writeText(
+            "deb http://packages.termux.dev/apt/termux-main stable main\n"
+        )
+
+        // 创建 apt.conf 覆盖所有编译路径（apt/dpkg 默认指向 /data/data/com.termux/files/usr/）
+        val aptConf = File(rootDir, "etc/apt/apt.conf")
+        aptConf.writeText(buildString {
+            appendLine("Dir \"$prefix\";")
+            appendLine("Dir::Prefix \"$prefix\";")
+            appendLine("Dir::Etc \"$prefix/etc/apt\";")
+            appendLine("Dir::Etc::main \"$prefix/etc/apt/apt.conf\";")
+            appendLine("Dir::Etc::parts \"$prefix/etc/apt/apt.conf.d\";")
+            appendLine("Dir::Etc::sourcelist \"$prefix/etc/apt/sources.list\";")
+            appendLine("Dir::Etc::sourceparts \"$prefix/etc/apt/sources.list.d\";")
+            appendLine("Dir::Etc::preferencesparts \"$prefix/etc/apt/preferences.d\";")
+            appendLine("Dir::Etc::trustedparts \"$prefix/etc/apt/trusted.gpg.d\";")
+            appendLine("Dir::Etc::trusted \"/dev/null\";")
+            appendLine("Dir::Bin \"$prefix/bin\";")
+            appendLine("Dir::Bin::methods \"$prefix/lib/apt/methods\";")
+            appendLine("Dir::Bin::dpkg \"$prefix/bin/dpkg\";")
+            appendLine("Dir::Bin::apt-key \"$prefix/bin/apt-key\";")
+            appendLine("Dir::Bin::gpg \"$prefix/bin/gpg\";")
+            appendLine("Dir::Bin::gpgv \"$prefix/bin/gpgv\";")
+            appendLine("Dir::State \"$prefix/var\";")
+            appendLine("Dir::State::lists \"$prefix/var/lib/apt/lists\";")
+            appendLine("Dir::State::status \"$prefix/var/lib/dpkg/status\";")
+            appendLine("Dir::Cache \"$prefix/var/cache\";")
+            appendLine("Dir::Cache::archives \"$prefix/var/cache/apt/archives\";")
+            appendLine("Dir::Log \"$prefix/var/log/apt\";")
+            appendLine("Dir::Log::Terminal \"$prefix/var/log/apt/term.log\";")
+            appendLine("Dir::Log::History \"$prefix/var/log/apt/history.log\";")
+            appendLine("DPkg \"$prefix/bin/dpkg\";")
+            appendLine("DPkg::Options:: \"--root=$prefix\";")
+            appendLine("DPkg::Options:: \"--admindir=$prefix/var/lib/dpkg\";")
+            appendLine("DPkg::Options:: \"--configdir=$prefix/etc/dpkg\";")
+            appendLine("DPkg::Pre-Install-Pkgs {\"\";};")
+            appendLine("Acquire::AllowInsecureRepositories \"true\";")
+            appendLine("Acquire::AllowDowngradeToInsecureRepositories \"true\";")
+            appendLine("Acquire::https::Verify-Peer \"false\";")
+            appendLine("Acquire::https::Verify-Host \"false\";")
+            appendLine("Acquire::Check-Valid-Until \"false\";")
+            appendLine("APT::Get::AllowUnauthenticated \"true\";")
+            appendLine("APT::Sandbox::User \"root\";")
+            appendLine("APT::Sandbox::Seccomp \"false\";")
+        })
+
+        // 创建 dpkg status 文件
+        File(rootDir, "var/lib/dpkg/status").writeText("")
+        File(rootDir, "var/lib/dpkg/available").writeText("")
+
+        // 创建 dpkg 配置文件
+        File(rootDir, "etc/dpkg/dpkg.cfg").writeText("")
+
+        // 创建 dpkg 包装脚本
+        // dpkg 的配置目录在编译时硬编码为 /data/data/com.termux/files/usr/etc/dpkg/
+        // 该路径属于另一个 app，无法访问，导致 dpkg 启动即崩溃
+        // 包装脚本用 dpkg-deb -x 提取 .deb 包，绕过配置目录问题
+        val dpkgReal = File(rootDir, "bin/dpkg.real")
+        val dpkgBin = File(rootDir, "bin/dpkg")
+        if (dpkgBin.exists() && !dpkgReal.exists()) {
+            dpkgBin.renameTo(dpkgReal)
+        }
+        if (dpkgReal.exists()) {
+            dpkgReal.setExecutable(true, false)
+            // 使用占位符避免 Kotlin 字符串插值冲突
+            val dpkgScript = """#!/system/bin/sh
+export PATH="__P__{PREFIX}/bin:__P__{PREFIX}/libexec:/system/bin:/system/xbin"
+export LD_LIBRARY_PATH="__P__{PREFIX}/lib:/system/lib64"
+PREFIX="__PREFIX__"
+STATUS="__P__{PREFIX}/var/lib/dpkg/status"
+DPKG_DEB="__P__{PREFIX}/bin/dpkg-deb"
+
+# 日志函数（输出到 stderr，被 apt-get 捕获）
+log() { echo "[dpkg-wrapper] __D__*" >&2; }
+
+# 提取单个 .deb 文件并记录到 status
+extract_deb() {
+  deb="__D__1"
+  if [ ! -f "__D__deb" ]; then
+    log "skip: __D__deb (not a file)"
+    return 0
+  fi
+  log "extracting: __D__deb"
+  if "__D__DPKG_DEB" -x "__D__deb" "__D__PREFIX" 2>/dev/null; then
+    pkg=$("__D__DPKG_DEB" -f "__D__deb" Package 2>/dev/null)
+    ver=$("__D__DPKG_DEB" -f "__D__deb" Version 2>/dev/null)
+    if [ -n "__D__pkg" ]; then
+      # 移除旧记录
+      sed -i "/^Package: __D__pkg__D__/,/^__D__/d" "__D__STATUS" 2>/dev/null
+      # 追加新记录
+      echo "Package: __D__pkg" >> "__D__STATUS"
+      echo "Status: install ok installed" >> "__D__STATUS"
+      echo "Version: __D__ver" >> "__D__STATUS"
+      echo "Architecture: aarch64" >> "__D__STATUS"
+      echo "" >> "__D__STATUS"
+      log "installed: __D__pkg __D__ver"
+    fi
+  else
+    log "ERROR: extract failed for __D__deb"
+  fi
+}
+
+# 处理 --recursive 选项（apt-get 可能用此方式批量安装）
+RECURSIVE=0
+ARGS=""
+while [ "__D__#" -gt 0 ]; do
+  case "__D__1" in
+    --recursive|-R)
+      RECURSIVE=1
+      shift
+      ;;
+    --unpack|--install|-i|--configure|-a|--pending|--yet-to-unpack)
+      MODE="__D__1"
+      shift
+      ;;
+    --*)
+      # 跳过其他选项参数
+      shift
+      ;;
+    *)
+      ARGS="__D__ARGS __D__1"
+      shift
+      ;;
+  esac
+done
+
+log "called with mode=__D__MODE args=__D__ARGS recursive=__D__RECURSIVE"
+
+case "__D__MODE" in
+  --unpack|--install|-i)
+    if [ "__D__RECURSIVE" = "1" ]; then
+      # 递归处理目录
+      for dir in __D__ARGS; do
+        if [ -d "__D__dir" ]; then
+          log "scanning directory: __D__dir"
+          for deb in "__D__dir"/*.deb; do
+            [ -f "__D__deb" ] && extract_deb "__D__deb"
+          done
+        fi
+      done
+    else
+      for deb in __D__ARGS; do
+        extract_deb "__D__deb"
+      done
+    fi
+    exit 0
+    ;;
+  --configure|-a|--pending|--yet-to-unpack)
+    # 配置阶段：跳过（文件已提取，无需配置）
+    log "configure: skipped (no-op)"
+    exit 0
+    ;;
+  --remove|-r|--purge|-P)
+    log "remove: skipped (no-op)"
+    exit 0
+    ;;
+  --list|-l)
+    grep "^Package:" "__D__STATUS" 2>/dev/null | sed 's/Package: /ii  /'
+    exit 0
+    ;;
+  --status|-s)
+    pkg=$(echo __D__ARGS | awk '{print __D__1}')
+    awk -v p="__D__pkg" 'BEGIN{RS=""} __D__0 ~ "Package: "p' "__D__STATUS" 2>/dev/null
+    exit 0
+    ;;
+  *)
+    log "unknown mode, no-op"
+    exit 0
+    ;;
+esac
+""".replace("__P__", "\$")
+            .replace("__D__", "\$")
+            .replace("__PREFIX__", prefix)
+            File(rootDir, "bin/dpkg").writeText(dpkgScript)
+            File(rootDir, "bin/dpkg").setExecutable(true, false)
+
+            // 确认 dpkg-deb 也存在且可执行
+            val dpkgDeb = File(rootDir, "bin/dpkg-deb")
+            if (dpkgDeb.exists()) {
+                dpkgDeb.setExecutable(true, false)
+            }
+
+            // 创建 gpgv 包装脚本
+            // gpgv 在 Termux rootfs 中可能因缺少 GPG keyring 或权限问题而挂起
+            // 创建一个始终返回成功的包装脚本，完全绕过 GPG 验证
+            val gpgvReal = File(rootDir, "bin/gpgv.real")
+            val gpgvBin = File(rootDir, "bin/gpgv")
+            if (gpgvBin.exists() && !gpgvReal.exists()) {
+                gpgvBin.renameTo(gpgvReal)
+                gpgvReal.setExecutable(true, false)
+            }
+            if (gpgvReal.exists()) {
+                val gpgvScript = """#!/system/bin/sh
+# gpgv wrapper: 绕过 GPG 签名验证，始终返回成功
+exit 0
+"""
+                File(rootDir, "bin/gpgv").writeText(gpgvScript)
+                File(rootDir, "bin/gpgv").setExecutable(true, false)
+            }
+
+            // 创建 apt-key 包装脚本
+            // apt-key 调用 gpg 来管理 keyring，但在无 CA 证书的环境中会失败或挂起
+            val aptKeyReal = File(rootDir, "bin/apt-key.real")
+            val aptKeyBin = File(rootDir, "bin/apt-key")
+            if (aptKeyBin.exists() && !aptKeyReal.exists()) {
+                aptKeyBin.renameTo(aptKeyReal)
+                aptKeyReal.setExecutable(true, false)
+            }
+            if (aptKeyReal.exists()) {
+                val aptKeyScript = """#!/system/bin/sh
+# apt-key wrapper: 跳过所有 keyring 操作
+case "__D__1" in
+  adv|export|list|finger|update|net-update)
+    exit 0
+    ;;
+  add)
+    exit 0
+    ;;
+  del|remove)
+    exit 0
+    ;;
+  *)
+    exit 0
+    ;;
+esac
+""".replace("__D__", "\$")
+                File(rootDir, "bin/apt-key").writeText(aptKeyScript)
+                File(rootDir, "bin/apt-key").setExecutable(true, false)
             }
         }
+
+        // 合并 Android 系统 CA 证书到 Termux 的 ca-certificates.crt
+        // apt-get 的 http 方法遇到 301 重定向到 https 时，会启动 https 方法驱动
+        // https 方法驱动需要 CA 证书来验证 SSL，Termux rootfs 自带的 ca-certificates 包
+        // 可能不完整或路径不对，导致 SSL 握手卡住
+        // 解决方案：将 Android 系统 CA 证书（PEM 格式）合并到 Termux 的标准路径
+        val sslCertsDir = File(rootDir, "etc/ssl/certs").apply { mkdirs() }
+        val tlsDir = File(rootDir, "etc/tls").apply { mkdirs() }
+        val caBundle = File(sslCertsDir, "ca-certificates.crt")
+        val androidCaDir = File("/system/etc/security/cacerts")
+        if (androidCaDir.isDirectory) {
+            log("合并 Android 系统 CA 证书...")
+            try {
+                val sb = StringBuilder()
+                androidCaDir.listFiles()?.sortedBy { it.name }?.forEach { certFile ->
+                    try {
+                        val content = certFile.readText()
+                        if (content.contains("BEGIN CERTIFICATE")) {
+                            sb.append(content)
+                            if (!content.endsWith("\n")) sb.append("\n")
+                        }
+                    } catch (_: Exception) { }
+                }
+                caBundle.writeText(sb.toString())
+                log("CA 证书合并完成: ${sb.length} 字节")
+            } catch (e: Exception) {
+                log("CA 证书合并失败: ${e.message}")
+            }
+        } else {
+            log("警告: Android CA 证书目录不存在: ${androidCaDir.absolutePath}")
+        }
+        // 创建 etc/tls/ca-certificates.crt 符号链接（部分 SSL 库查找此路径）
+        val tlsCaBundle = File(tlsDir, "ca-certificates.crt")
+        if (!tlsCaBundle.exists() && caBundle.exists()) {
+            try {
+                android.system.Os.symlink(caBundle.absolutePath, tlsCaBundle.absolutePath)
+            } catch (e: Exception) {
+                // 符号链接失败时直接复制
+                caBundle.copyTo(tlsCaBundle, overwrite = true)
+            }
+        }
+
+        // 创建 tmp 目录
+        File(rootDir, "tmp").mkdirs()
     }
 
     // ── HTTP 下载工具 ──────────────────────────────────────────────

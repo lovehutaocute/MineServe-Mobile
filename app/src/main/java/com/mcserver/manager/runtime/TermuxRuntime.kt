@@ -30,6 +30,11 @@ class TermuxRuntime(context: Context) {
 
     fun isReady(): Boolean = installer.isReady()
 
+    /** 删除整个 Termux 运行环境 */
+    fun deleteBootstrap() {
+        installer.deleteBootstrap()
+    }
+
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
         executor.execOnce(*command, env = env)
 
@@ -47,9 +52,10 @@ class TermuxRuntime(context: Context) {
 
         onProgress(BootstrapInstaller.InstallPhase.POST_SETUP, 92)
         // 用 apt-get 替代 pkg（pkg 是 bash 脚本，依赖 bash shebang）
+        // --allow-insecure-repositories / --allow-unauthenticated: 跳过 GPG 验证（无 ca-certificates）
         installer.onLog?.invoke("[bootstrap] 安装依赖包（JDK/tmux/wget）...")
-        executor.execOnce("apt-get", "update", "-y")
-        executor.execOnce("apt-get", "install", "-y", "openjdk-17", "tmux", "wget", "curl")
+        executor.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
+        executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-17", "tmux", "wget", "curl")
         executor.execOnce("apt-get", "clean")
 
         onProgress(BootstrapInstaller.InstallPhase.DONE, 100)

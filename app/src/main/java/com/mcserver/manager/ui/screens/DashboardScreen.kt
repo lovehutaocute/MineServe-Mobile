@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -26,6 +27,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -72,12 +74,13 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()
     val consoleLines by vm.consoleLines.collectAsState()
+    val isInstalling by vm.isInstalling.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    var isInstalling by remember { mutableStateOf(false) }
     var isStarting by remember { mutableStateOf(false) }
     var isStopping by remember { mutableStateOf(false) }
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     // 收集 errorFlow 和 messageFlow，显示 Snackbar
     LaunchedEffect(Unit) {
@@ -198,11 +201,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Button(
                     onClick = {
-                        isInstalling = true
                         vm.installDependencies()
-                        scope.launch {
-                            isInstalling = false
-                        }
                     },
                     enabled = !isInstalling && isBootstrapped,
                     colors = ButtonDefaults.buttonColors(containerColor = Indigo),
@@ -226,6 +225,22 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
                     )
+                }
+
+                // 删除运行环境按钮（仅在环境就绪且非安装中时显示）
+                if (isBootstrapped && !isInstalling) {
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { showDeleteConfirm = true },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            "删除 Termux 运行环境",
+                            color = Coral,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
                 }
             }
 
@@ -354,6 +369,38 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+
+        // 删除运行环境确认对话框
+        if (showDeleteConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteConfirm = false },
+                title = { Text("删除运行环境", fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        "将删除 Termux 运行环境（包括所有已安装的依赖包和缓存），删除后会自动重新下载和初始化。此操作不可撤销。",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteConfirm = false
+                            vm.deleteBootstrap()
+                        }
+                    ) {
+                        Text("确认删除", color = Coral, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showDeleteConfirm = false }
+                    ) {
+                        Text("取消", color = Muted)
+                    }
+                }
+            )
         }
     }
 }

@@ -13,7 +13,7 @@ import java.io.RandomAccessFile
 /**
  * 命令执行器（Termux 原生模式，不依赖 proot）：
  *  - 直接用 rootfs 里的 bash 执行命令
- *  - 设置 LD_LIBRARY_PATH 指向 rootfs/usr/lib
+ *  - 设置 LD_LIBRARY_PATH 指向 rootfs/lib
  *  - 日志通过文件监视实现（替代 LocalSocket）
  */
 class CommandExecutor(private val installer: BootstrapInstaller) {
@@ -45,15 +45,26 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
     /** Termux 环境变量 */
     fun termuxEnv(): Map<String, String> {
         val prefix = installer.rootDir.absolutePath
+        val caBundle = "$prefix/etc/ssl/certs/ca-certificates.crt"
         return mapOf(
             "HOME" to "$prefix/home",
-            "PATH" to "$prefix/usr/bin:$prefix/bin:$prefix/usr/bin/applets:$prefix/usr/libexec:/system/bin:/system/xbin",
-            "TMPDIR" to "$prefix/usr/tmp",
-            "LD_LIBRARY_PATH" to "$prefix/usr/lib:$prefix/lib:/system/lib64",
-            "PREFIX" to "$prefix/usr",
+            "PATH" to "$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
+            "TMPDIR" to "$prefix/tmp",
+            "LD_LIBRARY_PATH" to "$prefix/lib:/system/lib64",
+            "PREFIX" to "$prefix",
             "TERM" to "xterm-256color",
             "LANG" to "en_US.UTF-8",
-            "COLORTERM" to "true"
+            "COLORTERM" to "true",
+            "APT_CONFIG" to "$prefix/etc/apt/apt.conf",
+            "DPKG_ADMINDIR" to "$prefix/var/lib/dpkg",
+            "DPKG_CONFIGDIR" to "$prefix/etc/dpkg/dpkg.cfg.d",
+            "DEBIAN_FRONTEND" to "noninteractive",
+            // SSL 证书：让 apt 的 https 方法驱动、curl、wget 等能找到 CA 证书
+            "SSL_CERT_FILE" to caBundle,
+            "CURL_CA_BUNDLE" to caBundle,
+            "REQUESTS_CA_BUNDLE" to caBundle,
+            "SSL_CERT_DIR" to "$prefix/etc/ssl/certs",
+            "GIT_SSL_CAINFO" to caBundle
         )
     }
 
@@ -63,13 +74,21 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         Log.d(TAG, "execOnce: ${full.joinToString(" ").take(200)}")
         val pb = ProcessBuilder(full).apply {
             redirectErrorStream(true)
+            // stdin 重定向到 /dev/null，避免 apt-get/dpkg 等命令阻塞等待用户输入
+            redirectInput(File("/dev/null"))
             directory(File(installer.rootDir, "home/server").apply { mkdirs() })
             environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }
         }
         val process = pb.start()
+        // 确保关闭进程的 stdin（某些情况下 redirectInput 不生效）
+        process.outputStream.close()
         BufferedReader(InputStreamReader(process.inputStream)).useLines { seq ->
-            seq.forEach { line -> _consoleFlow.tryEmit(line) }
+            seq.forEach { line ->
+                _consoleFlow.tryEmit(line)
+                // 同时输出到 logcat 便于调试
+                Log.d(TAG, "  | $line")
+            }
         }
         return process.waitFor()
     }

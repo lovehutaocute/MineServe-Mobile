@@ -30,31 +30,41 @@ class McServerController(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    @Volatile
+    private var isInstalling = false
+
     /**
      * 一键安装依赖
      */
     suspend fun installDependencies() = withContext(Dispatchers.IO) {
-        // 先确保 Termux 环境已初始化
-        if (!termux.isReady()) {
-            throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
-        }
-        val steps = InstallStep.values()
-        steps.forEachIndexed { idx, step ->
-            repo.markStep(step, StepStatus.Active, idx * 25)
-            val code = when (step) {
-                InstallStep.Jdk -> termux.execOnce("apt-get", "install", "-y", "openjdk-17")
-                InstallStep.Tmux -> termux.execOnce("apt-get", "install", "-y", "tmux")
-                InstallStep.Wget -> termux.execOnce("apt-get", "install", "-y", "wget")
-                InstallStep.Frp -> termux.execOnce("apt-get", "install", "-y", "frp")
+        // 防止并发调用（ViewModel 和 start() 可能同时调用）
+        if (isInstalling) return@withContext false
+        isInstalling = true
+        try {
+            // 先确保 Termux 环境已初始化
+            if (!termux.isReady()) {
+                throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
             }
-            if (code == 0) {
-                repo.markStep(step, StepStatus.Done, (idx + 1) * 25)
-            } else {
-                repo.markStep(step, StepStatus.Wait, idx * 25)
-                return@withContext false
+            val steps = InstallStep.values()
+            steps.forEachIndexed { idx, step ->
+                repo.markStep(step, StepStatus.Active, idx * 25)
+                val code = when (step) {
+                    InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-17")
+                    InstallStep.Tmux -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "tmux")
+                    InstallStep.Wget -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "wget")
+                    InstallStep.Frp -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
+                }
+                if (code == 0) {
+                    repo.markStep(step, StepStatus.Done, (idx + 1) * 25)
+                } else {
+                    repo.markStep(step, StepStatus.Wait, idx * 25)
+                    return@withContext false
+                }
             }
+            true
+        } finally {
+            isInstalling = false
         }
-        true
     }
 
     /**
@@ -211,7 +221,10 @@ class McServerController(
             throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
         }
         if (!repo.serverState.value.isInstallComplete) {
-            installDependencies()
+            val ok = installDependencies()
+            if (!ok) {
+                throw RuntimeException("依赖安装失败，请先安装依赖后再启动服务器")
+            }
             downloadCore(config)
         }
         termux.startMc(
