@@ -16,6 +16,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -56,7 +58,7 @@ class McServerController(
             steps.forEachIndexed { idx, step ->
                 repo.markStep(step, StepStatus.Active, idx * 33)
                 val code = when (step) {
-                    InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-17")
+                    InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25")
                     InstallStep.Wget -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "wget")
                     InstallStep.Frp -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
                 }
@@ -75,19 +77,12 @@ class McServerController(
 
     /**
      * 下载服务端核心（生产化：4 种核心动态解析 API）
-     * 下载到 /home/server/server.jar
+     * 下载到 serverJarFile（home/server/server.jar），使用 Java HTTP 直下载，不依赖 wget
      */
     suspend fun downloadCore(config: McConfig) = withContext(Dispatchers.IO) {
-        // 在 APP 层（Java HTTP）解析真实下载 URL，再通过 proot 内的 wget 下载
-        val url = resolveDownloadUrl(config.selectedCore, config.mcVersion)
-        val code = termux.execOnce(
-            "wget", "-q", "--show-progress",
-            "-O", "/home/server/server.jar",
-            url
-        )
-        if (code != 0) {
-            throw RuntimeException("Failed to download server core: exit code $code")
-        }
+        // 在 APP 层（Java HTTP）解析真实下载 URL，直接下载文件
+        val jarPath = termux.serverJarFile.absolutePath
+        downloadCoreTo(jarPath, config)
     }
 
     /**
@@ -107,27 +102,54 @@ class McServerController(
         }
     }
 
-    // ── PaperMC：动态获取最新 SUCCESS build 号 ──────────────────────
+    // ── PaperMC v3 API（fill.papermc.io）：动态获取最新 STABLE build 号 ───
 
     private fun resolvePaperUrl(version: String): String {
-        val buildsUrl = "https://api.papermc.io/v2/projects/paper/versions/$version/builds"
-        val resp = fetchJson(buildsUrl)
-        val builds = resp["builds"]?.jsonArray
-            ?: throw RuntimeException("PaperMC: no builds for version $version")
+        // v3 API：返回 builds 数组，每个 build 有 channel（STABLE/ALPHA/BETA/RECOMMENDED）和 downloads.server:default.url
+        val buildsUrl = "https://fill.papermc.io/v3/projects/paper/versions/$version/builds"
+        val builds = fetchJsonElement(buildsUrl).jsonArray
+        if (builds.isEmpty()) {
+            throw RuntimeException("PaperMC v3: no builds for version $version")
+        }
 
-        var latestBuild = -1
+        // 优先级：STABLE > RECOMMENDED > BETA > ALPHA
+        // 在同一 channel 中选 id 最大的（最新）
+        val channelPriority = mapOf("STABLE" to 4, "RECOMMENDED" to 3, "BETA" to 2, "ALPHA" to 1)
+        var bestEntry: JsonObject? = null
+        var bestPriority = 0
+        var bestId = -1
+
         for (entry in builds) {
             val obj = entry.jsonObject
-            val buildNum = obj["build"]?.jsonPrimitive?.content?.toIntOrNull() ?: continue
-            val result = obj["result"]?.jsonPrimitive?.content
-            if (result == "SUCCESS" && buildNum > latestBuild) {
-                latestBuild = buildNum
+            val channel = obj["channel"]?.jsonPrimitive?.content ?: continue
+            val id = obj["id"]?.jsonPrimitive?.content?.toIntOrNull() ?: continue
+            val priority = channelPriority[channel] ?: 0
+            if (priority > bestPriority || (priority == bestPriority && id > bestId)) {
+                // 确保有 server:default 下载
+                val hasServer = obj["downloads"]?.jsonObject
+                    ?.get("server:default")?.jsonObject != null
+                if (hasServer) {
+                    bestPriority = priority
+                    bestId = id
+                    bestEntry = obj
+                }
             }
         }
-        if (latestBuild < 0) {
-            throw RuntimeException("PaperMC: no successful build for version $version")
+
+        if (bestEntry == null) {
+            // 兜底：取数组第一个
+            bestEntry = builds.first().jsonObject
         }
-        return "https://api.papermc.io/v2/projects/paper/versions/$version/builds/$latestBuild/downloads/paper-$version-$latestBuild.jar"
+
+        val downloadUrl = bestEntry!!["downloads"]?.jsonObject
+            ?.get("server:default")?.jsonObject
+            ?.get("url")?.jsonPrimitive?.content
+            ?: throw RuntimeException("PaperMC v3: no server download URL for version $version")
+
+        val buildId = bestEntry["id"]?.jsonPrimitive?.content ?: "?"
+        val channel = bestEntry["channel"]?.jsonPrimitive?.content ?: "?"
+        Log.i(TAG, "PaperMC v3: selected build $buildId (channel=$channel) for $version")
+        return downloadUrl
     }
 
     // ── Mojang Vanilla：version_manifest_v2.json → 版本 JSON → server.jar URL ─
@@ -221,13 +243,21 @@ class McServerController(
     }
 
     private fun fetchPaperVersions(): List<String> {
-        // PaperMC 项目信息 API
-        val resp = fetchJson("https://api.papermc.io/v2/projects/paper")
-        val versions = resp["versions"]?.jsonArray
+        // PaperMC v3 API：返回 {versions: {major: [subversions]}}，需平铺
+        val resp = fetchJson("https://fill.papermc.io/v3/projects/paper")
+        val versionsObj = resp["versions"]?.jsonObject
             ?: return DEFAULT_MC_VERSIONS
-        return versions.map { it.jsonPrimitive.content }
-            .filter { it.isNotEmpty() }
-            .sortedDescending()
+        val allVersions = mutableListOf<String>()
+        versionsObj.forEach { (_, subVersions) ->
+            subVersions.jsonArray.forEach { v ->
+                val verStr = v.jsonPrimitive.content
+                // 过滤掉 rc/pre 等非正式版
+                if (verStr.isNotEmpty() && !verStr.contains("rc") && !verStr.contains("pre")) {
+                    allVersions.add(verStr)
+                }
+            }
+        }
+        return allVersions.sortedDescending()
     }
 
     private fun fetchVanillaVersions(): List<String> {
@@ -252,39 +282,124 @@ class McServerController(
 
     /**
      * 下载服务端核心到指定路径（独立方法，供 DownloadScreen 调用）。
+     * 使用 Java HTTP 直接下载，不依赖 Termux 的 wget 命令。
      * 成功后更新 config.downloadedCore 和 downloadedVersion。
      */
     suspend fun downloadCoreTo(jarPath: String, config: McConfig) = withContext(Dispatchers.IO) {
         val url = resolveDownloadUrl(config.selectedCore, config.mcVersion)
-        Log.i(TAG, "downloadCore: core=${config.selectedCore}, version=${config.mcVersion}, url=$url")
-        val code = termux.execOnce(
-            "wget", "-q", "--show-progress",
-            "-O", jarPath,
-            url
-        )
-        if (code != 0) {
-            throw RuntimeException("下载失败: wget exit code $code")
+        Log.i(TAG, "downloadCoreTo: core=${config.selectedCore}, version=${config.mcVersion}, url=$url")
+        termux.emitLog("[download] 开始下载 ${config.selectedCore.displayName} ${config.mcVersion}")
+        termux.emitLog("[download] URL: $url")
+        termux.emitLog("[download] 保存路径: $jarPath")
+
+        val outFile = File(jarPath)
+        outFile.parentFile?.mkdirs()
+
+        var lastError: Exception? = null
+        // 重试 3 次
+        repeat(3) { attempt ->
+            val conn = URL(url).openConnection() as HttpURLConnection
+            try {
+                conn.connectTimeout = 30_000
+                conn.readTimeout = 60_000
+                conn.instanceFollowRedirects = true
+                conn.setRequestProperty("User-Agent", "MCServerManager/1.0 (https://github.com/mcserver-manager)")
+
+                val code = conn.responseCode
+                if (code != 200) {
+                    val errBody = try { conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) } catch (_: Exception) { null }
+                    Log.w(TAG, "downloadCoreTo attempt ${attempt + 1}: HTTP $code, body=$errBody")
+                    termux.emitLog("[download] 第 ${attempt + 1} 次尝试失败: HTTP $code")
+                    throw RuntimeException("HTTP $code: ${conn.responseMessage}")
+                }
+
+                val totalBytes = conn.contentLengthLong
+                var downloadedBytes = 0L
+                var lastProgressLog = 0L
+                val startTime = System.currentTimeMillis()
+
+                conn.inputStream.use { input ->
+                    FileOutputStream(outFile).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer, 0, read)
+                            downloadedBytes += read
+
+                            // 每 5MB 输出一次进度日志
+                            if (downloadedBytes - lastProgressLog >= 5 * 1024 * 1024) {
+                                lastProgressLog = downloadedBytes
+                                val percent = if (totalBytes > 0) "${(downloadedBytes * 100 / totalBytes)}%" else "?%"
+                                val speedMB = if (System.currentTimeMillis() > startTime) {
+                                    String.format("%.2f", downloadedBytes / 1024.0 / 1024.0 / ((System.currentTimeMillis() - startTime) / 1000.0))
+                                } else "0"
+                                termux.emitLog("[download] 进度: $percent (${downloadedBytes / 1024 / 1024}MB / ${totalBytes / 1024 / 1024}MB, ${speedMB}MB/s)")
+                            }
+                        }
+                    }
+                }
+
+                // 校验文件大小
+                val fileSize = outFile.length()
+                if (fileSize < 1024) {
+                    throw RuntimeException("下载文件过小 ($fileSize 字节)，可能下载失败")
+                }
+                termux.emitLog("[download] 下载完成: ${fileSize / 1024 / 1024}MB")
+
+                // 持久化已下载信息
+                repo.saveConfig(config.copy(
+                    downloadedCore = config.selectedCore,
+                    downloadedVersion = config.mcVersion
+                ))
+                Log.i(TAG, "downloadCoreTo: success, saved to $jarPath (${fileSize} bytes)")
+                return@withContext
+            } catch (e: Exception) {
+                Log.w(TAG, "downloadCoreTo attempt ${attempt + 1} failed: ${e.message}")
+                termux.emitLog("[download] 第 ${attempt + 1} 次失败: ${e.message}")
+                lastError = e
+                if (attempt < 2) {
+                    termux.emitLog("[download] 等待 ${1500L * (attempt + 1)}ms 后重试...")
+                    try { Thread.sleep(1500L * (attempt + 1)) } catch (_: InterruptedException) {}
+                }
+            } finally {
+                conn.disconnect()
+            }
         }
-        // 持久化已下载信息
-        repo.saveConfig(config.copy(
-            downloadedCore = config.selectedCore,
-            downloadedVersion = config.mcVersion
-        ))
-        Log.i(TAG, "downloadCore: success, saved to $jarPath")
+        throw RuntimeException("下载失败（已重试3次）: ${lastError?.message}")
     }
 
     private fun fetchJsonElement(urlStr: String): JsonElement {
-        val conn = URL(urlStr).openConnection() as HttpURLConnection
-        conn.connectTimeout = 15_000
-        conn.readTimeout = 30_000
-        conn.setRequestProperty("User-Agent", "MCServerManager/1.0 (https://github.com/mcserver-manager)")
-        conn.setRequestProperty("Accept", "application/json")
-        try {
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            return json.parseToJsonElement(body)
-        } finally {
-            conn.disconnect()
+        var lastError: Exception? = null
+        // 重试 3 次，每次增加超时时间
+        repeat(3) { attempt ->
+            val conn = URL(urlStr).openConnection() as HttpURLConnection
+            try {
+                conn.connectTimeout = 15_000 + attempt * 10_000
+                conn.readTimeout = 30_000 + attempt * 10_000
+                conn.setRequestProperty("User-Agent", "MCServerManager/1.0 (https://github.com/mcserver-manager)")
+                conn.setRequestProperty("Accept", "application/json")
+                conn.instanceFollowRedirects = true
+
+                val code = conn.responseCode
+                if (code != 200) {
+                    val errBody = try { conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) } catch (_: Exception) { null }
+                    Log.w(TAG, "fetchJsonElement attempt ${attempt + 1}: HTTP $code for $urlStr, body=$errBody")
+                    throw RuntimeException("HTTP $code: ${conn.responseMessage}")
+                }
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                return json.parseToJsonElement(body)
+            } catch (e: Exception) {
+                Log.w(TAG, "fetchJsonElement attempt ${attempt + 1} failed: ${e.message}")
+                lastError = e
+                if (attempt < 2) {
+                    try { Thread.sleep(1500L * (attempt + 1)) } catch (_: InterruptedException) {}
+                }
+            } finally {
+                conn.disconnect()
+            }
         }
+        throw lastError ?: RuntimeException("fetchJsonElement failed: $urlStr")
     }
 
     /**
@@ -324,10 +439,17 @@ class McServerController(
 
     /**
      * 实际启动 MC 进程（内部方法，供 start 和崩溃重启调用）
+     * 使用 termux.serverJarFile 的绝对路径，避免相对路径解析错误
      */
     private suspend fun launchMc(config: McConfig) {
+        // 使用 Termux 沙盒内的绝对路径
+        val jarPath = termux.serverJarFile.absolutePath
+        // 检查 server.jar 是否存在
+        if (!termux.serverJarFile.exists()) {
+            throw RuntimeException("server.jar 不存在，请先在「下载」Tab 下载服务端核心")
+        }
         termux.startMc(
-            jarPath = "/home/server/server.jar",
+            jarPath = jarPath,
             maxHeapMb = config.maxHeapMb,
             onExit = { code ->
                 repo.updateServerState { it.copy(isRunning = false) }

@@ -115,7 +115,7 @@ fun DownloadScreen(vm: McViewModel) {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "下载路径：/home/server/server.jar",
+                    "下载路径：应用内 home/server/server.jar（自动保存）",
                     color = Muted,
                     fontSize = 11.sp
                 )
@@ -223,13 +223,13 @@ fun DownloadScreen(vm: McViewModel) {
                     )
                 } else {
                     Text(
-                        "将下载 ${config.selectedCore.displayName} ${config.mcVersion} 到 /home/server/server.jar",
+                        "将下载 ${config.selectedCore.displayName} ${config.mcVersion} 到应用沙盒目录",
                         color = Muted,
                         fontSize = 11.sp
                     )
                     Spacer(Modifier.height(12.dp))
                     Button(
-                        onClick = { vm.downloadCore("/home/server/server.jar") },
+                        onClick = { vm.downloadCore() },
                         enabled = !isDownloadingCore,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(12.dp),

@@ -121,9 +121,10 @@ class TermuxRuntime(context: Context) {
         if (!ok) return false
 
         onProgress(BootstrapInstaller.InstallPhase.POST_SETUP, 92)
-        installer.onLog?.invoke("[bootstrap] 安装依赖包（JDK/wget）...")
+        installer.onLog?.invoke("[bootstrap] 安装依赖包（JDK-25/wget）...")
         executor.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
-        executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-17", "wget", "curl")
+        // 安装 openjdk-25：Paper 26.x / MC 26.1+ 要求 Java 25+，openjdk-17 已不够
+        executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25", "wget", "curl")
         executor.execOnce("apt-get", "clean")
 
         // 修复 openjdk-17 符号链接：dpkg-wrapper 的 configure 是 no-op，
@@ -152,16 +153,18 @@ class TermuxRuntime(context: Context) {
     private fun fixJavaSymlinks() {
         val prefix = installer.rootDir.absolutePath
 
-        // 查找 jvm 实际目录（两个候选位置）
+        // 查找 jvm 实际目录（优先 java-25-openjdk，回退 java-21/17）
         val jvmCandidates = listOf(
-            File(prefix, "lib/jvm/java-17-openjdk"),
-            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk"),
+            File(prefix, "lib/jvm/java-25-openjdk"),
+            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-25-openjdk"),
             File(prefix, "lib/jvm/java-21-openjdk"),
-            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-21-openjdk")
+            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-21-openjdk"),
+            File(prefix, "lib/jvm/java-17-openjdk"),
+            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk")
         )
         val jvmDir = jvmCandidates.firstOrNull { it.exists() }
         if (jvmDir == null) {
-            installer.onLog?.invoke("[bootstrap] 警告: 未找到 openjdk-17 安装目录，跳过符号链接修复")
+            installer.onLog?.invoke("[bootstrap] 警告: 未找到 openjdk 安装目录，跳过符号链接修复")
             Log.w(TAG, "fixJavaSymlinks: jvmDir not found in candidates: ${jvmCandidates.map { it.absolutePath }}")
             return
         }
@@ -254,7 +257,7 @@ class TermuxRuntime(context: Context) {
 
         // 探测 java 实际路径并自动修复符号链接
         val javaPath = ensureJavaReady() ?: run {
-            emitLog("[startMc] 错误: java 未找到，openjdk-17 可能未安装。请删除 Termux 环境后重新初始化")
+            emitLog("[startMc] 错误: java 未找到，openjdk 可能未安装。请删除 Termux 环境后重新初始化")
             throw RuntimeException("java not found in Termux environment")
         }
         Log.i(TAG, "startMc: resolved java path = $javaPath")
@@ -265,9 +268,21 @@ class TermuxRuntime(context: Context) {
         val jvmBinDir = File(javaPath).parentFile?.absolutePath ?: "$prefix/bin"
         // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，文件实际落在此处
         val compatUsr = "$prefix/data/data/com.termux/files/usr"
-        val jvmLibDir = File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath ?: "$prefix/lib/jvm/java-17-openjdk/lib"
+        // jvmLibDir：从 javaPath 推导其父目录的 lib 子目录（javaPath = .../bin/java → 父=bin → 父=jvm目录 → lib）
+        val jvmLibDir = File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath ?: "$prefix/lib/jvm/java-25-openjdk/lib"
+        // 兜底：包含所有可能的 jvm lib 目录（java-25/21/17），兼容已安装的多个 JDK
+        val allJvmLibs = listOf(
+            "$prefix/lib/jvm/java-25-openjdk/lib",
+            "$prefix/lib/jvm/java-25-openjdk/lib/server",
+            "$prefix/lib/jvm/java-21-openjdk/lib",
+            "$prefix/lib/jvm/java-21-openjdk/lib/server",
+            "$prefix/lib/jvm/java-17-openjdk/lib",
+            "$prefix/lib/jvm/java-17-openjdk/lib/server",
+            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/lib",
+            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/lib/server"
+        ).joinToString(":")
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$jvmLibDir:$jvmLibDir/server:$prefix/lib/jvm/java-17-openjdk/lib:$prefix/lib/jvm/java-17-openjdk/lib/server:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
             "export TMPDIR='$prefix/tmp'; " +
@@ -362,10 +377,10 @@ class TermuxRuntime(context: Context) {
 
     /**
      * 探测 java 可执行文件路径。
-     * 优先级：
+     * 优先级：java-25 > java-21 > java-17，覆盖各 MC 版本需求。
      * 1. $PREFIX/bin/java（dpkg post-install 正常情况下存在）
-     * 2. $PREFIX/lib/jvm/java-17-openjdk/bin/java（openjdk-17 实际安装位置）
-     * 3. $PREFIX/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/java
+     * 2. $PREFIX/lib/jvm/java-{25,21,17}-openjdk/bin/java
+     * 3. $PREFIX/data/data/com.termux/files/usr/lib/jvm/java-{25,21,17}-openjdk/bin/java
      *    （dpkg-deb -x 解压 deb 包时，由于 compat 符号链接被覆盖，文件落在了此路径）
      * 4. 通过 find 命令查找
      * 找不到时返回 "java"，让 shell 报错（便于诊断）
@@ -374,12 +389,14 @@ class TermuxRuntime(context: Context) {
         // 候选路径列表（含 compat 目录下的实际路径）
         val candidates = listOf(
             "$prefix/bin/java",
-            "$prefix/lib/jvm/java-17-openjdk/bin/java",
+            "$prefix/lib/jvm/java-25-openjdk/bin/java",
             "$prefix/lib/jvm/java-21-openjdk/bin/java",
+            "$prefix/lib/jvm/java-17-openjdk/bin/java",
             // deb 解压实际落点：compat 符号链接被 deb 内的目录结构覆盖后，
             // 文件实际解到了 $PREFIX/data/data/com.termux/files/usr/...
-            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/java",
+            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/bin/java",
             "$prefix/data/data/com.termux/files/usr/lib/jvm/java-21-openjdk/bin/java",
+            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/java",
             "/system/bin/java"
         )
         for (path in candidates) {

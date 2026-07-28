@@ -311,8 +311,8 @@ class McViewModel(
         }
     }
 
-    /** 下载服务端核心到指定路径，成功返回 true */
-    fun downloadCore(jarPath: String) {
+    /** 下载服务端核心（使用 Controller 内部统一路径），成功返回 true */
+    fun downloadCore() {
         if (!isBootstrapped.value) {
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
@@ -321,8 +321,8 @@ class McViewModel(
         _isDownloadingCore.value = true
         viewModelScope.launch {
             try {
-                controller.downloadCoreTo(jarPath, config.value)
-                _messageFlow.tryEmit("服务端核心下载完成: $jarPath")
+                controller.downloadCore(config.value)
+                _messageFlow.tryEmit("服务端核心下载完成")
             } catch (e: Exception) {
                 _errorFlow.tryEmit("服务端核心下载失败: ${e.message}")
             } finally {
