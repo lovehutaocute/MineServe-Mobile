@@ -61,9 +61,6 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-/** MC 常用版本列表 */
-private val MC_VERSIONS = listOf("1.21.4", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5")
-
 /**
  * 概览页：完全对齐参考界面 hero + 安装步骤 + 核心选择 + 启停按钮
  * 插件与端口字段拆到对应 Tab，但概览页提供入口按钮（参考界面把插件/端口也放在首页）
@@ -247,35 +244,64 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 }
             }
 
-            // 选择服务端核心
-            McCard(title = "选择服务端核心") {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ServerCore.values().forEach { core ->
-                        SegPill(
-                            text = core.displayName,
-                            selected = config.selectedCore == core,
-                            onClick = { vm.selectCore(core) }
-                        )
+            // 启动哪个服务端（显示已下载的核心信息）
+            McCard(title = "启动服务端") {
+                val downloaded = config.downloadedCore != null
+                if (downloaded) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Mint.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("✓", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "${config.downloadedCore?.displayName} ${config.downloadedVersion}",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "已下载，可点击下方启动按钮运行",
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(IndigoSoft),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("↓", color = Indigo, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "尚未下载服务端核心",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "请切换到「下载」Tab 下载服务端核心",
+                                color = Muted,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Text("MC 版本", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(6.dp))
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MC_VERSIONS.forEach { ver ->
-                        SegPill(
-                            text = ver,
-                            selected = config.mcVersion == ver,
-                            onClick = { vm.setMcVersion(ver) }
-                        )
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    "当前选择：${config.selectedCore.displayName} · ${config.mcVersion}",
-                    color = Muted,
-                    fontSize = 11.sp
-                )
             }
 
             // 启停控制

@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mcserver.manager.ui.screens.BackupScreen
 import com.mcserver.manager.ui.screens.DashboardScreen
+import com.mcserver.manager.ui.screens.DownloadScreen
 import com.mcserver.manager.ui.screens.LogsScreen
 import com.mcserver.manager.ui.screens.NetworkScreen
 import com.mcserver.manager.ui.screens.PluginsScreen
@@ -70,6 +71,7 @@ fun McApp() {
             } else {
                 when (tab) {
                     McTab.Dashboard -> DashboardScreen(vm = vm, onShowLogs = { showLogs = true })
+                    McTab.Download -> DownloadScreen(vm = vm)
                     McTab.Plugins -> PluginsScreen(vm = vm)
                     McTab.Network -> NetworkScreen(vm = vm)
                     McTab.Backup -> BackupScreen(vm = vm)

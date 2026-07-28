@@ -277,7 +277,7 @@ fun SegPill(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit = {}
+    onClick: () -> Unit
 ) {
     Box(
         modifier = modifier

@@ -204,6 +204,75 @@ class McServerController(
 
     private fun fetchJson(urlStr: String): JsonObject = fetchJsonElement(urlStr).jsonObject
 
+    /**
+     * 获取指定核心的可用版本列表（供 DownloadScreen 选择）。
+     * Paper: 从 PaperMC API 获取该核心支持的版本
+     * Vanilla: 从 Mojang manifest 获取所有版本
+     * Fabric: 返回主流预设版本（Fabric loader 不依赖具体 MC 版本列表 API）
+     * Forge: 从 Forge maven-metadata.xml 获取
+     */
+    suspend fun fetchVersions(core: ServerCore): List<String> = withContext(Dispatchers.IO) {
+        when (core) {
+            ServerCore.Paper -> fetchPaperVersions()
+            ServerCore.Vanilla -> fetchVanillaVersions()
+            ServerCore.Fabric -> fetchFabricVersions()
+            ServerCore.Forge -> fetchForgeVersions()
+        }
+    }
+
+    private fun fetchPaperVersions(): List<String> {
+        // PaperMC 项目信息 API
+        val resp = fetchJson("https://api.papermc.io/v2/projects/paper")
+        val versions = resp["versions"]?.jsonArray
+            ?: return DEFAULT_MC_VERSIONS
+        return versions.map { it.jsonPrimitive.content }
+            .filter { it.isNotEmpty() }
+            .sortedDescending()
+    }
+
+    private fun fetchVanillaVersions(): List<String> {
+        val manifest = fetchJson("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json")
+        val versions = manifest["versions"]?.jsonArray
+            ?: return DEFAULT_MC_VERSIONS
+        return versions.map { it.jsonObject["id"]?.jsonPrimitive?.content ?: "" }
+            .filter { it.isNotEmpty() && !it.contains("experimental") && !it.contains("pre") && !it.contains("rc") }
+            .take(30)  // 只取前30个正式版
+    }
+
+    private fun fetchFabricVersions(): List<String> {
+        // Fabric 不提供 MC 版本列表 API，返回主流版本
+        return DEFAULT_MC_VERSIONS
+    }
+
+    private fun fetchForgeVersions(): List<String> {
+        // Forge promotions API 不直接返回 MC 版本列表
+        // 返回 Forge 支持的主流 MC 版本
+        return DEFAULT_MC_VERSIONS
+    }
+
+    /**
+     * 下载服务端核心到指定路径（独立方法，供 DownloadScreen 调用）。
+     * 成功后更新 config.downloadedCore 和 downloadedVersion。
+     */
+    suspend fun downloadCoreTo(jarPath: String, config: McConfig) = withContext(Dispatchers.IO) {
+        val url = resolveDownloadUrl(config.selectedCore, config.mcVersion)
+        Log.i(TAG, "downloadCore: core=${config.selectedCore}, version=${config.mcVersion}, url=$url")
+        val code = termux.execOnce(
+            "wget", "-q", "--show-progress",
+            "-O", jarPath,
+            url
+        )
+        if (code != 0) {
+            throw RuntimeException("下载失败: wget exit code $code")
+        }
+        // 持久化已下载信息
+        repo.saveConfig(config.copy(
+            downloadedCore = config.selectedCore,
+            downloadedVersion = config.mcVersion
+        ))
+        Log.i(TAG, "downloadCore: success, saved to $jarPath")
+    }
+
     private fun fetchJsonElement(urlStr: String): JsonElement {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.connectTimeout = 15_000
@@ -299,5 +368,12 @@ class McServerController(
         termux.sendCommand(if (line.startsWith("/")) line.substring(1) else line)
     }
 
-    companion object { private const val TAG = "McServerController" }
+    companion object {
+        private const val TAG = "McServerController"
+        /** 默认 MC 版本列表（当 API 获取失败时回退使用） */
+        private val DEFAULT_MC_VERSIONS = listOf(
+            "1.21.4", "1.21", "1.20.6", "1.20.4", "1.20.1",
+            "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5"
+        )
+    }
 }

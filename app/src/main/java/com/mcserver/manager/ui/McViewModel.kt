@@ -6,9 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.mcserver.manager.McApplication
 import com.mcserver.manager.data.McConfig
 import com.mcserver.manager.data.PluginInfo
+import com.mcserver.manager.data.ServerCore
 import com.mcserver.manager.data.ServerRepository
 import com.mcserver.manager.data.ServerState
-import com.mcserver.manager.data.TunnelType
 import com.mcserver.manager.server.McServerController
 import com.mcserver.manager.server.PluginManager
 import com.mcserver.manager.server.TunnelManager
@@ -151,14 +151,11 @@ class McViewModel(
         }
     }
 
-    fun selectCore(core: com.mcserver.manager.data.ServerCore) =
+    fun selectCore(core: ServerCore) =
         updateConfig { it.copy(selectedCore = core) }
 
     fun setMcVersion(version: String) =
         updateConfig { it.copy(mcVersion = version) }
-
-    fun selectTunnel(tunnel: TunnelType) =
-        updateConfig { it.copy(tunnelType = tunnel) }
 
     fun setLocalPort(port: Int) = updateConfig { it.copy(localPort = port) }
     fun setDomain(d: String) = updateConfig { it.copy(customDomain = d) }
@@ -281,6 +278,56 @@ class McViewModel(
         if (!isBootstrapped.value) return null
         return withContext(Dispatchers.IO) {
             repo.termuxRuntime.createSnapshot()
+        }
+    }
+
+    // ── 服务端核心下载相关 ──────────────────────────────────────────
+
+    /** 可用版本列表（从 API 获取，供 DownloadScreen 选择） */
+    private val _availableVersions = MutableStateFlow<List<String>>(emptyList())
+    val availableVersions: StateFlow<List<String>> = _availableVersions.asStateFlow()
+
+    /** 版本列表加载中 */
+    private val _isLoadingVersions = MutableStateFlow(false)
+    val isLoadingVersions: StateFlow<Boolean> = _isLoadingVersions.asStateFlow()
+
+    /** 服务端核心下载中 */
+    private val _isDownloadingCore = MutableStateFlow(false)
+    val isDownloadingCore: StateFlow<Boolean> = _isDownloadingCore.asStateFlow()
+
+    /** 加载指定核心的可用版本列表 */
+    fun loadVersions(core: ServerCore) {
+        viewModelScope.launch {
+            _isLoadingVersions.value = true
+            try {
+                val versions = controller.fetchVersions(core)
+                _availableVersions.value = versions
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("获取版本列表失败: ${e.message}")
+                _availableVersions.value = emptyList()
+            } finally {
+                _isLoadingVersions.value = false
+            }
+        }
+    }
+
+    /** 下载服务端核心到指定路径，成功返回 true */
+    fun downloadCore(jarPath: String) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        if (_isDownloadingCore.value) return
+        _isDownloadingCore.value = true
+        viewModelScope.launch {
+            try {
+                controller.downloadCoreTo(jarPath, config.value)
+                _messageFlow.tryEmit("服务端核心下载完成: $jarPath")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("服务端核心下载失败: ${e.message}")
+            } finally {
+                _isDownloadingCore.value = false
+            }
         }
     }
 

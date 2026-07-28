@@ -84,7 +84,7 @@ fun NetworkScreen(vm: McViewModel) {
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "当前方式：${config.tunnelType.displayName}，端口 ${config.localPort} → ${config.customDomain}",
+                "穿透方式：frp（仅支持），端口 ${config.localPort} → ${config.customDomain}",
                 color = Muted,
                 fontSize = 11.sp
             )
