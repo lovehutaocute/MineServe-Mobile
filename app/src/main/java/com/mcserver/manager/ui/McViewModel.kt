@@ -24,6 +24,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.Inet4Address
+import java.net.NetworkInterface
 
 /**
  * 顶层共享 ViewModel：
@@ -78,6 +80,48 @@ class McViewModel(
     /** 依赖安装中状态，UI 层据此控制按钮和加载动画 */
     private val _isInstalling = MutableStateFlow(false)
     val isInstalling: StateFlow<Boolean> = _isInstalling.asStateFlow()
+
+    /** 局域网 IP（IPv4，非 loopback），用于 Network Tab 展示和一键复制 */
+    private val _lanIp = MutableStateFlow("--")
+    val lanIp: StateFlow<String> = _lanIp.asStateFlow()
+
+    /** 刷新局域网 IP：在 IO 线程遍历网络接口，取第一个非 loopback 的 IPv4 地址 */
+    fun refreshLanIp() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _lanIp.value = queryLanIp()
+        }
+    }
+
+    private fun queryLanIp(): String {
+        return try {
+            NetworkInterface.getNetworkInterfaces()
+                .asSequence()
+                .filter { it.isUp && !it.isLoopback }
+                .flatMap { it.inetAddresses.asSequence() }
+                .filterIsInstance<Inet4Address>()
+                .filter { !it.isLoopbackAddress }
+                .map { it.hostAddress ?: "" }
+                .firstOrNull { it.isNotEmpty() }
+                ?: "--"
+        } catch (e: Exception) {
+            "--"
+        }
+    }
+
+    /** 一键复制服务器连接地址到剪贴板，格式：IP:端口 */
+    fun copyServerAddress(context: android.content.Context) {
+        val ip = _lanIp.value
+        val port = config.value.localPort
+        val address = if (ip == "--") {
+            _errorFlow.tryEmit("无法获取局域网 IP，请确认已连接 WiFi")
+            return
+        } else {
+            "$ip:$port"
+        }
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Server", address))
+        _messageFlow.tryEmit("已复制：$address")
+    }
 
     init {
         // 订阅 consoleFlow 并缓存最近 1000 行供 LogsPage 展示，同时解析运行时状态
