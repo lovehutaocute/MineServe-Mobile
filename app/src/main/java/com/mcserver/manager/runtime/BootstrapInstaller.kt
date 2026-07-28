@@ -409,9 +409,11 @@ class BootstrapInstaller(private val context: Context) {
             "var/log/apt"
         ).forEach { File(rootDir, it).mkdirs() }
 
-        // 强制覆盖 apt 源（ZIP 自带的 sources.list 用 https，改用 http 避免证书问题）
+        // 强制覆盖 apt 源
+        // packages.termux.dev 会 301 重定向到 https，导致 https 方法驱动卡在 SSL 握手
+        // 使用清华镜像（支持 http 且不重定向），阿里云备选
         File(rootDir, "etc/apt/sources.list").writeText(
-            "deb http://packages.termux.dev/apt/termux-main stable main\n"
+            "deb http://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main\n"
         )
 
         // 创建 apt.conf 覆盖所有编译路径（apt/dpkg 默认指向 /data/data/com.termux/files/usr/）
@@ -454,6 +456,11 @@ class BootstrapInstaller(private val context: Context) {
             appendLine("APT::Get::AllowUnauthenticated \"true\";")
             appendLine("APT::Sandbox::User \"root\";")
             appendLine("APT::Sandbox::Seccomp \"false\";")
+            // 网络超时：防止 https 方法驱动卡在 SSL 握手时无限等待
+            appendLine("Acquire::http::Timeout \"30\";")
+            appendLine("Acquire::https::Timeout \"30\";")
+            // 禁止 http -> https 重定向跟随（packages.termux.dev 会 301 到 https）
+            appendLine("Acquire::http::Redirect::https \"false\";")
         })
 
         // 创建 dpkg status 文件
@@ -608,6 +615,23 @@ exit 0
 """
                 File(rootDir, "bin/gpgv").writeText(gpgvScript)
                 File(rootDir, "bin/gpgv").setExecutable(true, false)
+            }
+
+            // 处理 lib/apt/methods/gpgv（apt-get update 验证签名时调用此路径，而非 bin/gpgv）
+            // 该文件是独立二进制，不跟随 bin/gpgv 的符号链接，需要单独替换
+            val methodsGpgvReal = File(rootDir, "lib/apt/methods/gpgv.real")
+            val methodsGpgvBin = File(rootDir, "lib/apt/methods/gpgv")
+            if (methodsGpgvBin.exists() && !methodsGpgvReal.exists()) {
+                methodsGpgvBin.renameTo(methodsGpgvReal)
+                methodsGpgvReal.setExecutable(true, false)
+            }
+            if (methodsGpgvReal.exists()) {
+                val methodsGpgvScript = """#!/system/bin/sh
+# gpgv method wrapper: 绕过 InRelease/Release 签名验证
+exit 0
+"""
+                File(rootDir, "lib/apt/methods/gpgv").writeText(methodsGpgvScript)
+                File(rootDir, "lib/apt/methods/gpgv").setExecutable(true, false)
             }
 
             // 创建 apt-key 包装脚本
