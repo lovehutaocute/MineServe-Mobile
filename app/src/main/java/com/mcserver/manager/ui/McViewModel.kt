@@ -773,6 +773,14 @@ class McViewModel(
     private val _bannedPlayers = MutableStateFlow<List<PlayerManager.BannedEntry>>(emptyList())
     val bannedPlayers: StateFlow<List<PlayerManager.BannedEntry>> = _bannedPlayers.asStateFlow()
 
+    /** 白名单开关状态（由 server.properties 的 white-list 控制） */
+    private val _whitelistEnabled = MutableStateFlow(false)
+    val whitelistEnabled: StateFlow<Boolean> = _whitelistEnabled.asStateFlow()
+
+    /** 在线玩家名列表（从日志解析） */
+    private val _onlinePlayerNames = MutableStateFlow<List<String>>(emptyList())
+    val onlinePlayerNames: StateFlow<List<String>> = _onlinePlayerNames.asStateFlow()
+
     /** 刷新玩家数据（OP/白名单/封禁列表） */
     fun refreshPlayers() {
         if (!isBootstrapped.value) return
@@ -783,6 +791,9 @@ class McViewModel(
                     _ops.value = playerManager.readOps(dirName)
                     _whitelist.value = playerManager.readWhitelist(dirName)
                     _bannedPlayers.value = playerManager.readBanned(dirName)
+                    // 同步白名单开关状态（从 server.properties 读取）
+                    val props = propertiesManager.readProperties(dirName)
+                    _whitelistEnabled.value = props["white-list"]?.equals("true", ignoreCase = true) == true
                 }
             } catch (e: Exception) {
                 _errorFlow.tryEmit("刷新玩家数据失败: ${e.message}")
@@ -790,52 +801,115 @@ class McViewModel(
         }
     }
 
+    /**
+     * 命令发送后延迟刷新，等待 MC 完成回写 JSON 文件
+     * @param msg 操作成功消息
+     * @param refresh 是否需要刷新列表（kick 不改列表无需刷新）
+     */
+    private fun afterCmd(sent: Boolean, msg: String, refresh: Boolean = true) {
+        if (!sent) {
+            _errorFlow.tryEmit("服务器未运行，无法发送命令")
+            return
+        }
+        _messageFlow.tryEmit(msg)
+        if (refresh) {
+            viewModelScope.launch {
+                delay(600)  // 等待 MC 处理命令并回写 JSON
+                refreshPlayers()
+            }
+        }
+    }
+
     fun opPlayer(name: String) {
         if (name.isBlank()) return
-        playerManager.opPlayer(name)
-        _messageFlow.tryEmit("已发送 OP 命令: $name")
-        viewModelScope.launch { refreshPlayers() }
+        val sent = playerManager.opPlayer(name)
+        afterCmd(sent, "已为 $name 添加 OP")
+    }
+
+    /** 设置 OP 并指定等级（1-4） */
+    fun opPlayerWithLevel(name: String, level: Int) {
+        if (name.isBlank()) return
+        val sent = playerManager.opPlayerWithLevel(name, level)
+        afterCmd(sent, "已为 $name 设置 OP（等级 $level）")
     }
 
     fun deopPlayer(name: String) {
         if (name.isBlank()) return
-        playerManager.deopPlayer(name)
-        _messageFlow.tryEmit("已取消 OP: $name")
-        viewModelScope.launch { refreshPlayers() }
+        val sent = playerManager.deopPlayer(name)
+        afterCmd(sent, "已取消 $name 的 OP")
     }
 
     fun whitelistAdd(name: String) {
         if (name.isBlank()) return
-        playerManager.whitelistAdd(name)
-        _messageFlow.tryEmit("已添加白名单: $name")
-        viewModelScope.launch { refreshPlayers() }
+        val sent = playerManager.whitelistAdd(name)
+        afterCmd(sent, "已将 $name 加入白名单")
     }
 
     fun whitelistRemove(name: String) {
         if (name.isBlank()) return
-        playerManager.whitelistRemove(name)
-        _messageFlow.tryEmit("已移除白名单: $name")
-        viewModelScope.launch { refreshPlayers() }
+        val sent = playerManager.whitelistRemove(name)
+        afterCmd(sent, "已将 $name 移出白名单")
     }
 
-    fun kickPlayer(name: String, reason: String = "Kicked by admin") {
+    /** 切换白名单开关 */
+    fun toggleWhitelist(enabled: Boolean) {
+        val sent = if (enabled) playerManager.whitelistOn() else playerManager.whitelistOff()
+        if (sent) {
+            _whitelistEnabled.value = enabled
+            _messageFlow.tryEmit(if (enabled) "白名单已开启" else "白名单已关闭")
+        } else {
+            _errorFlow.tryEmit("服务器未运行，无法切换白名单")
+        }
+    }
+
+    fun kickPlayer(name: String, reason: String = "") {
         if (name.isBlank()) return
-        playerManager.kickPlayer(name, reason)
-        _messageFlow.tryEmit("已踢出玩家: $name")
+        val sent = playerManager.kickPlayer(name, reason)
+        afterCmd(sent, "已踢出 $name", refresh = false)
     }
 
     fun banPlayer(name: String, reason: String = "Banned by admin") {
         if (name.isBlank()) return
-        playerManager.banPlayer(name, reason)
-        _messageFlow.tryEmit("已封禁玩家: $name")
-        viewModelScope.launch { refreshPlayers() }
+        val sent = playerManager.banPlayer(name, reason)
+        afterCmd(sent, "已永久封禁 $name")
+    }
+
+    /** 限时封禁 */
+    fun tempBanPlayer(name: String, duration: String, reason: String = "") {
+        if (name.isBlank() || duration.isBlank()) return
+        val sent = playerManager.tempBanPlayer(name, duration, reason)
+        afterCmd(sent, "已限时封禁 $name（$duration）")
     }
 
     fun pardonPlayer(name: String) {
         if (name.isBlank()) return
-        playerManager.pardonPlayer(name)
-        _messageFlow.tryEmit("已解除封禁: $name")
-        viewModelScope.launch { refreshPlayers() }
+        val sent = playerManager.pardonPlayer(name)
+        afterCmd(sent, "已解除 $name 的封禁")
+    }
+
+    /** 请求在线玩家列表（发送 list 命令） */
+    fun requestOnlinePlayers() {
+        val sent = playerManager.requestOnlineList()
+        if (sent) {
+            _messageFlow.tryEmit("已请求在线玩家列表，结果将显示在日志中")
+        } else {
+            _errorFlow.tryEmit("服务器未运行")
+        }
+    }
+
+    /** 设置玩家游戏模式 */
+    fun setGameMode(name: String, mode: Int) {
+        if (name.isBlank()) return
+        val sent = playerManager.setGameMode(name, mode)
+        val modeName = when (mode) { 0 -> "生存"; 1 -> "创造"; 2 -> "冒险"; 3 -> "旁观"; else -> "未知" }
+        afterCmd(sent, "已将 $name 设为$modeName 模式", refresh = false)
+    }
+
+    /** 给玩家经验 */
+    fun giveXp(name: String, amount: Int) {
+        if (name.isBlank() || amount <= 0) return
+        val sent = playerManager.giveXp(name, amount)
+        afterCmd(sent, "已给予 $name $amount 经验", refresh = false)
     }
 
     // ── 崩溃报告 ────────────────────────────────────────────────────
