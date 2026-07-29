@@ -390,12 +390,29 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     // ── cloudflared 启动 ──────────────────────────────────────
 
+    /**
+     * Cloudflare 边缘节点 IP（固定，用于绕过 DNS 解析）
+     * 这些是 Cloudflare 公开的 anycast IP，cloudflared --edge 参数接受
+     */
+    private val cloudflareEdgeIps = listOf(
+        "198.41.192.7:80",
+        "198.41.192.47:80",
+        "198.41.200.7:80",
+        "198.41.200.47:80"
+    )
+
     private suspend fun startCloudflared(config: McConfig, binary: String) {
+        val env = mapOf("GODEBUG" to "netdns=go")
+
         if (config.cloudflareQuickTunnel) {
             termux.emitLog("[tunnel] 启动 cloudflared Quick Tunnel，本地端口 ${config.localPort}")
-            val (cmd, env) = buildTunnelCommand(binary,
-                "tunnel", "--url", "tcp://localhost:${config.localPort}")
-            val process = termux.execRaw("tunnel", *cmd, env = env)
+            // Quick Tunnel 用 --edge 参数指定 Cloudflare 边缘节点 IP，绕过 DNS
+            // cloudflared 连接 Cloudflare 边缘后，边缘服务器会分配 *.trycloudflare.com 域名
+            val edgeArg = cloudflareEdgeIps.joinToString(",")
+            termux.emitLog("[tunnel] 使用 --edge 参数绕过 DNS: $edgeArg")
+            val process = termux.execRaw("tunnel", env = env,
+                binary, "tunnel", "--edge", edgeArg,
+                "--url", "tcp://localhost:${config.localPort}")
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, "")
         } else {
@@ -413,125 +430,15 @@ class TunnelManager(private val termux: TermuxRuntime) {
             termux.emitLog("[tunnel] cloudflared Named Tunnel 配置已写入，域名: $domain")
             termux.emitLog("[tunnel] 注意: 需将凭证文件 mc-tunnel.json 放到 ${tunnelDir.absolutePath}/")
 
-            val (cmd, env) = buildTunnelCommand(binary,
-                "tunnel", "--config", configFile.absolutePath, "run")
-            val process = termux.execRaw("tunnel", *cmd, env = env)
+            // Named Tunnel 同样用 --edge 绕过 DNS
+            val edgeArg = cloudflareEdgeIps.joinToString(",")
+            termux.emitLog("[tunnel] 使用 --edge 参数绕过 DNS: $edgeArg")
+            val process = termux.execRaw("tunnel", env = env,
+                binary, "tunnel", "--edge", edgeArg,
+                "--config", configFile.absolutePath, "run")
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, domain)
         }
-    }
-
-    /**
-     * 构造隧道启动命令，解决 Go 二进制的 DNS 问题。
-     *
-     * 策略（按优先级）：
-     * 1. 直接写 /etc/resolv.conf（部分 Android 设备 /etc 可写）→ 直接运行二进制
-     * 2. proot 绑定 linker64 + resolv.conf → proot 包装运行
-     *    关键：Go PIE 二进制有 PT_INTERP=/lib/ld-linux-aarch64.so.1，
-     *    proot 找不到该解释器。绑定 Android 的 /system/bin/linker64 到该路径即可。
-     *    （linker64 是 Android 原生链接器，能正确加载 Go PIE 二进制）
-     * 3. 无 proot → 直接运行，DNS 可能失败
-     *
-     * @return (完整命令数组, 环境变量)
-     */
-    private suspend fun buildTunnelCommand(
-        binary: String, vararg args: String
-    ): Pair<Array<String>, Map<String, String>> {
-        val env = mapOf("GODEBUG" to "netdns=go")
-        val resolvContent = "nameserver 8.8.8.8\nnameserver 1.1.1.1\n"
-
-        // 方案1：尝试直接写 /etc/resolv.conf
-        try {
-            File("/etc/resolv.conf").writeText(resolvContent)
-            termux.emitLog("[tunnel] DNS: 已直接写入 /etc/resolv.conf")
-            return arrayOf(binary, *args) to env
-        } catch (e: Exception) {
-            termux.emitLog("[tunnel] DNS: /etc/resolv.conf 不可写，尝试 proot 方案")
-        }
-
-        // 方案2：proot 绑定 linker64 + resolv.conf
-        val prootPath = ensureProot()
-        if (prootPath != null) {
-            val resolvFile = File(termux.installer.rootDir, "etc/resolv.conf").apply {
-                parentFile?.mkdirs()
-                writeText(resolvContent)
-            }
-            // 设备架构对应的 ld-linux 解释器路径
-            val linkerPaths = if (archSuffix == "arm64") {
-                listOf("/lib/ld-linux-aarch64.so.1", "/lib/ld-musl-aarch64.so.1")
-            } else {
-                listOf("/lib64/ld-linux-x86-64.so.2", "/lib/ld-linux.so.2")
-            }
-            val androidLinker = if (archSuffix == "arm64") "/system/bin/linker64" else "/system/bin/linker64"
-
-            val cmd = mutableListOf(prootPath)
-            // 绑定 Android linker64 到 Go 二进制期望的 ld-linux 路径
-            for (linkerPath in linkerPaths) {
-                cmd.addAll(listOf("-b", "$androidLinker:$linkerPath"))
-            }
-            // 绑定 resolv.conf
-            cmd.addAll(listOf("-b", "${resolvFile.absolutePath}:/etc/resolv.conf"))
-            // 绑定 /system（提供系统库）
-            cmd.addAll(listOf("-b", "/system:/system"))
-            // 二进制和参数
-            cmd.add(binary)
-            cmd.addAll(args)
-
-            termux.emitLog("[tunnel] DNS: 使用 proot 绑定 linker64 + resolv.conf")
-            return cmd.toTypedArray() to env
-        }
-
-        // 方案3：无 proot，DNS 可能失败
-        termux.emitLog("[tunnel] DNS: 无 proot 可用，DNS 解析可能失败（建议 apt install proot 或改用 frp）")
-        return arrayOf(binary, *args) to env
-    }
-
-    /** 检测 Termux 环境中是否安装了 proot，返回可执行路径或 null */
-    private fun detectProot(): String? {
-        // proot 可能装在多个位置（参考 openjdk 的安装路径模式）：
-        // - $PREFIX/bin/proot（符号链接）
-        // - $PREFIX/usr/bin/proot
-        // - $PREFIX/data/data/com.termux/files/usr/bin/proot（dpkg 实际解压位置）
-        val root = termux.installer.rootDir
-        val candidates = listOf(
-            File(root, "bin/proot"),
-            File(root, "usr/bin/proot"),
-            File(root, "data/data/com.termux/files/usr/bin/proot")
-        )
-        val found = candidates.firstOrNull { it.exists() && it.canExecute() }
-        if (found == null) {
-            // 调试：列出 bin/ 目录下的 proot* 文件，帮助定位
-            val binDir = File(root, "bin")
-            val prootFiles = binDir.listFiles()?.filter { it.name.startsWith("proot") }?.map { it.name } ?: emptyList()
-            Log.w(TAG, "detectProot: 未找到 proot，bin/ 下相关文件: $prootFiles")
-            val usrBin = File(root, "data/data/com.termux/files/usr/bin")
-            val usrProotFiles = usrBin.listFiles()?.filter { it.name.startsWith("proot") }?.map { it.name } ?: emptyList()
-            Log.w(TAG, "detectProot: usr/bin/ 下相关文件: $usrProotFiles")
-        }
-        return found?.absolutePath
-    }
-
-    /**
-     * 确保 proot 已安装。若未检测到则自动通过 apt 安装。
-     * @return proot 可执行路径，安装失败返回 null
-     */
-    private suspend fun ensureProot(): String? {
-        detectProot()?.let { return it }
-        // 自动安装 proot
-        termux.emitLog("[tunnel] 未检测到 proot，正在自动安装...")
-        val code = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "proot")
-        if (code != 0) {
-            termux.emitLog("[tunnel] proot 自动安装失败 (code=$code)")
-            return null
-        }
-        val path = detectProot()
-        if (path == null) {
-            termux.emitLog("[tunnel] proot 安装后仍未检测到，正在用 find 搜索...")
-            // 用 find 全局搜索 proot 二进制位置
-            val findResult = termux.execOnce("find", termux.installer.rootDir.absolutePath, "-name", "proot", "-type", "f")
-            termux.emitLog("[tunnel] find 搜索完成 (code=$findResult)，详见日志")
-        }
-        return path
     }
 
     // ── ngrok 启动 ────────────────────────────────────────────
@@ -571,8 +478,11 @@ class TunnelManager(private val termux: TermuxRuntime) {
                 }
             }
         }
-        // 使用统一的 buildTunnelCommand 处理 DNS（同 cloudflared）
-        val (cmd, env) = buildTunnelCommand(binary, *ngrokArgs.toTypedArray())
+        // ngrok 直接运行（不用 proot），DNS 可能失败
+        // ngrok 的 config 命令也需要 DNS，如果 authtoken 设置失败说明 DNS 有问题
+        val env = mapOf("GODEBUG" to "netdns=go")
+        val cmd = arrayOf(binary, *ngrokArgs.toTypedArray())
+        termux.emitLog("[tunnel] ngrok 直接运行（Android DNS 限制可能导致失败，建议用 cloudflared --edge 或 frp）")
         val process = termux.execRaw("tunnel", *cmd, env = env)
         tunnelProcess = process
         startMonitorThread(process, config.tunnelType, "")
