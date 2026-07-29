@@ -122,19 +122,17 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
             HeroBlock(state = state, coreLabel = coreLabel)
 
-            // 下载速度显示组件（常驻显示，根据当前阶段展示对应内容）
-            DownloadSpeedBar(
-                isBootstrapping = !isBootstrapped,
-                isInstalling = isInstalling,
-                isDownloadingCore = vm.isDownloadingCore.value,
-                bootstrapProgress = state.currentProgress,
-                downloadProgress = downloadProgress,
-                onShowHelp = onShowDownloadHelp
-            )
-
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
                 McCard(title = "初始化运行环境") {
+                    // 下载提示行（卡片内顶部）
+                    DownloadHintHeader(
+                        isBusy = true,
+                        busyText = "正在下载并解压 Termux 环境（${state.currentProgress}%）",
+                        idleText = "下载 Termux 运行环境（约 50MB）",
+                        onShowHelp = onShowDownloadHelp
+                    )
+                    Spacer(Modifier.height(8.dp))
                     if (bootstrapError != null) {
                         // 失败时显示错误和重试按钮
                         Text(
@@ -213,6 +211,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     )
                 }
             ) {
+                // 下载提示行（卡片内顶部）
+                DownloadHintHeader(
+                    isBusy = isInstalling,
+                    busyText = "正在通过 apt 下载 JDK / wget / frp",
+                    idleText = "通过 apt 安装 openjdk / wget / frp 等依赖",
+                    onShowHelp = onShowDownloadHelp
+                )
+                Spacer(Modifier.height(8.dp))
                 state.installSteps.forEachIndexed { idx, step ->
                     val tag = when (step.status) {
                         com.mcserver.manager.data.StepStatus.Done -> "已完成"
@@ -513,213 +519,56 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
 }
 
 /**
- * 下载速度显示条（常驻显示）
+ * 下载提示行（嵌入卡片内顶部使用）
  *
- * 根据当前阶段展示不同内容：
- *  - 下载核心中：速度 + 已下载/总大小 + 进度条
- *  - 初始化环境中：初始化进度百分比 + 进度条
- *  - 安装依赖中：安装中提示 + 进度条（不确定）
- *  - 空闲时：仅显示"下载慢?查看解决方式"按钮
- *
- * "下载慢?查看解决方式"按钮始终可见，随时可跳转帮助页
+ * 简洁的一行布局：左侧状态文字（含下载中旋转图标），右侧"下载慢?查看解决方式"按钮。
+ * - isBusy=true 时显示 busyText + 旋转图标
+ * - isBusy=false 时显示 idleText + 下载图标
  */
 @Composable
-private fun DownloadSpeedBar(
-    isBootstrapping: Boolean,
-    isInstalling: Boolean,
-    isDownloadingCore: Boolean,
-    bootstrapProgress: Int,
-    downloadProgress: com.mcserver.manager.ui.McViewModel.DownloadProgress,
+private fun DownloadHintHeader(
+    isBusy: Boolean,
+    busyText: String,
+    idleText: String,
     onShowHelp: () -> Unit
 ) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(IndigoSoft.copy(alpha = 0.4f))
-            .padding(12.dp)
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // 主内容区（根据状态展示）
-        if (isDownloadingCore) {
-            // 下载核心中：显示速度 + 进度
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Indigo.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("↓", color = Indigo, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.size(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        downloadProgress.speedText,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Indigo
-                    )
-                    Text(
-                        "${downloadProgress.downloadedText} / ${downloadProgress.totalText}",
-                        color = Muted,
-                        fontSize = 11.sp
-                    )
-                }
-                Text(
-                    "${downloadProgress.percent}%",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Indigo
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = downloadProgress.percent / 100f,
-                modifier = Modifier.fillMaxWidth(),
+        // 左侧：状态图标 + 文字
+        if (isBusy) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(14.dp),
                 color = Indigo,
-                trackColor = IndigoSoft
-            )
-        } else if (isBootstrapping) {
-            // 初始化环境中：显示初始化进度
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Indigo.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = Indigo,
-                        strokeWidth = 2.dp
-                    )
-                }
-                Spacer(Modifier.size(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "正在初始化运行环境",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Indigo
-                    )
-                    Text(
-                        "下载并解压 Termux 环境（$bootstrapProgress%）",
-                        color = Muted,
-                        fontSize = 11.sp
-                    )
-                }
-                Text(
-                    "$bootstrapProgress%",
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Indigo
-                )
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                progress = bootstrapProgress / 100f,
-                modifier = Modifier.fillMaxWidth(),
-                color = Indigo,
-                trackColor = IndigoSoft
-            )
-        } else if (isInstalling) {
-            // 安装依赖中
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Indigo.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(16.dp),
-                        color = Indigo,
-                        strokeWidth = 2.dp
-                    )
-                }
-                Spacer(Modifier.size(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "正在安装依赖",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Indigo
-                    )
-                    Text(
-                        "通过 apt 下载安装 JDK/wget/frp 等",
-                        color = Muted,
-                        fontSize = 11.sp
-                    )
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            LinearProgressIndicator(
-                modifier = Modifier.fillMaxWidth(),
-                color = Indigo,
-                trackColor = IndigoSoft
+                strokeWidth = 2.dp
             )
         } else {
-            // 空闲状态：显示提示
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Indigo.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Indigo.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("↓", color = Indigo, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.size(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        "下载中心",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Indigo
-                    )
-                    Text(
-                        "初始化环境、安装依赖、下载核心时将显示实时速度",
-                        color = Muted,
-                        fontSize = 11.sp
-                    )
-                }
+                Text("↓", color = Indigo, fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
         }
-
-        // "下载慢?查看解决方式" 文字按钮（始终显示）
-        Spacer(Modifier.height(8.dp))
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { onShowHelp() }
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "下载慢?查看解决方式",
-                color = Indigo,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(" →", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-        }
+        Spacer(Modifier.size(8.dp))
+        Text(
+            if (isBusy) busyText else idleText,
+            color = if (isBusy) Indigo else Muted,
+            fontSize = 11.sp,
+            fontWeight = if (isBusy) FontWeight.SemiBold else FontWeight.Normal,
+            modifier = Modifier.weight(1f)
+        )
+        // 右侧：下载慢?查看解决方式
+        Text(
+            "下载慢?查看解决方式 →",
+            color = Indigo,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.clickable { onShowHelp() }
+        )
     }
 }
