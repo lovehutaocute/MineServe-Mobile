@@ -2,7 +2,11 @@ package com.mcserver.manager.runtime
 
 import android.content.Context
 import android.util.Log
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -25,7 +29,7 @@ import java.util.zip.ZipOutputStream
  */
 class TermuxRuntime(context: Context) {
 
-    private val installer = BootstrapInstaller(context)
+    internal val installer = BootstrapInstaller(context)
     private val executor = CommandExecutor(installer)
 
     /** MC 服务器进程（null 表示未启动） */
@@ -51,16 +55,21 @@ class TermuxRuntime(context: Context) {
     fun isReady(): Boolean = installer.isReady()
 
     /** 删除整个 Termux 运行环境 */
-    fun deleteBootstrap() {
+    suspend fun deleteBootstrap() {
         stopMc()
         installer.deleteBootstrap()
     }
 
-    /** MC 服务端 jar 文件路径（home/server/server.jar） */
-    val serverJarFile: File get() = File(installer.rootDir, "home/server/server.jar").apply { parentFile?.mkdirs() }
+    /** 多核心支持：按文件夹名获取对应核心的 jar 路径（home/servers/{dirName}/server.jar） */
+    fun serverJarFileFor(dirName: String): File =
+        File(installer.rootDir, "home/servers/$dirName/server.jar").apply { parentFile?.mkdirs() }
 
-    /** MC 服务端工作目录（home/server） */
-    val serverDir: File get() = File(installer.rootDir, "home/server").apply { mkdirs() }
+    /** 多核心支持：按文件夹名获取对应核心的工作目录（home/servers/{dirName}/） */
+    fun serverDirFor(dirName: String): File =
+        File(installer.rootDir, "home/servers/$dirName").apply { mkdirs() }
+
+    /** 多核心基础目录（home/servers/） */
+    val serversDir: File get() = File(installer.rootDir, "home/servers").apply { mkdirs() }
 
     /**
      * 确保 java 命令可用（wrapper 脚本方案）。
@@ -111,14 +120,33 @@ class TermuxRuntime(context: Context) {
         executor.execStream(tag, *command, env = env)
 
     /**
+     * 启动长驻进程但不启动 reader 线程（调用方自行读取 stdout）。
+     * 用于 TunnelManager 等需要解析进程输出（如提取公网 URL）的场景，
+     * 避免 execStream 的 reader 线程与调用方同时读取同一 InputStream 导致数据竞争。
+     */
+    fun execRaw(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
+        executor.execRaw(tag, *command, env = env)
+
+    /**
      * 完整初始化流程：
      * 1. 下载 + 解压 Termux bootstrap rootfs
-     * 2. apt-get install openjdk-17 wget curl（不再安装 tmux）
-     * 3. 修复 openjdk-17 符号链接（dpkg-wrapper 跳过 configure 导致 post-install 未执行）
+     * 2. apt-get install openjdk-25 wget curl（不再安装 tmux）
+     * 3. 修复 openjdk 符号链接（dpkg-wrapper 跳过 configure 导致 post-install 未执行）
+     *
+     * 优化：环境已就绪时跳过依赖安装，避免后台重进应用时重复下载/安装。
      */
     suspend fun bootstrap(onProgress: (BootstrapInstaller.InstallPhase, Int) -> Unit): Boolean {
+        // 记录调用前是否已就绪，用于判断是否需要重新安装依赖
+        val wasReady = installer.isReady()
         val ok = installer.ensureInstalled(onProgress)
         if (!ok) return false
+
+        // 环境之前已就绪（非首次安装），跳过依赖安装与符号链接修复
+        if (wasReady) {
+            installer.onLog?.invoke("[bootstrap] 环境已就绪，跳过依赖安装")
+            onProgress(BootstrapInstaller.InstallPhase.DONE, 100)
+            return true
+        }
 
         onProgress(BootstrapInstaller.InstallPhase.POST_SETUP, 92)
         installer.onLog?.invoke("[bootstrap] 安装依赖包（JDK-25/wget）...")
@@ -127,8 +155,8 @@ class TermuxRuntime(context: Context) {
         executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25", "wget", "curl")
         executor.execOnce("apt-get", "clean")
 
-        // 修复 openjdk-17 符号链接：dpkg-wrapper 的 configure 是 no-op，
-        // openjdk-17 的 post-install 脚本未执行，导致 $PREFIX/bin/java 符号链接未创建
+        // 修复 openjdk 符号链接：dpkg-wrapper 的 configure 是 no-op，
+        // post-install 脚本未执行，导致 $PREFIX/bin/java 符号链接未创建
         fixJavaSymlinks()
 
         onProgress(BootstrapInstaller.InstallPhase.DONE, 100)
@@ -195,6 +223,7 @@ class TermuxRuntime(context: Context) {
 
         val commands = listOf("java", "javac", "jar", "jps", "keytool", "rmic", "rmiregistry")
         var created = 0
+        val createdPaths = mutableListOf<String>()
         for (cmd in commands) {
             val target = File(jvmBinDir, cmd)
             val wrapper = File(termuxBinDir, cmd)
@@ -206,9 +235,6 @@ class TermuxRuntime(context: Context) {
                 wrapper.delete()
             }
             try {
-                // 创建 wrapper 脚本：设置 LD_LIBRARY_PATH 和 JAVA_HOME，exec 原始二进制
-                // 注意：$libPathEntries 是 Kotlin 变量（已展开），不用追加 shell 的 $LD_LIBRARY_PATH
-                // （单引号内不会被 shell 展开；且 wrapper 已包含所有必需路径）
                 val script = StringBuilder().apply {
                     append("#!/system/bin/sh\n")
                     append("export LD_LIBRARY_PATH='$libPathEntries'\n")
@@ -216,22 +242,25 @@ class TermuxRuntime(context: Context) {
                     append("exec '$target' \"$@\"\n")
                 }.toString()
                 wrapper.writeText(script)
-                // 设置可执行权限
-                val chmodCmd = "chmod 755 '$wrapper'"
-                val pb = ProcessBuilder("/system/bin/sh", "-c", chmodCmd)
-                pb.redirectErrorStream(true)
-                val proc = pb.start()
-                val out = proc.inputStream.bufferedReader().readText().trim()
-                val exitCode = proc.waitFor()
-                if (exitCode == 0) {
-                    created++
-                    Log.i(TAG, "fixJavaSymlinks: wrapper created $cmd -> $target")
-                } else {
-                    installer.onLog?.invoke("[bootstrap] 警告: chmod $cmd 失败: $out")
-                    Log.w(TAG, "fixJavaSymlinks: chmod $cmd failed: $out")
-                }
+                createdPaths.add(wrapper.absolutePath)
+                created++
             } catch (e: Exception) {
                 installer.onLog?.invoke("[bootstrap] 警告: 创建 $cmd wrapper 异常: ${e.message}")
+            }
+        }
+        // 一次性 chmod 所有 wrapper 脚本，避免逐个 fork-exec
+        if (createdPaths.isNotEmpty()) {
+            val chmodCmd = "chmod 755 ${createdPaths.joinToString(" ") { "'$it'" }}"
+            val pb = ProcessBuilder("/system/bin/sh", "-c", chmodCmd)
+            pb.redirectErrorStream(true)
+            val proc = pb.start()
+            val out = proc.inputStream.bufferedReader().readText().trim()
+            val exitCode = proc.waitFor()
+            if (exitCode == 0) {
+                Log.i(TAG, "fixJavaSymlinks: created $created wrappers (batch chmod)")
+            } else {
+                installer.onLog?.invoke("[bootstrap] 警告: batch chmod 失败: $out")
+                Log.w(TAG, "fixJavaSymlinks: batch chmod failed: $out")
             }
         }
         installer.onLog?.invoke("[bootstrap] openjdk-17 wrapper 脚本创建完成: $created 个命令已就绪")
@@ -243,15 +272,15 @@ class TermuxRuntime(context: Context) {
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
      * onExit 回调在 MC 进程退出时触发。
      */
-    fun startMc(jarPath: String, maxHeapMb: Int, onExit: (Int) -> Unit): Process {
-        Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m")
+    fun startMc(jarPath: String, maxHeapMb: Int, dirName: String, onExit: (Int) -> Unit): Process {
+        Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m dirName=$dirName")
 
         // 如果已有进程在运行，先停止
         mcProcess?.let { if (it.isAlive) return it }
 
         val prefix = installer.rootDir.absolutePath
-        val serverDir = File(installer.rootDir, "home/server").apply { mkdirs() }
-        val logFile = installer.logFile
+        val serverDir = serverDirFor(dirName)
+        val logFile = File(serverDir, "logs/latest.log")
         logFile.parentFile?.mkdirs()
         logFile.createNewFile()
 
@@ -305,17 +334,17 @@ class TermuxRuntime(context: Context) {
         // 后台线程读取 stdout，推送到 consoleFlow 并写入日志文件
         Thread({
             try {
-                val fos = FileOutputStream(logFile, true)
+                val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(
+                    java.io.FileOutputStream(logFile, true), Charsets.UTF_8), 8192)
                 val reader = process.inputStream.bufferedReader()
                 var line = reader.readLine()
                 while (line != null) {
                     executor.emit(line)
-                    fos.write((line + "\n").toByteArray())
-                    fos.flush()
-                    Log.d(TAG, "  [mc] $line")
+                    writer.appendLine(line)
+                    writer.flush()
                     line = reader.readLine()
                 }
-                fos.close()
+                writer.close()
             } catch (e: Exception) {
                 Log.w(TAG, "mc stdout reader error: ${e.message}")
             }
@@ -333,30 +362,32 @@ class TermuxRuntime(context: Context) {
         return process
     }
 
-    /** 停止 MC：向 stdin 发送 stop 命令，5 秒后强制 destroy */
-    fun stopMc(): Boolean {
-        val proc = mcProcess ?: return true
+    /** 停止 MC：向 stdin 发送 stop 命令，等待最多 5 秒后强制 destroy */
+    suspend fun stopMc(): Boolean = withContext(Dispatchers.IO) {
+        val proc = mcProcess ?: return@withContext true
         if (!proc.isAlive) {
             mcProcess = null
-            return true
+            return@withContext true
         }
-        // 先尝试优雅停止：发送 stop 命令到 stdin
         try {
             mcStdin?.write("stop\n".toByteArray())
             mcStdin?.flush()
         } catch (e: Exception) {
             Log.w(TAG, "stopMc: stdin write failed: ${e.message}")
         }
-        // 等待最多 5 秒
-        Thread.sleep(5000)
-        // 如果还在运行，强制销毁
+        // 轮询等待进程退出，最多 5 秒（不阻塞主线程）
+        val deadline = System.currentTimeMillis() + 5000
+        while (proc.isAlive && System.currentTimeMillis() < deadline) {
+            delay(100)
+        }
         if (proc.isAlive) {
             Log.w(TAG, "stopMc: process still alive, destroying")
             proc.destroyForcibly()
+            withTimeoutOrNull(3000) { while (proc.isAlive) delay(50) }
         }
         mcProcess = null
         mcStdin = null
-        return true
+        true
     }
 
     /** 向 MC 控制台发指令（写入 stdin） */
@@ -438,10 +469,11 @@ class TermuxRuntime(context: Context) {
     /**
      * 创建 world 目录快照（zip 打包）。
      * 快照保存到 /home/snapshots/world_yyyyMMdd_HHmmss.zip
+     * 创建后按 [maxSnapshots] 清理最旧的快照（0 表示不清理）。
      * 返回快照文件路径，失败返回 null。
      */
-    fun createSnapshot(): String? {
-        val worldDir = File(installer.rootDir, "home/server/world")
+    fun createSnapshot(maxSnapshots: Int = 0, dirName: String = "default"): String? {
+        val worldDir = File(installer.rootDir, "home/servers/$dirName/world")
         val snapshotDir = File(installer.rootDir, "home/snapshots").apply { mkdirs() }
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val outFile = File(snapshotDir, "world_$ts.zip")
@@ -465,10 +497,39 @@ class TermuxRuntime(context: Context) {
                 }
             }
             Log.i(TAG, "快照已创建: ${outFile.absolutePath} (${outFile.length()} 字节)")
+            // 按数量上限清理旧快照
+            if (maxSnapshots > 0) {
+                cleanupOldSnapshots(snapshotDir, maxSnapshots)
+            }
             outFile.absolutePath
         } catch (e: Exception) {
             Log.e(TAG, "createSnapshot failed: ${e.message}", e)
             null
+        }
+    }
+
+    /**
+     * 清理旧快照：按文件名时间戳倒序排列，保留最新的 [keepCount] 个，删除其余。
+     * 删除失败时记录警告但不影响主流程。
+     */
+    private fun cleanupOldSnapshots(snapshotDir: File, keepCount: Int) {
+        val files = snapshotDir.listFiles { f -> f.isFile && f.name.matches(Regex("world_\\d{8}_\\d{6}\\.zip")) }
+            ?: return
+        if (files.size <= keepCount) return
+        // 按文件名时间戳倒序（最新在前）
+        val sorted = files.sortedByDescending { it.name }
+        val toDelete = sorted.drop(keepCount)
+        var deleted = 0
+        for (f in toDelete) {
+            try {
+                if (f.delete()) deleted++
+                else Log.w(TAG, "cleanupOldSnapshots: 删除失败 ${f.name}")
+            } catch (e: Exception) {
+                Log.w(TAG, "cleanupOldSnapshots: 删除异常 ${f.name}: ${e.message}")
+            }
+        }
+        if (deleted > 0) {
+            Log.i(TAG, "cleanupOldSnapshots: 已清理 $deleted 个旧快照（保留 $keepCount 个）")
         }
     }
 

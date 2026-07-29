@@ -84,7 +84,7 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
             redirectErrorStream(true)
             // stdin 重定向到 /dev/null，避免 apt-get/dpkg 等命令阻塞等待用户输入
             redirectInput(File("/dev/null"))
-            directory(File(installer.rootDir, "home/server").apply { mkdirs() })
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
             environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }
         }
@@ -110,7 +110,7 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         Log.d(TAG, "execStream[$tag]: ${full.joinToString(" ").take(200)}")
         val pb = ProcessBuilder(full).apply {
             redirectErrorStream(true)
-            directory(File(installer.rootDir, "home/server").apply { mkdirs() })
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
             environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }
         }
@@ -125,6 +125,23 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
             }
         }, "exec-$tag-reader").start()
         return process
+    }
+
+    /**
+     * 启动长驻进程但不启动 reader 线程。
+     * 调用方需自行读取 [Process.getInputStream] 并处理输出。
+     * 用于 TunnelManager 等需要解析进程输出（提取公网 URL）的场景。
+     */
+    fun execRaw(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execRaw[$tag]: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        return pb.start()
     }
 
     /**

@@ -9,9 +9,14 @@ import com.mcserver.manager.data.PluginInfo
 import com.mcserver.manager.data.ServerCore
 import com.mcserver.manager.data.ServerRepository
 import com.mcserver.manager.data.ServerState
+import com.mcserver.manager.server.BackupManager
+import com.mcserver.manager.server.CrashReportManager
 import com.mcserver.manager.server.McServerController
+import com.mcserver.manager.server.PlayerManager
 import com.mcserver.manager.server.PluginManager
+import com.mcserver.manager.server.ServerPropertiesManager
 import com.mcserver.manager.server.TunnelManager
+import com.mcserver.manager.server.TunnelManager.TunnelStatus
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -21,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -41,13 +47,13 @@ class McViewModel(
 ) : ViewModel() {
 
     val config: StateFlow<McConfig> = repo.configFlow.stateIn(
-        viewModelScope, SharingStarted.Eagerly, McConfig()
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), McConfig()
     )
 
     val serverState: StateFlow<ServerState> = repo.serverState
 
     val plugins: StateFlow<List<PluginInfo>> = repo.pluginsFlow.stateIn(
-        viewModelScope, SharingStarted.Eagerly, emptyList()
+        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
     )
 
     /** Termux 环境是否初始化完成 */
@@ -69,6 +75,10 @@ class McViewModel(
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
 
+    /** 控制台行环形缓冲，避免每行 O(n) 拷贝 */
+    private val consoleBuffer = ArrayDeque<String>(1000)
+    private var consoleDirty = false
+
     /** 错误消息流，UI 层收集后用 Snackbar 显示 */
     private val _errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
     val errorFlow = _errorFlow.asSharedFlow()
@@ -84,6 +94,9 @@ class McViewModel(
     /** 局域网 IP（IPv4，非 loopback），用于 Network Tab 展示和一键复制 */
     private val _lanIp = MutableStateFlow("--")
     val lanIp: StateFlow<String> = _lanIp.asStateFlow()
+
+    /** 隧道运行状态（运行中 / 公网地址 / 错误信息），UI 层订阅展示 */
+    val tunnelState: StateFlow<TunnelManager.TunnelState> = tunnelManager.state
 
     /** 刷新局域网 IP：在 IO 线程遍历网络接口，取第一个非 loopback 的 IPv4 地址 */
     fun refreshLanIp() {
@@ -124,24 +137,59 @@ class McViewModel(
     }
 
     init {
-        // 订阅 consoleFlow 并缓存最近 1000 行供 LogsPage 展示，同时解析运行时状态
-        viewModelScope.launch {
+        // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
+        viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->
-                _consoleLines.value = (_consoleLines.value + line).takeLast(1000)
+                synchronized(consoleBuffer) {
+                    if (consoleBuffer.size >= 1000) consoleBuffer.removeFirst()
+                    consoleBuffer.addLast(line)
+                    consoleDirty = true
+                }
                 parseConsoleLine(line)
+            }
+        }
+        // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
+        viewModelScope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(100)
+                if (consoleDirty) {
+                    val snapshot: List<String> = synchronized(consoleBuffer) {
+                        consoleDirty = false
+                        consoleBuffer.toList()
+                    }
+                    _consoleLines.value = snapshot
+                }
+            }
+        }
+    }
+
+    companion object {
+        // 预编译正则，避免每行重新编译
+        private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
+        private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")
+
+        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T {
+                val app = McApplication.get()
+                val repo = app.repository
+                return McViewModel(
+                    repo = repo,
+                    controller = McServerController(repo.termuxRuntime, repo),
+                    pluginManager = PluginManager(repo.termuxRuntime, repo),
+                    tunnelManager = TunnelManager(repo.termuxRuntime)
+                ) as T
             }
         }
     }
 
     /**
      * 解析 MC 控制台输出，提取 TPS / 玩家数 / 启动状态等运行时信息。
-     * - "joined the game" / "left the game" → 实时玩家计数
-     * - "There are X of a max of Y players online" → list 命令输出
-     * - "TPS from last 1m..." → Paper tps 命令输出
-     * - "Done (...)" → 启动完成
+     * 使用快速前缀检查避免不必要的正则匹配。
      */
     private fun parseConsoleLine(line: String) {
         try {
+            // 快速前缀检查：只有包含关键子串的行才进一步处理
             when {
                 line.contains("joined the game") -> {
                     repo.updateServerState {
@@ -154,7 +202,7 @@ class McViewModel(
                     }
                 }
                 line.contains("players online") -> {
-                    val m = Regex("There are (\\d+) of a max of (\\d+) players online").find(line)
+                    val m = PLAYERS_REGEX.find(line)
                     if (m != null) {
                         val online = m.groupValues[1].toIntOrNull() ?: return
                         val max = m.groupValues[2].toIntOrNull() ?: return
@@ -162,7 +210,7 @@ class McViewModel(
                     }
                 }
                 line.contains("TPS from last 1m") -> {
-                    val m = Regex("TPS from last 1m.*?:\\s*([\\d.]+)").find(line)
+                    val m = TPS_REGEX.find(line)
                     if (m != null) {
                         val tps = m.groupValues[1].toDoubleOrNull() ?: return
                         val health = ((tps / 20.0) * 100).toInt().coerceIn(0, 100)
@@ -173,7 +221,6 @@ class McViewModel(
                     }
                 }
                 line.contains("Done (") && line.contains("For help") -> {
-                    // 服务器启动完成
                     repo.updateServerState {
                         it.copy(tps = 20.0, healthPercent = 100,
                             maxMemoryMb = config.value.maxHeapMb.toLong())
@@ -203,10 +250,15 @@ class McViewModel(
 
     fun setLocalPort(port: Int) = updateConfig { it.copy(localPort = port) }
     fun setDomain(d: String) = updateConfig { it.copy(customDomain = d) }
+    fun setTunnelType(type: com.mcserver.manager.data.TunnelType) = updateConfig { it.copy(tunnelType = type) }
     fun setMaxHeap(mb: Int) = updateConfig { it.copy(maxHeapMb = mb) }
     fun setAutoRestart(v: Boolean) = updateConfig { it.copy(autoRestartOnCrash = v) }
     fun setKeepWifiLock(v: Boolean) = updateConfig { it.copy(keepWifiLock = v) }
     fun setKeepCpuWakelock(v: Boolean) = updateConfig { it.copy(keepCpuWakelock = v) }
+    fun setDownloadMirror(mirror: com.mcserver.manager.data.DownloadMirror) =
+        updateConfig { it.copy(downloadMirror = mirror) }
+    fun setAptMirror(mirror: com.mcserver.manager.data.AptMirror) =
+        updateConfig { it.copy(aptMirror = mirror) }
 
     fun installDependencies() {
         if (!isBootstrapped.value) {
@@ -270,9 +322,13 @@ class McViewModel(
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
         }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            return
+        }
         viewModelScope.launch {
             try {
-                pluginManager.install(p)
+                pluginManager.install(p, dirName)
                 _messageFlow.tryEmit("${p.name} 安装完成")
             } catch (e: Exception) {
                 _errorFlow.tryEmit("${p.name} 安装失败: ${e.message}")
@@ -281,9 +337,13 @@ class McViewModel(
     }
 
     fun uninstallPlugin(p: PluginInfo) {
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            return
+        }
         viewModelScope.launch {
             try {
-                pluginManager.uninstall(p)
+                pluginManager.uninstall(p, dirName)
                 _messageFlow.tryEmit("${p.name} 卸载完成")
             } catch (e: Exception) {
                 _errorFlow.tryEmit("${p.name} 卸载失败: ${e.message}")
@@ -296,10 +356,27 @@ class McViewModel(
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
         }
+        if (tunnelState.value.status == TunnelStatus.Starting) {
+            _errorFlow.tryEmit("隧道正在启动中，请稍候...")
+            return
+        }
         viewModelScope.launch {
             try {
                 tunnelManager.start(config.value)
-                _messageFlow.tryEmit("内网穿透已启动")
+                // 根据启动结果反馈
+                val st = tunnelManager.state.value
+                when (st.status) {
+                    TunnelStatus.Running -> {
+                        val url = st.publicUrl
+                        _messageFlow.tryEmit(
+                            if (url.isNotBlank()) "隧道已启动，公网地址: $url"
+                            else "隧道已启动"
+                        )
+                    }
+                    TunnelStatus.Starting -> _messageFlow.tryEmit("隧道正在启动，请查看日志...")
+                    TunnelStatus.Failed -> _errorFlow.tryEmit("隧道启动失败: ${st.errorMessage}")
+                    else -> _messageFlow.tryEmit("隧道指令已发送")
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit("内网穿透启动失败: ${e.message}")
             }
@@ -317,13 +394,291 @@ class McViewModel(
         }
     }
 
+    /** 复制隧道公网地址到剪贴板 */
+    fun copyTunnelUrl(context: android.content.Context) {
+        val url = tunnelState.value.publicUrl
+        if (url.isBlank()) {
+            _errorFlow.tryEmit("暂无公网地址，请先启动隧道")
+            return
+        }
+        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+            as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Tunnel URL", url))
+        _messageFlow.tryEmit("已复制：$url")
+    }
+
+    /** 获取当前选用核心的 dirName，未选择时返回 null */
+    private fun activeDirName(): String? {
+        return config.value.installedCores.find { it.name == config.value.activeCoreName }?.dirName
+    }
+
     /** 创建 world 目录快照（zip 打包），返回快照文件路径或 null */
     suspend fun createSnapshot(): String? {
         if (!isBootstrapped.value) return null
+        val dirName = activeDirName() ?: return null
+        val maxSnap = config.value.maxSnapshots
         return withContext(Dispatchers.IO) {
-            repo.termuxRuntime.createSnapshot()
+            repo.termuxRuntime.createSnapshot(maxSnapshots = maxSnap, dirName = dirName)
         }
     }
+
+    // ── 备份恢复管理 ────────────────────────────────────────────────
+
+    private val backupManager = BackupManager(repo.termuxRuntime)
+
+    private val _snapshots = MutableStateFlow<List<BackupManager.SnapshotInfo>>(emptyList())
+    val snapshots: StateFlow<List<BackupManager.SnapshotInfo>> = _snapshots.asStateFlow()
+
+    /** 加载快照列表 */
+    fun loadSnapshots() {
+        if (!isBootstrapped.value) return
+        viewModelScope.launch {
+            try {
+                _snapshots.value = withContext(Dispatchers.IO) { backupManager.listSnapshots() }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("加载快照列表失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 恢复快照（会先停止服务器） */
+    fun restoreSnapshot(name: String) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                _messageFlow.tryEmit("正在恢复快照，服务器将停止...")
+                val ok = withContext(Dispatchers.IO) { backupManager.restoreSnapshot(name, dirName) }
+                if (ok) {
+                    _messageFlow.tryEmit("快照恢复成功，请重新启动服务器")
+                    loadSnapshots()
+                } else {
+                    _errorFlow.tryEmit("快照恢复失败")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("恢复快照失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 删除快照 */
+    fun deleteSnapshot(name: String) {
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { backupManager.deleteSnapshot(name) }
+                if (ok) {
+                    _messageFlow.tryEmit("已删除快照: $name")
+                    loadSnapshots()
+                } else {
+                    _errorFlow.tryEmit("删除快照失败: 文件不存在")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除快照失败: ${e.message}")
+            }
+        }
+    }
+
+    // ── server.properties 编辑 ─────────────────────────────────────
+
+    private val propertiesManager = ServerPropertiesManager(repo.termuxRuntime)
+
+    private val _serverProperties = MutableStateFlow<Map<String, String>>(emptyMap())
+    val serverProperties: StateFlow<Map<String, String>> = _serverProperties.asStateFlow()
+
+    /** 加载 server.properties */
+    fun loadServerProperties() {
+        if (!isBootstrapped.value) return
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                _serverProperties.value = withContext(Dispatchers.IO) { propertiesManager.readProperties(dirName) }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("读取 server.properties 失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 保存 server.properties */
+    fun saveServerProperties(props: Map<String, String>) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { propertiesManager.writeProperties(props, dirName) }
+                if (ok) {
+                    _messageFlow.tryEmit("server.properties 保存成功")
+                    _serverProperties.value = props
+                } else {
+                    _errorFlow.tryEmit("server.properties 保存失败")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("保存 server.properties 失败: ${e.message}")
+            }
+        }
+    }
+
+    // ── 玩家管理 ────────────────────────────────────────────────────
+
+    private val playerManager = PlayerManager(repo.termuxRuntime)
+
+    private val _ops = MutableStateFlow<List<PlayerManager.OpEntry>>(emptyList())
+    val ops: StateFlow<List<PlayerManager.OpEntry>> = _ops.asStateFlow()
+
+    private val _whitelist = MutableStateFlow<List<PlayerManager.WhitelistEntry>>(emptyList())
+    val whitelist: StateFlow<List<PlayerManager.WhitelistEntry>> = _whitelist.asStateFlow()
+
+    private val _bannedPlayers = MutableStateFlow<List<PlayerManager.BannedEntry>>(emptyList())
+    val bannedPlayers: StateFlow<List<PlayerManager.BannedEntry>> = _bannedPlayers.asStateFlow()
+
+    /** 刷新玩家数据（OP/白名单/封禁列表） */
+    fun refreshPlayers() {
+        if (!isBootstrapped.value) return
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    _ops.value = playerManager.readOps(dirName)
+                    _whitelist.value = playerManager.readWhitelist(dirName)
+                    _bannedPlayers.value = playerManager.readBanned(dirName)
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("刷新玩家数据失败: ${e.message}")
+            }
+        }
+    }
+
+    fun opPlayer(name: String) {
+        if (name.isBlank()) return
+        playerManager.opPlayer(name)
+        _messageFlow.tryEmit("已发送 OP 命令: $name")
+        viewModelScope.launch { refreshPlayers() }
+    }
+
+    fun deopPlayer(name: String) {
+        if (name.isBlank()) return
+        playerManager.deopPlayer(name)
+        _messageFlow.tryEmit("已取消 OP: $name")
+        viewModelScope.launch { refreshPlayers() }
+    }
+
+    fun whitelistAdd(name: String) {
+        if (name.isBlank()) return
+        playerManager.whitelistAdd(name)
+        _messageFlow.tryEmit("已添加白名单: $name")
+        viewModelScope.launch { refreshPlayers() }
+    }
+
+    fun whitelistRemove(name: String) {
+        if (name.isBlank()) return
+        playerManager.whitelistRemove(name)
+        _messageFlow.tryEmit("已移除白名单: $name")
+        viewModelScope.launch { refreshPlayers() }
+    }
+
+    fun kickPlayer(name: String, reason: String = "Kicked by admin") {
+        if (name.isBlank()) return
+        playerManager.kickPlayer(name, reason)
+        _messageFlow.tryEmit("已踢出玩家: $name")
+    }
+
+    fun banPlayer(name: String, reason: String = "Banned by admin") {
+        if (name.isBlank()) return
+        playerManager.banPlayer(name, reason)
+        _messageFlow.tryEmit("已封禁玩家: $name")
+        viewModelScope.launch { refreshPlayers() }
+    }
+
+    fun pardonPlayer(name: String) {
+        if (name.isBlank()) return
+        playerManager.pardonPlayer(name)
+        _messageFlow.tryEmit("已解除封禁: $name")
+        viewModelScope.launch { refreshPlayers() }
+    }
+
+    // ── 崩溃报告 ────────────────────────────────────────────────────
+
+    private val crashReportManager = CrashReportManager(repo.termuxRuntime)
+
+    private val _crashReports = MutableStateFlow<List<CrashReportManager.CrashReport>>(emptyList())
+    val crashReports: StateFlow<List<CrashReportManager.CrashReport>> = _crashReports.asStateFlow()
+
+    /** 加载崩溃报告列表 */
+    fun loadCrashReports() {
+        if (!isBootstrapped.value) return
+        viewModelScope.launch {
+            try {
+                _crashReports.value = withContext(Dispatchers.IO) { crashReportManager.listCrashReports() }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("加载崩溃报告失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 当前查看的崩溃报告全文（供 UI 展示） */
+    private val _currentCrashContent = MutableStateFlow<String?>(null)
+    val currentCrashContent: StateFlow<String?> = _currentCrashContent.asStateFlow()
+
+    /** 读取崩溃报告全文 */
+    fun readCrashReport(fileName: String) {
+        viewModelScope.launch {
+            try {
+                _currentCrashContent.value = withContext(Dispatchers.IO) { crashReportManager.readCrashReport(fileName) }
+                if (_currentCrashContent.value == null) {
+                    _errorFlow.tryEmit("读取崩溃报告失败: 文件不存在")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("读取崩溃报告失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 关闭崩溃报告详情视图 */
+    fun clearCrashContent() {
+        _currentCrashContent.value = null
+    }
+
+    /** 删除崩溃报告 */
+    fun deleteCrashReport(fileName: String) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { crashReportManager.deleteCrashReport(fileName) }
+                _messageFlow.tryEmit("已删除崩溃报告: $fileName")
+                loadCrashReports()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除崩溃报告失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 清空所有崩溃报告 */
+    fun clearCrashReports() {
+        viewModelScope.launch {
+            try {
+                val count = withContext(Dispatchers.IO) { crashReportManager.clearAllCrashReports() }
+                _messageFlow.tryEmit("已清空 $count 个崩溃报告")
+                loadCrashReports()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("清空崩溃报告失败: ${e.message}")
+            }
+        }
+    }
+
+    // ── 定时备份配置 ────────────────────────────────────────────────
+
+    fun setAutoBackupInterval(min: Int) = updateConfig { it.copy(autoBackupIntervalMin = min) }
+    fun setMaxSnapshots(max: Int) = updateConfig { it.copy(maxSnapshots = max) }
 
     // ── 服务端核心下载相关 ──────────────────────────────────────────
 
@@ -355,18 +710,22 @@ class McViewModel(
         }
     }
 
-    /** 下载服务端核心（使用 Controller 内部统一路径），成功返回 true */
-    fun downloadCore() {
+    /** 下载服务端核心（使用自定义名称，保存到独立目录），成功返回 true */
+    fun downloadCore(customName: String) {
         if (!isBootstrapped.value) {
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
         }
         if (_isDownloadingCore.value) return
+        if (customName.isBlank()) {
+            _errorFlow.tryEmit("请输入核心名称")
+            return
+        }
         _isDownloadingCore.value = true
         viewModelScope.launch {
             try {
-                controller.downloadCore(config.value)
-                _messageFlow.tryEmit("服务端核心下载完成")
+                controller.downloadCore(config.value, customName.trim())
+                _messageFlow.tryEmit("服务端核心「${customName.trim()}」下载完成")
             } catch (e: Exception) {
                 _errorFlow.tryEmit("服务端核心下载失败: ${e.message}")
             } finally {
@@ -375,18 +734,218 @@ class McViewModel(
         }
     }
 
-    companion object {
-        val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
-            @Suppress("UNCHECKED_CAST")
-            override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                val app = McApplication.get()
-                val repo = app.repository
-                return McViewModel(
-                    repo = repo,
-                    controller = McServerController(repo.termuxRuntime, repo),
-                    pluginManager = PluginManager(repo.termuxRuntime, repo),
-                    tunnelManager = TunnelManager(repo.termuxRuntime)
-                ) as T
+    /** 选择要启动的核心（按名称） */
+    fun setActiveCore(name: String) {
+        updateConfig { it.copy(activeCoreName = name) }
+    }
+
+    /** 删除一个已安装的核心（按名称） */
+    fun deleteCore(name: String) {
+        viewModelScope.launch {
+            try {
+                val core = config.value.installedCores.find { it.name == name }
+                    ?: throw RuntimeException("核心 $name 不存在")
+                // 删除整个文件夹
+                val dir = repo.termuxRuntime.serverDirFor(core.dirName)
+                val deleted = withContext(Dispatchers.IO) { dir.deleteRecursively() }
+                if (!deleted) {
+                    _errorFlow.tryEmit("删除核心文件夹失败: ${dir.absolutePath}")
+                    return@launch
+                }
+                val updated = config.value.installedCores.filter { it.name != name }
+                val newActive = if (config.value.activeCoreName == name) updated.firstOrNull()?.name else config.value.activeCoreName
+                repo.saveConfig(config.value.copy(
+                    installedCores = updated,
+                    activeCoreName = newActive
+                ))
+                _messageFlow.tryEmit("已删除核心「$name」")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除核心失败: ${e.message}")
+            }
+        }
+    }
+
+    // ── 真实已安装插件扫描 ──────────────────────────────────────────
+
+    data class InstalledPluginInfo(
+        val fileName: String,
+        val sizeBytes: Long,
+        val sizeText: String,
+        val lastModified: Long
+    )
+
+    private val _installedPlugins = MutableStateFlow<List<InstalledPluginInfo>>(emptyList())
+    val installedPlugins: StateFlow<List<InstalledPluginInfo>> = _installedPlugins.asStateFlow()
+
+    /** 扫描当前核心 plugins 目录下真实存在的 .jar 文件 */
+    fun refreshInstalledPlugins() {
+        if (!isBootstrapped.value) return
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                val pluginsDir = java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName/plugins")
+                _installedPlugins.value = withContext(Dispatchers.IO) {
+                    if (!pluginsDir.exists() || !pluginsDir.isDirectory) emptyList()
+                    else pluginsDir.listFiles { f -> f.isFile && f.name.endsWith(".jar") }
+                        ?.sortedByDescending { it.lastModified() }
+                        ?.map { f ->
+                            InstalledPluginInfo(
+                                fileName = f.name,
+                                sizeBytes = f.length(),
+                                sizeText = formatFileSize(f.length()),
+                                lastModified = f.lastModified()
+                            )
+                        } ?: emptyList()
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("扫描插件目录失败: ${e.message}")
+            }
+        }
+    }
+
+    private fun formatFileSize(bytes: Long): String {
+        return when {
+            bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+            bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+            else -> "$bytes B"
+        }
+    }
+
+    // ── 文件管理 ────────────────────────────────────────────────────
+
+    data class FileEntry(
+        val name: String,
+        val path: String,
+        val isDirectory: Boolean,
+        val sizeBytes: Long,
+        val sizeText: String,
+        val lastModified: Long,
+        val modifiedText: String
+    )
+
+    private val _fileList = MutableStateFlow<List<FileEntry>>(emptyList())
+    val fileList: StateFlow<List<FileEntry>> = _fileList.asStateFlow()
+
+    private val _currentPath = MutableStateFlow("")
+    val currentPath: StateFlow<String> = _currentPath.asStateFlow()
+
+    /** 文件管理根目录（home/servers/） */
+    val fileManagerRoot: java.io.File
+        get() = java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers")
+
+    /** 加载指定目录的文件列表 */
+    fun loadFiles(path: java.io.File) {
+        viewModelScope.launch {
+            try {
+                _currentPath.value = path.absolutePath
+                _fileList.value = withContext(Dispatchers.IO) {
+                    if (!path.exists() || !path.isDirectory) {
+                        emptyList()
+                    } else {
+                        path.listFiles()?.sortedWith(
+                            compareByDescending<java.io.File> { it.isDirectory }
+                                .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
+                        )?.map { f ->
+                            FileEntry(
+                                name = f.name,
+                                path = f.absolutePath,
+                                isDirectory = f.isDirectory,
+                                sizeBytes = if (f.isFile) f.length() else 0L,
+                                sizeText = if (f.isFile) formatFileSize(f.length()) else "",
+                                lastModified = f.lastModified(),
+                                modifiedText = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(f.lastModified()))
+                            )
+                        } ?: emptyList()
+                    }
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("读取目录失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 加载文件管理根目录 */
+    fun loadFilesRoot() {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        loadFiles(fileManagerRoot)
+    }
+
+    /** 删除文件或目录 */
+    fun deleteFile(file: java.io.File) {
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    if (file.isDirectory) file.deleteRecursively() else file.delete()
+                }
+                if (ok) {
+                    _messageFlow.tryEmit("已删除: ${file.name}")
+                    loadFiles(java.io.File(_currentPath.value))
+                } else {
+                    _errorFlow.tryEmit("删除失败: ${file.name}")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 上传文件：从 Uri 复制到目标目录 */
+    fun uploadFile(uri: android.net.Uri, targetDir: java.io.File) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val app = McApplication.get()
+                    val input = app.contentResolver.openInputStream(uri)
+                        ?: throw RuntimeException("无法打开文件")
+                    val fileName = queryFileName(uri) ?: "uploaded_${System.currentTimeMillis()}"
+                    val targetFile = java.io.File(targetDir, fileName)
+                    input.use { ins ->
+                        java.io.FileOutputStream(targetFile).use { fos ->
+                            ins.copyTo(fos)
+                        }
+                    }
+                }
+                _messageFlow.tryEmit("文件上传成功")
+                loadFiles(java.io.File(_currentPath.value))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("上传失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 从 Uri 查询文件名 */
+    private fun queryFileName(uri: android.net.Uri): String? {
+        return try {
+            val app = McApplication.get()
+            val cursor = app.contentResolver.query(uri, null, null, null, null)
+            cursor?.use {
+                val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (nameIndex >= 0 && it.moveToFirst()) it.getString(nameIndex) else null
+            }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 创建新目录 */
+    fun createDirectory(parent: java.io.File, name: String) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    java.io.File(parent, name).mkdirs()
+                }
+                if (ok) {
+                    _messageFlow.tryEmit("目录已创建: $name")
+                    loadFiles(java.io.File(_currentPath.value))
+                } else {
+                    _errorFlow.tryEmit("创建目录失败（可能已存在）")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("创建目录失败: ${e.message}")
             }
         }
     }
