@@ -459,12 +459,27 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     /** 检测 Termux 环境中是否安装了 proot，返回可执行路径或 null */
     private fun detectProot(): String? {
-        // proot 可能装在 bin/ 或 usr/bin/，检查多个候选路径
+        // proot 可能装在多个位置（参考 openjdk 的安装路径模式）：
+        // - $PREFIX/bin/proot（符号链接）
+        // - $PREFIX/usr/bin/proot
+        // - $PREFIX/data/data/com.termux/files/usr/bin/proot（dpkg 实际解压位置）
+        val root = termux.installer.rootDir
         val candidates = listOf(
-            File(termux.installer.rootDir, "bin/proot"),
-            File(termux.installer.rootDir, "usr/bin/proot")
+            File(root, "bin/proot"),
+            File(root, "usr/bin/proot"),
+            File(root, "data/data/com.termux/files/usr/bin/proot")
         )
-        return candidates.firstOrNull { it.exists() && it.canExecute() }?.absolutePath
+        val found = candidates.firstOrNull { it.exists() && it.canExecute() }
+        if (found == null) {
+            // 调试：列出 bin/ 目录下的 proot* 文件，帮助定位
+            val binDir = File(root, "bin")
+            val prootFiles = binDir.listFiles()?.filter { it.name.startsWith("proot") }?.map { it.name } ?: emptyList()
+            Log.w(TAG, "detectProot: 未找到 proot，bin/ 下相关文件: $prootFiles")
+            val usrBin = File(root, "data/data/com.termux/files/usr/bin")
+            val usrProotFiles = usrBin.listFiles()?.filter { it.name.startsWith("proot") }?.map { it.name } ?: emptyList()
+            Log.w(TAG, "detectProot: usr/bin/ 下相关文件: $usrProotFiles")
+        }
+        return found?.absolutePath
     }
 
     /**
@@ -482,7 +497,10 @@ class TunnelManager(private val termux: TermuxRuntime) {
         }
         val path = detectProot()
         if (path == null) {
-            termux.emitLog("[tunnel] proot 安装后仍未检测到，可能路径异常")
+            termux.emitLog("[tunnel] proot 安装后仍未检测到，正在用 find 搜索...")
+            // 用 find 全局搜索 proot 二进制位置
+            val findResult = termux.execOnce("find", termux.installer.rootDir.absolutePath, "-name", "proot", "-type", "f")
+            termux.emitLog("[tunnel] find 搜索完成 (code=$findResult)，详见日志")
         }
         return path
     }
