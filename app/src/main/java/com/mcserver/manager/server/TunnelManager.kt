@@ -395,7 +395,7 @@ class TunnelManager(private val termux: TermuxRuntime) {
             termux.emitLog("[tunnel] 启动 cloudflared Quick Tunnel，本地端口 ${config.localPort}")
             val (cmd, env) = buildTunnelCommand(binary,
                 "tunnel", "--url", "tcp://localhost:${config.localPort}")
-            val process = termux.execRaw("tunnel", env = env, *cmd)
+            val process = termux.execRaw("tunnel", *cmd, env = env)
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, "")
         } else {
@@ -415,7 +415,7 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
             val (cmd, env) = buildTunnelCommand(binary,
                 "tunnel", "--config", configFile.absolutePath, "run")
-            val process = termux.execRaw("tunnel", env = env, *cmd)
+            val process = termux.execRaw("tunnel", *cmd, env = env)
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, domain)
         }
@@ -573,7 +573,7 @@ class TunnelManager(private val termux: TermuxRuntime) {
         }
         // 使用统一的 buildTunnelCommand 处理 DNS（同 cloudflared）
         val (cmd, env) = buildTunnelCommand(binary, *ngrokArgs.toTypedArray())
-        val process = termux.execRaw("tunnel", env = env, *cmd)
+        val process = termux.execRaw("tunnel", *cmd, env = env)
         tunnelProcess = process
         startMonitorThread(process, config.tunnelType, "")
     }
