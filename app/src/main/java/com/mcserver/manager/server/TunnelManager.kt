@@ -484,6 +484,14 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     private suspend fun startNgrok(config: McConfig, binary: String) {
         val authtoken = config.ngrokAuthtoken
+        if (authtoken.isBlank()) {
+            _state.value = _state.value.copy(
+                status = TunnelStatus.Failed,
+                errorMessage = "ngrok authtoken 未配置，请在设置中填入（从 ngrok.com 获取）"
+            )
+            termux.emitLog("[tunnel] ngrok 启动失败: authtoken 未配置")
+            return
+        }
         // 设置 authtoken（幂等操作，重复设置无副作用）
         termux.emitLog("[tunnel] 配置 ngrok authtoken...")
         val configCode = termux.execOnce(binary, "config", "add-authtoken", authtoken)
@@ -491,9 +499,29 @@ class TunnelManager(private val termux: TermuxRuntime) {
             termux.emitLog("[tunnel] 警告: ngrok authtoken 设置返回非零 (code=$configCode)")
         }
 
-        // 启动 TCP 隧道
-        termux.emitLog("[tunnel] 启动 ngrok TCP 隧道，端口 ${config.localPort}")
-        val process = termux.execRaw("tunnel", binary, "tcp", config.localPort.toString())
+        // 构造启动命令：
+        // - TCP 模式：ngrok tcp 25565（随机 0.tcp.ngrok.io:port，适合 MC 直连）
+        // - HTTP 模式 + 固定域名：ngrok http --url=xxx.ngrok-free.dev 25565（需付费/预留域名）
+        // - HTTP 模式 + 随机域名：ngrok http 25565（随机 xxx.ngrok-free.dev）
+        val proto = config.ngrokProto
+        val domain = config.ngrokDomain.trim()
+        val cmd = mutableListOf<String>()
+        when (proto) {
+            com.mcserver.manager.data.NgrokProto.Tcp -> {
+                termux.emitLog("[tunnel] 启动 ngrok TCP 隧道，端口 ${config.localPort}")
+                cmd.addAll(listOf(binary, "tcp", config.localPort.toString()))
+            }
+            com.mcserver.manager.data.NgrokProto.Http -> {
+                if (domain.isNotEmpty()) {
+                    termux.emitLog("[tunnel] 启动 ngrok HTTP 隧道，固定域名 $domain，端口 ${config.localPort}")
+                    cmd.addAll(listOf(binary, "http", "--url=$domain", config.localPort.toString()))
+                } else {
+                    termux.emitLog("[tunnel] 启动 ngrok HTTP 隧道，随机域名，端口 ${config.localPort}")
+                    cmd.addAll(listOf(binary, "http", config.localPort.toString()))
+                }
+            }
+        }
+        val process = termux.execRaw("tunnel", *cmd.toTypedArray())
         tunnelProcess = process
         // URL 需从输出解析
         startMonitorThread(process, config.tunnelType, "")
@@ -574,6 +602,25 @@ class TunnelManager(private val termux: TermuxRuntime) {
                 )
             }
         }, "tunnel-monitor").start()
+
+        // 超时看门狗：30 秒内进程仍 alive 且未拿到 URL → 销毁进程并标记失败
+        Thread({
+            try {
+                Thread.sleep(30_000)
+                if (process.isAlive && _state.value.status == TunnelStatus.Starting) {
+                    termux.emitLog("[tunnel] 进程 30 秒内未获取到公网地址，判定超时")
+                    process.destroyForcibly()
+                    _state.value = _state.value.copy(
+                        isRunning = false,
+                        publicUrl = "",
+                        status = TunnelStatus.Failed,
+                        errorMessage = "启动超时（30 秒内未获取到公网地址），可能 authtoken 无效或网络不通"
+                    )
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "watchdog error", e)
+            }
+        }, "tunnel-watchdog").start()
     }
 
     /**
@@ -592,9 +639,13 @@ class TunnelManager(private val termux: TermuxRuntime) {
                 if (m != null && sub != null && sub != "api" && sub != "www") m.value else null
             }
             TunnelType.Ngrok -> {
-                // ngrok 输出格式：Forwarding tcp://0.tcp.ngrok.io:12345 -> 127.0.0.1:25565
-                val regex = Regex("Forwarding\\s+(tcp://[a-z0-9.]+:\\d+)")
-                regex.find(line)?.groupValues?.getOrNull(1)
+                // ngrok 输出格式（TCP）：Forwarding tcp://0.tcp.ngrok.io:12345 -> 127.0.0.1:25565
+                // ngrok 输出格式（HTTP 固定/随机域名）：Forwarding https://xxx.ngrok-free.dev -> http://localhost:25565
+                // 两种都接收，UI 会按地址类型提示用户如何使用
+                val tcpRegex = Regex("Forwarding\\s+(tcp://[a-z0-9.]+:\\d+)")
+                val httpRegex = Regex("Forwarding\\s+(https?://[a-z0-9.-]+(?:\\.ngrok(?:-free)?\\.io|\\.ngrok\\.app)(?::\\d+)?)")
+                tcpRegex.find(line)?.groupValues?.getOrNull(1)
+                    ?: httpRegex.find(line)?.groupValues?.getOrNull(1)
             }
             TunnelType.Frp -> null // frp 无 URL 输出
         }

@@ -9,6 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -64,6 +66,7 @@ import com.mcserver.manager.server.TunnelManager.TunnelStatus
 import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
+import com.mcserver.manager.ui.SegPill
 import com.mcserver.manager.ui.theme.Coral
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.IndigoSoft
@@ -71,6 +74,7 @@ import com.mcserver.manager.ui.theme.Mint
 import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
     val config by vm.config.collectAsState()
@@ -323,6 +327,50 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Spacer(Modifier.height(10.dp))
+
+                    // 协议选择：TCP（MC 直连）/ HTTP（固定域名）
+                    Text("隧道协议", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        com.mcserver.manager.data.NgrokProto.values().forEach { proto ->
+                            SegPill(
+                                text = proto.displayName,
+                                selected = config.ngrokProto == proto,
+                                onClick = { vm.updateConfig { it.copy(ngrokProto = proto) } }
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        when (config.ngrokProto) {
+                            com.mcserver.manager.data.NgrokProto.Tcp ->
+                                "TCP 模式：MC Java 版可直接连接（地址格式 0.tcp.ngrok.io:端口）"
+                            com.mcserver.manager.data.NgrokProto.Http ->
+                                "HTTP 模式：适合浏览器访问，可绑定 ngrok-free.dev 固定域名"
+                        },
+                        color = Muted, fontSize = 10.sp
+                    )
+
+                    // HTTP 协议下显示固定域名输入框
+                    if (config.ngrokProto == com.mcserver.manager.data.NgrokProto.Http) {
+                        Spacer(Modifier.height(8.dp))
+                        Text("固定域名（可选，留空则随机）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = config.ngrokDomain,
+                            onValueChange = { v -> vm.updateConfig { it.copy(ngrokDomain = v) } },
+                            placeholder = { Text("如 onstage-turbojet-blurry.ngrok-free.dev") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "需先在 ngrok.com → Cloud Edge → Domains 预留该域名",
+                            color = Muted, fontSize = 10.sp
+                        )
+                    }
+
                     Spacer(Modifier.height(6.dp))
                     Text(
                         "免费层限制: 1GB/月流量, 随机 TCP 地址, 3 个并发端点",
@@ -550,9 +598,10 @@ private fun NgrokGuide() {
     GuideBlock(title = "ngrok 使用教程（最省事）") {
         GuideStep("1", "ngrok 是啥？", "跟 Cloudflare Tunnel 类似，帮你把本地服务暴露到公网。区别是 ngrok 是商业服务，有免费额度但有限制。好处是配置超级简单，注册拿个 Token 就能用。")
         GuideStep("2", "注册拿 Token", "去 ngrok.com 注册个免费账号，登录后在 Dashboard 页面找到你的 Authtoken，复制粘贴到上面的输入框里。")
-        GuideStep("3", "点启动就行", "点上面的「启动穿透」按钮，程序自动下载 ngrok 程序并启动，会给你分一个随机的公网地址，比如 0.tcp.ngrok.io:12345 这种。")
-        GuideStep("4", "把地址给朋友", "启动后状态卡片会自动显示公网地址，点复制按钮发给朋友，他们在 Minecraft 里直接连接就行。")
-        GuideStep("5", "免费版有啥限制", "每月 1GB 流量（几个人玩够用），地址每次重启都变，最多 3 个同时连接。如果用超了或者嫌地址总变，可以升级付费版，或者换 frp / Cloudflare Tunnel。")
+        GuideStep("3", "选协议", "TCP 模式：MC Java 版可直接连接，地址格式 0.tcp.ngrok.io:端口（推荐，简单）。HTTP 模式：浏览器访问，可绑定 ngrok-free.dev 固定域名（需在 ngrok.com 预留域名）。")
+        GuideStep("4", "点启动就行", "点上面的「启动穿透」按钮，程序自动下载 ngrok 程序并启动。TCP 会给你分 0.tcp.ngrok.io:端口；HTTP 固定域名则直接给你预留的 xxx.ngrok-free.dev。")
+        GuideStep("5", "把地址给朋友", "启动后状态卡片会自动显示公网地址，点复制按钮发给朋友。TCP 地址在 MC 多人游戏→直接连接里粘贴；HTTP 域名只能用浏览器访问（MC 客户端不认 https 地址）。")
+        GuideStep("6", "免费版有啥限制", "每月 1GB 流量（几个人玩够用），TCP 地址每次重启都变，最多 3 个同时连接。如果用超了或者嫌地址总变，可以升级付费版预留固定域名，或者换 frp / Cloudflare Tunnel。")
     }
 }
 

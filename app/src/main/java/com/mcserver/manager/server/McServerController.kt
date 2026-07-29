@@ -10,6 +10,7 @@ import com.mcserver.manager.data.StepStatus
 import com.mcserver.manager.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -48,11 +49,29 @@ class McServerController(
 
     /**
      * 一键安装依赖
+     * @param onSpeed apt 下载速度回调（bytes/s）
      */
-    suspend fun installDependencies() = withContext(Dispatchers.IO) {
+    suspend fun installDependencies(onSpeed: ((Long) -> Unit)? = null) = withContext(Dispatchers.IO) {
         // 防止并发调用（ViewModel 和 start() 可能同时调用）
         if (isInstalling) return@withContext false
         isInstalling = true
+        // 监控 apt 缓存目录大小变化，计算下载速度
+        val aptCacheDir = File(termux.installer.rootDir, "var/cache/apt/archives")
+        var monitoring = true
+        val monitorJob = launch {
+            var lastSize = aptCacheDir.getSizeBytes()
+            var lastTime = System.currentTimeMillis()
+            while (monitoring) {
+                delay(500)
+                val nowSize = aptCacheDir.getSizeBytes()
+                val now = System.currentTimeMillis()
+                val elapsedSec = (now - lastTime) / 1000.0
+                val speed = if (elapsedSec > 0) ((nowSize - lastSize) / elapsedSec).toLong() else 0L
+                onSpeed?.invoke(speed.coerceAtLeast(0))
+                lastSize = nowSize
+                lastTime = now
+            }
+        }
         try {
             // 先确保 Termux 环境已初始化
             if (!termux.isReady()) {
@@ -75,8 +94,20 @@ class McServerController(
             }
             true
         } finally {
+            monitoring = false
+            monitorJob.cancel()
+            onSpeed?.invoke(0L)
             isInstalling = false
         }
+    }
+
+    /** 递归计算目录总大小（bytes） */
+    private fun File.getSizeBytes(): Long {
+        if (!exists()) return 0L
+        if (isFile) return length()
+        var total = 0L
+        listFiles()?.forEach { total += it.getSizeBytes() }
+        return total
     }
 
     /**

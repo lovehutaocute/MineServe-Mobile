@@ -38,6 +38,10 @@ class McApplication : Application(), Configuration.Provider {
     private val _bootstrapError = MutableStateFlow<String?>(null)
     val bootstrapError: StateFlow<String?> = _bootstrapError.asStateFlow()
 
+    /** Bootstrap 下载速度（bytes/s） */
+    private val _bootstrapSpeed = MutableStateFlow(0L)
+    val bootstrapSpeed: StateFlow<Long> = _bootstrapSpeed.asStateFlow()
+
     override fun onCreate() {
         super.onCreate()
         instance = this
@@ -49,6 +53,11 @@ class McApplication : Application(), Configuration.Provider {
         // 设置 bootstrap 日志回调，推送到 consoleFlow
         termuxRuntime.setBootstrapLogCallback { msg ->
             termuxRuntime.emitLog("[bootstrap] $msg")
+        }
+
+        // 设置 bootstrap 速度回调
+        termuxRuntime.installer.onSpeed = { _, speedBps ->
+            _bootstrapSpeed.value = speedBps
         }
 
         // 异步初始化 Termux 环境

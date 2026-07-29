@@ -27,6 +27,17 @@ enum class TunnelType(val displayName: String, val description: String) {
 }
 
 /**
+ * ngrok 隧道协议
+ * - Tcp: MC Java 版直连（推荐，0.tcp.ngrok.io:port -> 127.0.0.1:25565）
+ * - Http: Web 展示或需固定域名（--url=xxx.ngrok-free.dev）
+ */
+@Serializable
+enum class NgrokProto(val displayName: String, val ngrokArg: String) {
+    Tcp("TCP（MC 直连）", "tcp"),
+    Http("HTTP（固定域名）", "http")
+}
+
+/**
  * Termux bootstrap rootfs 下载源
  * - Auto: 按顺序尝试所有镜像（镜像优先）
  * - 其余: 指定镜像优先，其余回退
@@ -110,6 +121,10 @@ data class McConfig(
     val tunnelToken: String = "",
     /** ngrok: authtoken（从 ngrok.com 获取） */
     val ngrokAuthtoken: String = "",
+    /** ngrok: 固定域名（ngrok-free.dev / ngrok.io），留空则随机域名 */
+    val ngrokDomain: String = "",
+    /** ngrok: 隧道协议，tcp 用于 MC Java 版直连，http 用于 Web 展示 */
+    val ngrokProto: NgrokProto = NgrokProto.Tcp,
     /** cloudflared: 是否使用 Quick Tunnel（无需域名） */
     val cloudflareQuickTunnel: Boolean = true,
     /** cloudflared: 命名隧道的域名（需域名托管在 Cloudflare） */

@@ -40,7 +40,7 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.launch
 
 @Composable
-fun BackupScreen(vm: McViewModel) {
+fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val isBootstrapped by vm.isBootstrapped.collectAsState()

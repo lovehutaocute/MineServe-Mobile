@@ -137,6 +137,8 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         Log.d(TAG, "execRaw[$tag]: ${full.joinToString(" ").take(200)}")
         val pb = ProcessBuilder(full).apply {
             redirectErrorStream(true)
+            // stdin 重定向到 /dev/null，防止 ngrok/cloudflared 读 stdin 阻塞
+            redirectInput(File("/dev/null"))
             directory(File(installer.rootDir, "home").apply { mkdirs() })
             environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }

@@ -59,6 +59,13 @@ class McViewModel(
     /** Termux 环境初始化错误信息 */
     val bootstrapError: StateFlow<String?> = McApplication.get().bootstrapError
 
+    /** bootstrap 下载速度（bytes/s） */
+    val bootstrapSpeed: StateFlow<Long> = McApplication.get().bootstrapSpeed
+
+    /** apt 安装下载速度（bytes/s） */
+    private val _installSpeed = MutableStateFlow(0L)
+    val installSpeed: StateFlow<Long> = _installSpeed.asStateFlow()
+
     /** 重试 Termux 环境初始化 */
     fun retryBootstrap() {
         McApplication.get().startBootstrap()
@@ -266,7 +273,10 @@ class McViewModel(
         _isInstalling.value = true
         viewModelScope.launch {
             try {
-                val ok = controller.installDependencies()
+                val ok = controller.installDependencies { speedBps ->
+                    _installSpeed.value = speedBps
+                }
+                _installSpeed.value = 0L
                 if (ok) {
                     _messageFlow.tryEmit("依赖安装完成")
                 } else {

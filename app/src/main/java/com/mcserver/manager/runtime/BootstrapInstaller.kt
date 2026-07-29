@@ -46,6 +46,9 @@ class BootstrapInstaller(private val context: Context) {
     /** 日志回调，供 UI 显示下载进度 */
     var onLog: ((String) -> Unit)? = null
 
+    /** 速度回调（已下载字节, 速度 bytes/s） */
+    var onSpeed: ((Long, Long) -> Unit)? = null
+
     private fun log(msg: String) {
         Log.i(TAG, msg)
         onLog?.invoke(msg)
@@ -875,9 +878,21 @@ esac
         var read: Int
         var downloaded = existing
         var lastLogPct = -1
+        var lastSpeedCalcTime = System.currentTimeMillis()
+        var lastSpeedCalcBytes = downloaded
         while (input.read(buf).also { read = it } != -1) {
             output.write(buf, 0, read)
             downloaded += read
+
+            // 每 500ms 计算一次下载速度
+            val now = System.currentTimeMillis()
+            if (onSpeed != null && now - lastSpeedCalcTime >= 500) {
+                val elapsedSec = (now - lastSpeedCalcTime) / 1000.0
+                val speedBps = if (elapsedSec > 0) ((downloaded - lastSpeedCalcBytes) / elapsedSec).toLong() else 0L
+                onSpeed?.invoke(downloaded, speedBps)
+                lastSpeedCalcTime = now
+                lastSpeedCalcBytes = downloaded
+            }
 
             if (total > 0) {
                 val pct = range.first + ((range.last - range.first) * downloaded / total).toInt()
@@ -902,6 +917,8 @@ esac
         output.close()
         input.close()
         conn.disconnect()
+        // 下载结束清零速度
+        onSpeed?.invoke(downloaded, 0L)
     }
 
     enum class InstallPhase(val label: String) {

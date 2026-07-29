@@ -98,10 +98,9 @@ fun McApp() {
                     McTab.Players -> PlayersScreen(vm = vm)
                     McTab.Plugins -> PluginsScreen(vm = vm)
                     McTab.Files -> FileManagerScreen(vm = vm)
-                    McTab.Settings -> SettingsScreen(
-                        vm = vm,
-                        onNavigate = { subPage = it }
-                    )
+                    McTab.Network -> NetworkScreen(vm = vm, onBack = {})
+                    McTab.Backup -> BackupScreen(vm = vm, onBack = {})
+                    McTab.Settings -> SettingsScreen(vm = vm)
                 }
             }
         }
