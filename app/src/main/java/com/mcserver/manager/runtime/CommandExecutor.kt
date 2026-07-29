@@ -37,8 +37,10 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         val prefix = installer.rootDir.absolutePath
         // 显式设置 PATH 和 LD_LIBRARY_PATH，确保 /system/bin/sh 能找到 Termux 命令
         // ProcessBuilder.environment() 在某些 Android 版本上可能不正确传递 PATH
+        // LD_LIBRARY_PATH 需包含 usr/lib/（Termux compat 实际解压路径），否则 proot 找不到 libtalloc.so.2
+        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
         val envSetup = "export PATH='$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsrLib:/system/lib64'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
             "export TMPDIR='$prefix/tmp'; "
@@ -54,11 +56,14 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
     fun termuxEnv(): Map<String, String> {
         val prefix = installer.rootDir.absolutePath
         val caBundle = "$prefix/etc/ssl/certs/ca-certificates.crt"
+        // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，库实际落在 usr/lib/
+        // 必须加入 LD_LIBRARY_PATH，否则 proot 找不到 libtalloc.so.2
+        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
         return mapOf(
             "HOME" to "$prefix/home",
             "PATH" to "$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
             "TMPDIR" to "$prefix/tmp",
-            "LD_LIBRARY_PATH" to "$prefix/lib:/system/lib64",
+            "LD_LIBRARY_PATH" to "$prefix/lib:$compatUsrLib:/system/lib64",
             "PREFIX" to "$prefix",
             "TERM" to "xterm-256color",
             "LANG" to "en_US.UTF-8",
