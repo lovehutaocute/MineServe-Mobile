@@ -506,40 +506,19 @@ class TunnelManager(private val termux: TermuxRuntime) {
     }
 
     /**
-     * 把参数列表拼成 sh -c 里能安全使用的单引号字符串
-     */
-    private fun shellQuote(arg: String): String =
-        "'" + arg.replace("'", "'\\''") + "'"
-
-    /**
      * 构造 cloudflared 启动命令。若 proot 可用，前置 proot -b 绑定 resolv.conf。
-     * 关键：proot 内不直接执行 ELF（找不到解释器 ld-linux），改为通过 /system/bin/sh -c 启动。
-     * proot 需要额外绑定 /system 和 Termux usr 目录，确保 sh 解释器、动态链接器和库在命名空间内可见。
+     * 关键：cloudflared/ngrok 是 Go 编译的静态链接二进制，无 PT_INTERP 段，
+     * proot 可直接执行，不需要解释器。只需绑定 resolv.conf 解决 DNS。
+     * 不要用 /system/bin/sh 包装（sh 是动态链接 ELF，proot 内找不到 linker64）。
      */
     private fun buildCloudflaredCmd(
         prootPath: String?, resolvFile: File, binary: String, vararg tunnelArgs: String
     ): Array<String> {
-        if (prootPath == null) {
-            return arrayOf(binary, *tunnelArgs)
+        return if (prootPath != null) {
+            arrayOf(prootPath, "-b", "${resolvFile.absolutePath}:/etc/resolv.conf", binary, *tunnelArgs)
+        } else {
+            arrayOf(binary, *tunnelArgs)
         }
-        val prefix = termux.installer.rootDir.absolutePath
-        val compatUsr = "$prefix/data/data/com.termux/files/usr"
-        // 把 cloudflared + args 拼成 sh 可执行字符串（所有参数 shell 转义）
-        val innerCmd = buildString {
-            append(shellQuote(binary))
-            tunnelArgs.forEach { append(' ').append(shellQuote(it)) }
-        }
-        // proot 绑定：/etc/resolv.conf（DNS）+ /system（sh/linker64/system libs）+ Termux usr（proot 自身依赖）
-        // 用 --link2symlink 兼容 Termux 里用符号链接伪装的目录结构
-        return arrayOf(
-            prootPath,
-            "--link2symlink",
-            "-b", "${resolvFile.absolutePath}:/etc/resolv.conf",
-            "-b", "/system:/system",
-            "-b", "$prefix:$prefix",
-            "-b", "$compatUsr:$compatUsr",
-            "/system/bin/sh", "-c", innerCmd
-        )
     }
 
     // ── ngrok 启动 ────────────────────────────────────────────
@@ -594,24 +573,9 @@ class TunnelManager(private val termux: TermuxRuntime) {
             }
         }
         // 前置 proot 绑定（若可用）
+        // 同 cloudflared：ngrok 是静态链接 Go 二进制，proot 直接执行即可，不需要 sh 包装
         val cmd = if (prootPath != null) {
-            val prefix = termux.installer.rootDir.absolutePath
-            val compatUsr = "$prefix/data/data/com.termux/files/usr"
-            // 把 ngrok + args 拼成 sh -c 可执行字符串（参数 shell 安全转义）
-            val innerCmd = buildString {
-                append(shellQuote(binary))
-                ngrokArgs.forEach { append(' ').append(shellQuote(it)) }
-            }
-            // 同 cloudflared：proot 内通过 /system/bin/sh 启动，绑定 /system、Termux 根、compat usr
-            mutableListOf(
-                prootPath,
-                "--link2symlink",
-                "-b", "${resolvFile.absolutePath}:/etc/resolv.conf",
-                "-b", "/system:/system",
-                "-b", "$prefix:$prefix",
-                "-b", "$compatUsr:$compatUsr",
-                "/system/bin/sh", "-c", innerCmd
-            )
+            mutableListOf(prootPath, "-b", "${resolvFile.absolutePath}:/etc/resolv.conf", binary).apply { addAll(ngrokArgs) }
         } else {
             mutableListOf(binary).apply { addAll(ngrokArgs) }
         }
