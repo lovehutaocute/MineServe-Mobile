@@ -410,9 +410,9 @@ class TunnelManager(private val termux: TermuxRuntime) {
             // cloudflared 连接 Cloudflare 边缘后，边缘服务器会分配 *.trycloudflare.com 域名
             val edgeArg = cloudflareEdgeIps.joinToString(",")
             termux.emitLog("[tunnel] 使用 --edge 参数绕过 DNS: $edgeArg")
-            val process = termux.execRaw("tunnel", env = env,
+            val process = termux.execRaw("tunnel",
                 binary, "tunnel", "--edge", edgeArg,
-                "--url", "tcp://localhost:${config.localPort}")
+                "--url", "tcp://localhost:${config.localPort}", env = env)
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, "")
         } else {
@@ -433,9 +433,9 @@ class TunnelManager(private val termux: TermuxRuntime) {
             // Named Tunnel 同样用 --edge 绕过 DNS
             val edgeArg = cloudflareEdgeIps.joinToString(",")
             termux.emitLog("[tunnel] 使用 --edge 参数绕过 DNS: $edgeArg")
-            val process = termux.execRaw("tunnel", env = env,
+            val process = termux.execRaw("tunnel",
                 binary, "tunnel", "--edge", edgeArg,
-                "--config", configFile.absolutePath, "run")
+                "--config", configFile.absolutePath, "run", env = env)
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, domain)
         }
