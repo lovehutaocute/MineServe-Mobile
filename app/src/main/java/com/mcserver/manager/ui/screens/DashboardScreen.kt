@@ -81,6 +81,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val consoleLines by vm.consoleLines.collectAsState()
     val isInstalling by vm.isInstalling.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
+    val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
+    val installSpeed by vm.installSpeed.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -130,6 +132,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         isBusy = true,
                         busyText = "正在下载并解压 Termux 环境（${state.currentProgress}%）",
                         idleText = "下载 Termux 运行环境（约 50MB）",
+                        speedBps = bootstrapSpeed,
                         onShowHelp = onShowDownloadHelp
                     )
                     Spacer(Modifier.height(8.dp))
@@ -216,6 +219,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     isBusy = isInstalling,
                     busyText = "正在通过 apt 下载 JDK / wget / frp",
                     idleText = "通过 apt 安装 openjdk / wget / frp 等依赖",
+                    speedBps = installSpeed,
                     onShowHelp = onShowDownloadHelp
                 )
                 Spacer(Modifier.height(8.dp))
@@ -521,8 +525,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
 /**
  * 下载提示行（嵌入卡片内顶部使用）
  *
- * 简洁的一行布局：左侧状态文字（含下载中旋转图标），右侧"下载慢?查看解决方式"按钮。
- * - isBusy=true 时显示 busyText + 旋转图标
+ * 简洁的一行布局：左侧状态文字+速度（含下载中旋转图标），右侧"下载慢?查看解决方式"按钮。
+ * - isBusy=true 时显示 busyText + 速度 + 旋转图标
  * - isBusy=false 时显示 idleText + 下载图标
  */
 @Composable
@@ -530,13 +534,14 @@ private fun DownloadHintHeader(
     isBusy: Boolean,
     busyText: String,
     idleText: String,
+    speedBps: Long = 0L,
     onShowHelp: () -> Unit
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // 左侧：状态图标 + 文字
+        // 左侧：状态图标 + 文字 + 速度
         if (isBusy) {
             CircularProgressIndicator(
                 modifier = Modifier.size(14.dp),
@@ -562,6 +567,16 @@ private fun DownloadHintHeader(
             fontWeight = if (isBusy) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.weight(1f)
         )
+        // 速度显示（仅忙碌且有速度时显示）
+        if (isBusy && speedBps > 0) {
+            Text(
+                formatSpeedShort(speedBps),
+                color = Indigo,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(Modifier.size(8.dp))
+        }
         // 右侧：下载慢?查看解决方式
         Text(
             "下载慢?查看解决方式 →",
@@ -570,5 +585,14 @@ private fun DownloadHintHeader(
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.clickable { onShowHelp() }
         )
+    }
+}
+
+/** 格式化速度为简短字符串（如 2.3 MB/s, 456 KB/s） */
+private fun formatSpeedShort(bytesPerSec: Long): String {
+    return when {
+        bytesPerSec >= 1_048_576 -> String.format("%.1f MB/s", bytesPerSec / 1_048_576.0)
+        bytesPerSec >= 1024 -> String.format("%.0f KB/s", bytesPerSec / 1024.0)
+        else -> "$bytesPerSec B/s"
     }
 }
