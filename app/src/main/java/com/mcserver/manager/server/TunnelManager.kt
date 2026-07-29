@@ -211,10 +211,16 @@ class TunnelManager(private val termux: TermuxRuntime) {
             if (frpcPath.exists() && frpcPath.canExecute()) {
                 return frpcPath.absolutePath
             }
-            // frp 未安装，尝试 apt 安装
-            termux.emitLog("[tunnel] frp 未安装，尝试通过 apt 安装...")
+            // frp 未安装，尝试 apt 安装（先 update 确保包列表最新）
+            termux.emitLog("[tunnel] frp 未安装，正在通过 apt 自动安装...")
+            _state.value = _state.value.copy(
+                status = TunnelStatus.Starting,
+                errorMessage = "正在安装 frp 环境..."
+            )
+            termux.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
             val code = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
             if (code == 0 && frpcPath.exists()) {
+                termux.emitLog("[tunnel] frp 安装完成")
                 return frpcPath.absolutePath
             }
             termux.emitLog("[tunnel] apt 安装 frp 失败 (code=$code)")
@@ -234,7 +240,11 @@ class TunnelManager(private val termux: TermuxRuntime) {
         }
 
         // 下载二进制
-        termux.emitLog("[tunnel] 正在下载 $binaryName (${archSuffix})...")
+        termux.emitLog("[tunnel] 正在下载 $binaryName (${archSuffix})，首次使用需要从网络获取...")
+        _state.value = _state.value.copy(
+            status = TunnelStatus.Starting,
+            errorMessage = "正在下载 $binaryName 环境..."
+        )
         val ok = downloadBinary(type, target)
         return if (ok && target.exists()) {
             // 设置可执行权限

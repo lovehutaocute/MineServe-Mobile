@@ -37,6 +37,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,6 +69,7 @@ import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.IndigoSoft
 import com.mcserver.manager.ui.theme.Mint
 import com.mcserver.manager.ui.theme.Muted
+import kotlinx.coroutines.flow.collectLatest
 
 @Composable
 fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
@@ -75,14 +79,26 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
     val tunnelState by vm.tunnelState.collectAsState()
     val consoleLines by vm.consoleLines.collectAsState()
     val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(Unit) { vm.refreshLanIp() }
+    // 收集操作结果和错误消息，通过 Snackbar 显示（修复"点击无反应"Bug的关键）
+    LaunchedEffect(Unit) {
+        vm.messageFlow.collectLatest { snackbarHostState.showSnackbar(it) }
+    }
+    LaunchedEffect(Unit) {
+        vm.errorFlow.collectLatest { snackbarHostState.showSnackbar(it) }
+    }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-    ) {
+    Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .verticalScroll(rememberScrollState())
+        ) {
         // 返回栏
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -323,6 +339,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         GuideSection(config.tunnelType)
 
         Spacer(Modifier.height(16.dp))
+        }
     }
 }
 
@@ -504,39 +521,38 @@ private fun GuideSection(tunnelType: TunnelType) {
 
 @Composable
 private fun FrpGuide() {
-    GuideBlock(title = "frp 内网穿透配置指引") {
-        GuideStep("1", "准备公网服务器", "需要一台有公网 IP 的 VPS（推荐 Oracle Cloud ARM 免费实例）。在 VPS 上下载并部署 frps（frp 服务端）。")
-        GuideStep("2", "配置 frps.toml（服务端）", "在 VPS 上创建 frps.toml：\nbindPort = 7000\nauth.method = \"token\"\nauth.token = \"你的密码\"")
-        GuideStep("3", "启动 frps", "在 VPS 上执行: ./frps -c frps.toml")
-        GuideStep("4", "填写本页配置", "将 VPS 的公网 IP 或域名填入「frp 服务端地址」，端口默认 7000，token 与服务端一致。")
-        GuideStep("5", "启动穿透", "点击上方「启动穿透」按钮，frpc 将连接到你的 frps 服务器。首次使用会通过 apt 自动安装 frp。")
-        GuideStep("6", "玩家连接", "玩家使用 VPS 的公网 IP:25565 在 Minecraft 中直接连接即可。")
-        GuideStep("7", "安全建议", "在 VPS 防火墙开放 7000 和 25565 端口。建议启用 token 认证防止未授权连接。")
+    GuideBlock(title = "frp 使用教程（自建服务器）") {
+        GuideStep("1", "啥是 frp？", "简单说就是打个「隧道」：你的手机通过 frp 连到一台有公网 IP 的服务器，别人访问那台服务器就能连到你的手机。就像在墙上凿了个洞，外面的人通过洞就能看到里面的东西。")
+        GuideStep("2", "你需要一台云服务器", "去阿里云、腾讯云或 Oracle Cloud（有免费的 ARM 实例）租一台云服务器，最便宜的就够用。关键是要有「公网 IP」。")
+        GuideStep("3", "在服务器上装 frp 服务端", "登录服务器后，去 GitHub 搜 fatedier/frp，下载对应版本，解压后编辑 frps.toml 文件：\nbindPort = 7000\nauth.method = \"token\"\nauth.token = \"随便设个密码\"\n然后运行 ./frps -c frps.toml 启动服务端。")
+        GuideStep("4", "在手机上填配置", "把服务器的公网 IP 填到上面「frp 服务端地址」，端口填 7000，Token 填你刚才设的密码（要跟服务端一模一样）。")
+        GuideStep("5", "点启动就行", "点上面的「启动穿透」按钮，程序会自动帮你装好 frp 客户端并连接服务器。首次会通过 apt 自动安装，稍等一会儿。")
+        GuideStep("6", "告诉朋友怎么连", "启动成功后，把服务器公网 IP 和端口（默认 25565）告诉朋友，在 Minecraft「多人游戏」→「直接连接」里输入 IP:25565 就能进来了。")
+        GuideStep("7", "别忘了开端口", "服务器的防火墙要放行 7000（frp 通信用）和 25565（MC 用）两个端口，不然连不上。建议设 Token 密码防别人乱连。")
     }
 }
 
 @Composable
 private fun CloudflaredGuide() {
-    GuideBlock(title = "Cloudflare Tunnel 配置指引") {
-        GuideStep("1", "Quick Tunnel（推荐新手）", "打开 Quick Tunnel 开关，点击「启动穿透」。\ncloudflared 会自动分配一个 *.trycloudflare.com 的随机公网地址。\n首次使用会自动从 GitHub 下载 cloudflared 二进制。")
-        GuideStep("2", "获取公网地址", "启动后状态卡片会自动显示分配的公网地址，点击复制按钮即可分享给玩家。\n注意：Quick Tunnel 地址每次重启都会变化。")
-        GuideStep("3", "Named Tunnel（固定域名）", "关闭 Quick Tunnel 开关，填写你的 Cloudflare 域名。\n前提：域名 DNS 已托管在 Cloudflare（免费）。")
-        GuideStep("4", "准备凭证文件", "Named Tunnel 需在 PC 端执行:\ncloudflared tunnel login\ncloudflared tunnel create mc-tunnel\n然后将生成的 mc-tunnel.json 传到手机 home/tunnel/ 目录。")
-        GuideStep("5", "配置 DNS 路由", "在 PC 端执行:\ncloudflared tunnel route dns mc-tunnel mc.yourdomain.com\n这会自动在 Cloudflare DNS 添加 CNAME 记录。")
-        GuideStep("6", "启动穿透", "点击「启动穿透」按钮，cloudflared 将通过 Cloudflare 边缘网络转发流量。\n玩家使用域名连接，享受 Cloudflare 的 CDN 加速和 DDoS 防护。")
-        GuideStep("7", "注意事项", "Quick Tunnel 限制 200 并发请求，不支持 SSE。\n生产环境建议使用 Named Tunnel。Android 无法直接登录 Cloudflare，凭证文件需从 PC 端导入。")
+    GuideBlock(title = "Cloudflare Tunnel 使用教程（零配置）") {
+        GuideStep("1", "为啥选这个？", "完全免费，不用买服务器，不用公网 IP，点一下就能用。Cloudflare 是全球最大的网络服务商之一，速度快还防攻击。适合临时联机或新手使用。")
+        GuideStep("2", "最简单的用法", "保持上面 Quick Tunnel 开关打开，直接点「启动穿透」就行。程序会自动下载 cloudflared 程序，然后给你分一个类似 xxx.trycloudflare.com 的公网地址。")
+        GuideStep("3", "拿到地址给朋友", "启动后上面的状态卡片会自动显示公网地址，点旁边的复制按钮，把地址发给朋友，他们直接粘贴到 Minecraft 里就能连进来。")
+        GuideStep("4", "地址每次会变", "注意：免费 Quick Tunnel 每次重启地址都会变，下次朋友要连得重新发地址。如果想要固定地址，看下面的进阶玩法。")
+        GuideStep("5", "进阶：固定域名", "如果你有自己的域名（在 Cloudflare 托管 DNS，免费的），可以关闭 Quick Tunnel，填入域名。好处是地址永远不变，朋友记一次就行。")
+        GuideStep("6", "域名模式怎么搞", "这个稍微麻烦：需要在电脑上跑 cloudflared login 登录 Cloudflare，创建隧道，然后把生成的凭证文件（mc-tunnel.json）传到手机上。具体步骤可以搜「Cloudflare Tunnel 教程」。")
+        GuideStep("7", "有哪些限制", "免费 Quick Tunnel 限制 200 个并发连接，对几个人联机完全够用。另外 Cloudflare 比较适合网页服务，TCP 转发延迟可能比 frp 略高一点点。")
     }
 }
 
 @Composable
 private fun NgrokGuide() {
-    GuideBlock(title = "ngrok 配置指引") {
-        GuideStep("1", "注册账号", "访问 ngrok.com 注册免费账号。免费层限制：1GB/月流量、随机 TCP 地址、3 个并发端点。")
-        GuideStep("2", "获取 Authtoken", "登录后在 Dashboard 页面复制你的 Authtoken，粘贴到上方输入框。")
-        GuideStep("3", "启动穿透", "点击「启动穿透」按钮。首次使用会自动从 equinox.io 下载 ngrok 二进制。\nngrok 会分配一个随机 TCP 地址（如 0.tcp.ngrok.io:12345）。")
-        GuideStep("4", "获取公网地址", "启动后状态卡片会自动显示分配的公网地址，点击复制按钮即可分享给玩家。")
-        GuideStep("5", "玩家连接", "玩家使用分配的地址:端口在 Minecraft 中直接连接。")
-        GuideStep("6", "注意事项", "免费层地址每次重启都会变化，且流量有限。\n长期使用建议升级到付费版或使用 frp/Cloudflare Tunnel。")
+    GuideBlock(title = "ngrok 使用教程（最省事）") {
+        GuideStep("1", "ngrok 是啥？", "跟 Cloudflare Tunnel 类似，帮你把本地服务暴露到公网。区别是 ngrok 是商业服务，有免费额度但有限制。好处是配置超级简单，注册拿个 Token 就能用。")
+        GuideStep("2", "注册拿 Token", "去 ngrok.com 注册个免费账号，登录后在 Dashboard 页面找到你的 Authtoken，复制粘贴到上面的输入框里。")
+        GuideStep("3", "点启动就行", "点上面的「启动穿透」按钮，程序自动下载 ngrok 程序并启动，会给你分一个随机的公网地址，比如 0.tcp.ngrok.io:12345 这种。")
+        GuideStep("4", "把地址给朋友", "启动后状态卡片会自动显示公网地址，点复制按钮发给朋友，他们在 Minecraft 里直接连接就行。")
+        GuideStep("5", "免费版有啥限制", "每月 1GB 流量（几个人玩够用），地址每次重启都变，最多 3 个同时连接。如果用超了或者嫌地址总变，可以升级付费版，或者换 frp / Cloudflare Tunnel。")
     }
 }
 
