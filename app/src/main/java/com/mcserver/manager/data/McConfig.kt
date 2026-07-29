@@ -75,7 +75,8 @@ enum class AptMirror(val displayName: String, val url: String) {
 enum class InstallStep(val label: String) {
     Jdk("JDK 17 运行环境"),
     Wget("Wget 下载工具"),
-    Frp("Frp 内网穿透")
+    Frp("Frp 内网穿透"),
+    Proot("PRoot 兼容层")
 }
 
 @Serializable

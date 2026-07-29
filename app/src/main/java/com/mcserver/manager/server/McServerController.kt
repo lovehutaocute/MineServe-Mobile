@@ -79,16 +79,17 @@ class McServerController(
             }
             val steps = InstallStep.values()
             steps.forEachIndexed { idx, step ->
-                repo.markStep(step, StepStatus.Active, idx * 33)
+                repo.markStep(step, StepStatus.Active, idx * (100 / steps.size))
                 val code = when (step) {
                     InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25")
                     InstallStep.Wget -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "wget")
                     InstallStep.Frp -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
+                    InstallStep.Proot -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "proot")
                 }
                 if (code == 0) {
-                    repo.markStep(step, StepStatus.Done, (idx + 1) * 33)
+                    repo.markStep(step, StepStatus.Done, (idx + 1) * (100 / steps.size))
                 } else {
-                    repo.markStep(step, StepStatus.Wait, idx * 33)
+                    repo.markStep(step, StepStatus.Wait, idx * (100 / steps.size))
                     return@withContext false
                 }
             }

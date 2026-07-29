@@ -499,27 +499,43 @@ class TunnelManager(private val termux: TermuxRuntime) {
             termux.emitLog("[tunnel] 警告: ngrok authtoken 设置返回非零 (code=$configCode)")
         }
 
+        // ngrok 是 Go 程序，同 cloudflared 一样读 /etc/resolv.conf 做 DNS。
+        // Android 无该文件，需通过 proot 绑定挂载 Termux 下的 resolv.conf。
+        val resolvFile = ensureResolvConf()
+        val prootPath = detectProot()
+        if (prootPath != null) {
+            termux.emitLog("[tunnel] 检测到 proot，将通过 proot 绑定 resolv.conf 解决 DNS 问题")
+        } else {
+            termux.emitLog("[tunnel] 警告: 未检测到 proot，ngrok 可能因 DNS 解析失败无法启动")
+        }
+
         // 构造启动命令：
         // - TCP 模式：ngrok tcp 25565（随机 0.tcp.ngrok.io:port，适合 MC 直连）
         // - HTTP 模式 + 固定域名：ngrok http --url=xxx.ngrok-free.dev 25565（需付费/预留域名）
         // - HTTP 模式 + 随机域名：ngrok http 25565（随机 xxx.ngrok-free.dev）
         val proto = config.ngrokProto
         val domain = config.ngrokDomain.trim()
-        val cmd = mutableListOf<String>()
+        val ngrokArgs = mutableListOf<String>()
         when (proto) {
             com.mcserver.manager.data.NgrokProto.Tcp -> {
                 termux.emitLog("[tunnel] 启动 ngrok TCP 隧道，端口 ${config.localPort}")
-                cmd.addAll(listOf(binary, "tcp", config.localPort.toString()))
+                ngrokArgs.addAll(listOf("tcp", config.localPort.toString()))
             }
             com.mcserver.manager.data.NgrokProto.Http -> {
                 if (domain.isNotEmpty()) {
                     termux.emitLog("[tunnel] 启动 ngrok HTTP 隧道，固定域名 $domain，端口 ${config.localPort}")
-                    cmd.addAll(listOf(binary, "http", "--url=$domain", config.localPort.toString()))
+                    ngrokArgs.addAll(listOf("http", "--url=$domain", config.localPort.toString()))
                 } else {
                     termux.emitLog("[tunnel] 启动 ngrok HTTP 隧道，随机域名，端口 ${config.localPort}")
-                    cmd.addAll(listOf(binary, "http", config.localPort.toString()))
+                    ngrokArgs.addAll(listOf("http", config.localPort.toString()))
                 }
             }
+        }
+        // 前置 proot 绑定（若可用）
+        val cmd = if (prootPath != null) {
+            mutableListOf(prootPath, "-b", "${resolvFile.absolutePath}:/etc/resolv.conf", binary).apply { addAll(ngrokArgs) }
+        } else {
+            mutableListOf(binary).apply { addAll(ngrokArgs) }
         }
         val process = termux.execRaw("tunnel", *cmd.toTypedArray())
         tunnelProcess = process
@@ -677,8 +693,8 @@ class TunnelManager(private val termux: TermuxRuntime) {
                     output.contains("authtoken", ignoreCase = true) -> {
                         "ngrok authtoken 无效或未配置，请在设置中填入有效的 authtoken。"
                     }
-                    output.contains("tcp", ignoreCase = true) && output.contains("failed") -> {
-                        "ngrok TCP 隧道启动失败，请检查网络或 authtoken。"
+                    output.isBlank() || output.contains("timeout", ignoreCase = true) -> {
+                        "ngrok 30 秒内无输出，可能因缺少 proot 导致 DNS 解析失败。请在「一键安装依赖」中安装 PRoot 后重试。"
                     }
                     else -> base
                 }
