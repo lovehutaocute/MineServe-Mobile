@@ -1,8 +1,10 @@
 package com.mcserver.manager.ui.screens
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -19,19 +21,28 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Extension
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.PowerSettingsNew
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Update
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -41,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -51,7 +63,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,17 +84,18 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private enum class PluginTab(val label: String) { Installed("已安装"), Curated("精选推荐"), Upload("本地上传") }
+private enum class InstalledFilter(val label: String) { All("全部"), Enabled("启用"), Disabled("禁用"), Curated("精选"), Local("本地") }
 
 /**
- * 插件管理页（重构版）
+ * 插件管理页（重构完善版）
  *
- * 交互逻辑：
- *  - 顶部显示当前核心信息与 plugins 路径，支持一键刷新
- *  - 三标签切换：已安装 / 精选推荐 / 本地上传
- *  - 已安装列表支持启用/禁用切换（Bukkit `-` 前缀标准）与删除
- *  - 精选推荐从内置 GitHub Releases latest 重定向源下载，带实时进度
- *  - 本地上传通过 SAF 选择 .jar 文件，复制到 plugins/
- *  - 底部热重载按钮仅在服务器运行时可点击
+ * 完善功能：
+ *  - P0-1 plugin.yml 元信息解析（真实名称/版本/作者/依赖）
+ *  - P0-2 GitHub API 更新检测（5 分钟缓存）
+ *  - P0-3 插件详情对话框（完整元信息）
+ *  - P1-4 搜索 + 筛选标签
+ *  - P1-5 自定义 URL 下载
+ *  - P1-6 删除时询问清理数据目录
  */
 @Composable
 fun PluginsScreen(vm: McViewModel) {
@@ -89,11 +104,14 @@ fun PluginsScreen(vm: McViewModel) {
     val installedPlugins by vm.installedPlugins.collectAsState()
     val downloadProgress by vm.pluginDownloadProgress.collectAsState()
     val serverState by vm.serverState.collectAsState()
+    val curatedUpdates by vm.curatedUpdates.collectAsState()
+    val isCheckingUpdates by vm.isCheckingUpdates.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var activeTab by remember { mutableStateOf(PluginTab.Installed) }
     var pendingDelete by remember { mutableStateOf<PluginManager.InstalledPlugin?>(null) }
+    var detailPlugin by remember { mutableStateOf<PluginManager.InstalledPlugin?>(null) }
 
     // 进入页面或核心切换时自动刷新
     LaunchedEffect(isBootstrapped, config.activeCoreName) {
@@ -223,19 +241,26 @@ fun PluginsScreen(vm: McViewModel) {
                     installed = installedPlugins,
                     activeCoreExists = activeCore != null,
                     onToggle = { vm.togglePluginEnabled(it.fileName) },
-                    onDelete = { pendingDelete = it }
+                    onDelete = { pendingDelete = it },
+                    onShowDetail = { detailPlugin = it }
                 )
 
                 PluginTab.Curated -> CuratedTab(
                     curatedList = vm.curatedPlugins,
                     downloadProgress = downloadProgress,
+                    curatedUpdates = curatedUpdates,
+                    isCheckingUpdates = isCheckingUpdates,
                     isCuratedInstalled = { vm.isCuratedPluginInstalled(it) },
-                    onInstall = { vm.installCuratedPlugin(it) }
+                    onInstall = { vm.installCuratedPlugin(it) },
+                    onCheckUpdates = { vm.checkCuratedUpdates() },
+                    onForceRecheck = { vm.forceRecheckUpdates() }
                 )
 
                 PluginTab.Upload -> UploadTab(
                     activeCoreExists = activeCore != null,
+                    customUrlProgress = vm.customUrlDownloadProgress(),
                     onPickFile = { uri -> vm.installPluginFromUri(uri) },
+                    onInstallFromUrl = { url, name -> vm.installPluginFromUrl(url, name) },
                     onGotoInstalled = { activeTab = PluginTab.Installed }
                 )
             }
@@ -277,47 +302,23 @@ fun PluginsScreen(vm: McViewModel) {
         }
     }
 
-    // 删除确认对话框
+    // 删除确认对话框（含数据目录清理选项）
     pendingDelete?.let { plugin ->
-        AlertDialog(
-            onDismissRequest = { pendingDelete = null },
-            title = { Text("删除插件", fontWeight = FontWeight.Bold) },
-            text = {
-                Column {
-                    Text("确认删除以下插件？", fontSize = 13.sp)
-                    Spacer(Modifier.height(6.dp))
-                    Text(
-                        plugin.fileName,
-                        color = Indigo,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "大小：${plugin.sizeText}  ·  修改：${plugin.lastModifiedText}",
-                        color = Muted,
-                        fontSize = 10.sp
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        "删除后无法恢复，如需保留可改为禁用。",
-                        color = Coral,
-                        fontSize = 10.sp
-                    )
-                }
+        DeletePluginDialog(
+            plugin = plugin,
+            onConfirm = { alsoRemoveData ->
+                vm.deletePlugin(plugin.fileName, alsoRemoveData)
+                pendingDelete = null
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        vm.deletePlugin(plugin.fileName)
-                        pendingDelete = null
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = Coral)
-                ) { Text("删除", color = Color.White) }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingDelete = null }) { Text("取消") }
-            }
+            onDismiss = { pendingDelete = null }
+        )
+    }
+
+    // 插件详情对话框
+    detailPlugin?.let { plugin ->
+        PluginDetailDialog(
+            plugin = plugin,
+            onDismiss = { detailPlugin = null }
         )
     }
 }
@@ -329,8 +330,12 @@ private fun InstalledTab(
     installed: List<PluginManager.InstalledPlugin>,
     activeCoreExists: Boolean,
     onToggle: (PluginManager.InstalledPlugin) -> Unit,
-    onDelete: (PluginManager.InstalledPlugin) -> Unit
+    onDelete: (PluginManager.InstalledPlugin) -> Unit,
+    onShowDetail: (PluginManager.InstalledPlugin) -> Unit
 ) {
+    var searchQuery by remember { mutableStateOf("") }
+    var activeFilter by remember { mutableStateOf(InstalledFilter.All) }
+
     McCard(title = "已安装插件") {
         if (!activeCoreExists) {
             EmptyHint("请先在「概览」页选择服务端核心")
@@ -340,12 +345,76 @@ private fun InstalledTab(
             EmptyHint("当前核心尚未安装任何插件，可前往「精选推荐」或「本地上传」安装")
             return@McCard
         }
+
+        // 搜索框
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("搜索插件名称...", fontSize = 11.sp) },
+            leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // 筛选标签
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            InstalledFilter.values().forEach { filter ->
+                val count = when (filter) {
+                    InstalledFilter.All -> installed.size
+                    InstalledFilter.Enabled -> installed.count { it.isEnabled }
+                    InstalledFilter.Disabled -> installed.count { !it.isEnabled }
+                    InstalledFilter.Curated -> installed.count { it.sourceTag == "精选" }
+                    InstalledFilter.Local -> installed.count { it.sourceTag == "本地" }
+                }
+                val label = "$filter $count"
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (activeFilter == filter) Indigo else IndigoSoft)
+                        .clickable { activeFilter = filter }
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        label,
+                        color = if (activeFilter == filter) Color.White else Muted,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+
+        // 过滤 + 搜索
+        val filtered = installed.filter { p ->
+            (activeFilter == InstalledFilter.All ||
+                (activeFilter == InstalledFilter.Enabled && p.isEnabled) ||
+                (activeFilter == InstalledFilter.Disabled && !p.isEnabled) ||
+                (activeFilter == InstalledFilter.Curated && p.sourceTag == "精选") ||
+                (activeFilter == InstalledFilter.Local && p.sourceTag == "本地")) &&
+                (searchQuery.isBlank() || p.baseName.contains(searchQuery, ignoreCase = true) ||
+                    (p.meta?.name?.contains(searchQuery, ignoreCase = true) == true))
+        }
+
+        if (filtered.isEmpty()) {
+            EmptyHint("没有符合筛选条件的插件")
+            return@McCard
+        }
+
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            installed.forEach { p ->
+            filtered.forEach { p ->
                 InstalledPluginRow(
                     plugin = p,
                     onToggle = { onToggle(p) },
-                    onDelete = { onDelete(p) }
+                    onDelete = { onDelete(p) },
+                    onShowDetail = { onShowDetail(p) }
                 )
             }
         }
@@ -356,13 +425,15 @@ private fun InstalledTab(
 private fun InstalledPluginRow(
     plugin: PluginManager.InstalledPlugin,
     onToggle: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onShowDetail: () -> Unit
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(if (plugin.isEnabled) IndigoSoft else CoralSoft.copy(alpha = 0.4f))
+            .clickable { onShowDetail() }
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -382,21 +453,50 @@ private fun InstalledPluginRow(
         }
         Spacer(Modifier.size(10.dp))
         Column(modifier = Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    plugin.meta?.name ?: plugin.baseName,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (plugin.isEnabled) MaterialTheme.colorScheme.onSurface else Muted
+                )
+                if (plugin.meta?.version != null) {
+                    Spacer(Modifier.size(4.dp))
+                    Text(
+                        "v${plugin.meta.version}",
+                        color = Muted,
+                        fontSize = 9.sp
+                    )
+                }
+            }
+            val metaLine = buildString {
+                append(plugin.sizeText)
+                append("  ·  ")
+                append(plugin.lastModifiedText)
+                append("  ·  ")
+                append(plugin.sourceTag)
+                if (!plugin.isEnabled) append("  ·  已禁用")
+            }
             Text(
-                plugin.baseName,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = if (plugin.isEnabled) MaterialTheme.colorScheme.onSurface else Muted
-            )
-            Text(
-                "${plugin.sizeText}  ·  ${plugin.lastModifiedText}  ·  ${plugin.sourceTag}",
+                metaLine,
                 color = Muted,
                 fontSize = 10.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+        // 详情按钮
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Color.Transparent)
+                .clickable { onShowDetail() },
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Outlined.Info, contentDescription = "详情", tint = Indigo, modifier = Modifier.size(14.dp))
         }
         // 启用/禁用开关
         Switch(
@@ -425,10 +525,37 @@ private fun InstalledPluginRow(
 private fun CuratedTab(
     curatedList: List<PluginManager.CuratedPlugin>,
     downloadProgress: Map<String, McViewModel.PluginDownloadProgress>,
+    curatedUpdates: Map<String, PluginManager.CuratedUpdateInfo>,
+    isCheckingUpdates: Boolean,
     isCuratedInstalled: (PluginManager.CuratedPlugin) -> Boolean,
-    onInstall: (PluginManager.CuratedPlugin) -> Unit
+    onInstall: (PluginManager.CuratedPlugin) -> Unit,
+    onCheckUpdates: () -> Unit,
+    onForceRecheck: () -> Unit
 ) {
-    McCard(title = "精选插件推荐") {
+    McCard(
+        title = "精选插件推荐",
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (isCheckingUpdates) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(12.dp),
+                        color = Indigo,
+                        strokeWidth = 1.5.dp
+                    )
+                    Spacer(Modifier.size(4.dp))
+                }
+                Text(
+                    if (isCheckingUpdates) "检测中..." else "检查更新",
+                    color = Indigo,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable(enabled = !isCheckingUpdates) {
+                        onCheckUpdates()
+                    }
+                )
+            }
+        }
+    ) {
         Text(
             "内置 6 款常用插件，自动从 GitHub Releases 跟随最新版本下载",
             color = Muted,
@@ -441,9 +568,22 @@ private fun CuratedTab(
                     curated = curated,
                     isInstalled = isCuratedInstalled(curated),
                     progress = downloadProgress[curated.id],
+                    updateInfo = curatedUpdates[curated.id],
                     onInstall = { onInstall(curated) }
                 )
             }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = onForceRecheck,
+            enabled = !isCheckingUpdates,
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.size(4.dp))
+            Text("强制重新检测（清空缓存）", color = Indigo, fontSize = 11.sp)
         }
     }
 }
@@ -453,8 +593,12 @@ private fun CuratedPluginRow(
     curated: PluginManager.CuratedPlugin,
     isInstalled: Boolean,
     progress: McViewModel.PluginDownloadProgress?,
+    updateInfo: PluginManager.CuratedUpdateInfo?,
     onInstall: () -> Unit
 ) {
+    val hasUpdate = updateInfo?.hasUpdate == true
+    val context = LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -467,9 +611,7 @@ private fun CuratedPluginRow(
                 modifier = Modifier
                     .size(36.dp)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(
-                        Brush.linearGradient(listOf(Indigo, Mint))
-                    ),
+                    .background(Brush.linearGradient(listOf(Indigo, Mint))),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
@@ -489,14 +631,11 @@ private fun CuratedPluginRow(
                     )
                     if (isInstalled) {
                         Spacer(Modifier.size(6.dp))
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(MintSoft)
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text("已安装", color = Mint, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-                        }
+                        BadgeChip(text = "已安装", color = Mint, bg = MintSoft)
+                    }
+                    if (hasUpdate) {
+                        Spacer(Modifier.size(4.dp))
+                        BadgeChip(text = "有更新", color = Coral, bg = CoralSoft)
                     }
                 }
                 Text(
@@ -511,6 +650,34 @@ private fun CuratedPluginRow(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                // 版本信息
+                if (updateInfo != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Row(
+                        modifier = Modifier
+                            .clickable {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(updateInfo.latestReleaseUrl))
+                                context.startActivity(intent)
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Outlined.Update, contentDescription = null, tint = Indigo, modifier = Modifier.size(10.dp))
+                        Spacer(Modifier.size(3.dp))
+                        Text(
+                            buildString {
+                                append("最新: ")
+                                append(updateInfo.latestVersion)
+                                if (updateInfo.installedVersion != null) {
+                                    append("  ·  当前: ")
+                                    append(updateInfo.installedVersion)
+                                }
+                            },
+                            color = if (hasUpdate) Coral else Muted,
+                            fontSize = 9.sp,
+                            fontWeight = if (hasUpdate) FontWeight.SemiBold else FontWeight.Normal
+                        )
+                    }
+                }
             }
         }
 
@@ -553,20 +720,28 @@ private fun CuratedPluginRow(
         } else {
             Button(
                 onClick = onInstall,
-                enabled = !isInstalled,
+                enabled = !isInstalled || hasUpdate,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (isInstalled) MintSoft else Indigo,
+                    containerColor = if (isInstalled && !hasUpdate) MintSoft else Indigo,
                     disabledContainerColor = MintSoft
                 ),
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (isInstalled) {
-                    Text("已安装", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                } else {
-                    Icon(Icons.Outlined.Extension, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text("下载安装", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                when {
+                    isInstalled && hasUpdate -> {
+                        Icon(Icons.Outlined.Update, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.size(4.dp))
+                        Text("更新到最新", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    isInstalled -> {
+                        Text("已安装（最新）", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    else -> {
+                        Icon(Icons.Outlined.Extension, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.size(4.dp))
+                        Text("下载安装", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    }
                 }
             }
         }
@@ -578,7 +753,9 @@ private fun CuratedPluginRow(
 @Composable
 private fun UploadTab(
     activeCoreExists: Boolean,
+    customUrlProgress: McViewModel.PluginDownloadProgress?,
     onPickFile: (Uri) -> Unit,
+    onInstallFromUrl: (String, String) -> Unit,
     onGotoInstalled: () -> Unit
 ) {
     // SAF 文件选择器
@@ -587,6 +764,9 @@ private fun UploadTab(
     ) { uri: Uri? ->
         if (uri != null) onPickFile(uri)
     }
+
+    var customUrl by remember { mutableStateOf("") }
+    var customName by remember { mutableStateOf("") }
 
     McCard(title = "本地上传插件") {
         if (!activeCoreExists) {
@@ -613,28 +793,94 @@ private fun UploadTab(
                 .height(120.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(IndigoSoft)
-                .border(
-                    width = 1.dp,
-                    color = Indigo,
-                    shape = RoundedCornerShape(12.dp)
-                )
+                .border(width = 1.dp, color = Indigo, shape = RoundedCornerShape(12.dp))
                 .clickable {
                     filePickerLauncher.launch(arrayOf("application/java-archive", "application/octet-stream", "*/*"))
                 },
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(
-                    Icons.Outlined.CloudUpload,
-                    contentDescription = "上传",
-                    tint = Indigo,
-                    modifier = Modifier.size(36.dp)
-                )
+                Icon(Icons.Outlined.CloudUpload, contentDescription = "上传", tint = Indigo, modifier = Modifier.size(36.dp))
                 Spacer(Modifier.size(8.dp))
                 Text("点击选择 .jar 文件", color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.size(2.dp))
                 Text("支持任意来源的 .jar 文件", color = Muted, fontSize = 10.sp)
             }
+        }
+
+        Spacer(Modifier.height(20.dp))
+
+        // 分隔线
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.weight(1f).height(1.dp).background(IndigoSoft))
+            Text("或", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+            Box(modifier = Modifier.weight(1f).height(1.dp).background(IndigoSoft))
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        // 自定义 URL 下载
+        Text("自定义 URL 下载", color = Indigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "粘贴 .jar 文件的直链下载 URL（如 SpigotMC、Modrinth 手动复制的直链）",
+            color = Muted,
+            fontSize = 10.sp
+        )
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = customUrl,
+            onValueChange = { customUrl = it },
+            label = { Text("下载 URL", fontSize = 11.sp) },
+            leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)
+        )
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = customName,
+            onValueChange = { customName = it },
+            label = { Text("保存文件名（含或不含 .jar）", fontSize = 11.sp) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp)
+        )
+
+        // 自定义 URL 下载进度
+        if (customUrlProgress != null) {
+            Spacer(Modifier.height(8.dp))
+            LinearProgressIndicator(
+                progress = customUrlProgress.percent / 100f,
+                modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                color = Mint,
+                trackColor = IndigoSoft
+            )
+            Spacer(Modifier.height(4.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("${customUrlProgress.percent}%", color = Indigo, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                Text(customUrlProgress.speedText, color = Muted, fontSize = 10.sp)
+            }
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = {
+                onInstallFromUrl(customUrl.trim(), customName.trim())
+            },
+            enabled = customUrl.isNotBlank() && customName.isNotBlank() && customUrlProgress == null,
+            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp))
+            Spacer(Modifier.size(4.dp))
+            Text("开始下载", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
 
         Spacer(Modifier.height(12.dp))
@@ -648,7 +894,152 @@ private fun UploadTab(
     }
 }
 
-// ── 通用空状态提示 ──
+// ── 对话框组件 ──────────────────────────────────────────────────────
+
+@Composable
+private fun DeletePluginDialog(
+    plugin: PluginManager.InstalledPlugin,
+    onConfirm: (Boolean) -> Unit,
+    onDismiss: () -> Unit
+) {
+    var alsoRemoveData by remember { mutableStateOf(true) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("删除插件", fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text("确认删除以下插件？", fontSize = 13.sp)
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    plugin.fileName,
+                    color = Indigo,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "大小：${plugin.sizeText}  ·  修改：${plugin.lastModifiedText}",
+                    color = Muted,
+                    fontSize = 10.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "删除后无法恢复，如需保留可改为禁用。",
+                    color = Coral,
+                    fontSize = 10.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.clickable { alsoRemoveData = !alsoRemoveData }
+                ) {
+                    Checkbox(
+                        checked = alsoRemoveData,
+                        onCheckedChange = { alsoRemoveData = it }
+                    )
+                    Spacer(Modifier.size(4.dp))
+                    Column {
+                        Text("同时删除插件数据目录", fontSize = 12.sp)
+                        Text(
+                            if (plugin.meta?.name != null)
+                                "将删除 plugins/${plugin.meta.name}/ 下的配置和数据"
+                            else
+                                "将删除插件同名目录下的配置和数据",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(alsoRemoveData) },
+                colors = ButtonDefaults.buttonColors(containerColor = Coral)
+            ) { Text("删除", color = Color.White) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+
+@Composable
+private fun PluginDetailDialog(
+    plugin: PluginManager.InstalledPlugin,
+    onDismiss: () -> Unit
+) {
+    val meta = plugin.meta
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.Extension, contentDescription = null, tint = Indigo, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("插件详情", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                DetailRow("文件名", plugin.fileName)
+                DetailRow("显示名", plugin.baseName)
+                if (meta != null) {
+                    DetailRow("插件名", meta.name)
+                    DetailRow("版本", meta.version)
+                    DetailRow("主类", meta.mainClass.ifEmpty { "—" })
+                    DetailRow("作者", meta.author)
+                    DetailRow("API 版本", meta.apiVersion.ifEmpty { "—" })
+                    if (meta.description.isNotBlank()) {
+                        DetailRow("描述", meta.description)
+                    }
+                    if (meta.depends.isNotEmpty()) {
+                        DetailRow("依赖", meta.depends.joinToString(", "))
+                    }
+                    if (meta.softDepends.isNotEmpty()) {
+                        DetailRow("软依赖", meta.softDepends.joinToString(", "))
+                    }
+                } else {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "未能解析 plugin.yml 元信息（可能非标准插件或格式不兼容）",
+                        color = Muted,
+                        fontSize = 10.sp
+                    )
+                }
+                DetailRow("文件大小", plugin.sizeText)
+                DetailRow("修改时间", plugin.lastModifiedText)
+                DetailRow("来源", plugin.sourceTag)
+                DetailRow("状态", if (plugin.isEnabled) "启用" else "已禁用")
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
+}
+
+@Composable
+private fun DetailRow(label: String, value: String) {
+    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+        Text(label, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Text(value, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+// ── 通用组件 ──
+
+@Composable
+private fun BadgeChip(text: String, color: Color, bg: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(bg)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(text, color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+    }
+}
 
 @Composable
 private fun EmptyHint(text: String) {

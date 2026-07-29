@@ -432,16 +432,17 @@ class McViewModel(
     }
 
     /** 删除插件 */
-    fun deletePlugin(fileName: String) {
+    fun deletePlugin(fileName: String, alsoRemoveDataDir: Boolean = false) {
         val dirName = activeDirName() ?: run {
             _errorFlow.tryEmit("未选择服务端核心")
             return
         }
         viewModelScope.launch {
             try {
-                val ok = pluginManager.delete(fileName, dirName)
+                val ok = pluginManager.delete(fileName, dirName, alsoRemoveDataDir)
                 if (ok) {
-                    _messageFlow.tryEmit("$fileName 已删除")
+                    val msg = if (alsoRemoveDataDir) "$fileName 已删除（含数据目录）" else "$fileName 已删除"
+                    _messageFlow.tryEmit(msg)
                     refreshInstalledPlugins()
                 } else {
                     _errorFlow.tryEmit("删除失败：文件不存在或被占用")
@@ -478,6 +479,101 @@ class McViewModel(
     fun isCuratedPluginInstalled(curated: PluginManager.CuratedPlugin): Boolean {
         return pluginManager.isCuratedInstalled(curated, _installedPlugins.value)
     }
+
+    // ── 精选插件更新检测 ──
+
+    /** 更新检测结果（key = curated.id） */
+    private val _curatedUpdates = MutableStateFlow<Map<String, PluginManager.CuratedUpdateInfo>>(emptyMap())
+    val curatedUpdates: StateFlow<Map<String, PluginManager.CuratedUpdateInfo>> = _curatedUpdates.asStateFlow()
+
+    /** 是否正在检测更新 */
+    private val _isCheckingUpdates = MutableStateFlow(false)
+    val isCheckingUpdates: StateFlow<Boolean> = _isCheckingUpdates.asStateFlow()
+
+    /** 检测精选插件更新（5 分钟内有缓存不重复请求） */
+    fun checkCuratedUpdates() {
+        if (_isCheckingUpdates.value) return
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            _isCheckingUpdates.value = true
+            try {
+                val installed = pluginManager.scan(dirName)
+                val updates = pluginManager.checkCuratedUpdates(installed)
+                _curatedUpdates.value = updates.associateBy { it.curated.id }
+                val updateCount = updates.count { it.hasUpdate }
+                _messageFlow.tryEmit(
+                    if (updateCount > 0) "检测完成：$updateCount 个插件有更新"
+                    else "检测完成：所有精选插件均为最新版本"
+                )
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("更新检测失败: ${e.message}")
+            } finally {
+                _isCheckingUpdates.value = false
+            }
+        }
+    }
+
+    /** 强制重新检测（清空缓存） */
+    fun forceRecheckUpdates() {
+        pluginManager.invalidateUpdateCache()
+        checkCuratedUpdates()
+    }
+
+    // ── 自定义 URL 下载 ──
+
+    private val URL_DOWNLOAD_ID = "__custom_url__"
+
+    /** 从自定义 URL 下载插件 */
+    fun installPluginFromUrl(url: String, customFileName: String) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        if (url.isBlank() || customFileName.isBlank()) {
+            _errorFlow.tryEmit("URL 和文件名不能为空")
+            return
+        }
+        if (_pluginDownloadProgress.value.containsKey(URL_DOWNLOAD_ID)) {
+            _errorFlow.tryEmit("已有下载任务进行中，请稍候")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                pluginManager.installFromUrl(url, customFileName, dirName) { downloaded, total, speed ->
+                    _pluginDownloadProgress.value = _pluginDownloadProgress.value + (URL_DOWNLOAD_ID to PluginDownloadProgress(
+                        pluginId = URL_DOWNLOAD_ID,
+                        downloadedBytes = downloaded,
+                        totalBytes = total,
+                        speedBytesPerSec = speed
+                    ))
+                }
+                _messageFlow.tryEmit("$customFileName 下载安装完成")
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - URL_DOWNLOAD_ID
+                refreshInstalledPlugins()
+            } catch (e: Exception) {
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - URL_DOWNLOAD_ID
+                _errorFlow.tryEmit("自定义 URL 下载失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 判断自定义 URL 是否正在下载 */
+    fun isCustomUrlDownloading(): Boolean = _pluginDownloadProgress.value.containsKey(URL_DOWNLOAD_ID)
+
+    /** 获取自定义 URL 下载进度（无则 null） */
+    fun customUrlDownloadProgress(): PluginDownloadProgress? =
+        _pluginDownloadProgress.value[URL_DOWNLOAD_ID]
 
     /** 获取当前核心的 plugins 目录路径（用于 UI 显示） */
     fun currentPluginsPath(): String? {
