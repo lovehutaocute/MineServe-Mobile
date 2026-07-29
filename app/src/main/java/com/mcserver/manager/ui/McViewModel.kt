@@ -4,8 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.mcserver.manager.McApplication
+import android.net.Uri
 import com.mcserver.manager.data.McConfig
-import com.mcserver.manager.data.PluginInfo
 import com.mcserver.manager.data.ServerCore
 import com.mcserver.manager.data.ServerRepository
 import com.mcserver.manager.data.ServerState
@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -51,10 +52,6 @@ class McViewModel(
     )
 
     val serverState: StateFlow<ServerState> = repo.serverState
-
-    val plugins: StateFlow<List<PluginInfo>> = repo.pluginsFlow.stateIn(
-        viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList()
-    )
 
     /** Termux 环境是否初始化完成 */
     val isBootstrapped: StateFlow<Boolean> = McApplication.get().isBootstrapped
@@ -176,7 +173,7 @@ class McViewModel(
                 return McViewModel(
                     repo = repo,
                     controller = McServerController(repo.termuxRuntime, repo),
-                    pluginManager = PluginManager(repo.termuxRuntime, repo),
+                    pluginManager = PluginManager(repo.termuxRuntime, app),
                     tunnelManager = TunnelManager(repo.termuxRuntime)
                 ) as T
             }
@@ -317,39 +314,177 @@ class McViewModel(
         }
     }
 
-    fun installPlugin(p: PluginInfo) {
+    // ── 插件管理（新版） ──────────────────────────────────────────
+
+    /** 插件下载进度（结构复用 DownloadProgress） */
+    data class PluginDownloadProgress(
+        val pluginId: String,
+        val downloadedBytes: Long = 0L,
+        val totalBytes: Long = -1L,
+        val speedBytesPerSec: Long = 0L
+    ) {
+        val percent: Int
+            get() = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+        val speedText: String
+            get() = when {
+                speedBytesPerSec <= 0 -> "—"
+                speedBytesPerSec >= 1024 * 1024 ->
+                    String.format(java.util.Locale.US, "%.2f MB/s", speedBytesPerSec / (1024.0 * 1024.0))
+                speedBytesPerSec >= 1024 ->
+                    String.format(java.util.Locale.US, "%.1f KB/s", speedBytesPerSec / 1024.0)
+                else -> "$speedBytesPerSec B/s"
+            }
+    }
+
+    /** 精选插件库（直接暴露给 UI） */
+    val curatedPlugins: List<PluginManager.CuratedPlugin>
+        get() = pluginManager.curatedPlugins
+
+    /** 真实已安装插件列表 */
+    private val _installedPlugins = MutableStateFlow<List<PluginManager.InstalledPlugin>>(emptyList())
+    val installedPlugins: StateFlow<List<PluginManager.InstalledPlugin>> = _installedPlugins.asStateFlow()
+
+    /** 当前正在下载的插件 id → 进度 */
+    private val _pluginDownloadProgress = MutableStateFlow<Map<String, PluginDownloadProgress>>(emptyMap())
+    val pluginDownloadProgress: StateFlow<Map<String, PluginDownloadProgress>> = _pluginDownloadProgress.asStateFlow()
+
+    /** 是否有任意插件正在下载 */
+    val isPluginDownloading: StateFlow<Boolean> = _pluginDownloadProgress
+        .map { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** 扫描当前核心的 plugins 目录 */
+    fun refreshInstalledPlugins() {
         if (!isBootstrapped.value) {
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            _errorFlow.tryEmit("未选择服务端核心")
             return
         }
         viewModelScope.launch {
             try {
-                pluginManager.install(p, dirName)
-                _messageFlow.tryEmit("${p.name} 安装完成")
+                _installedPlugins.value = pluginManager.scan(dirName)
             } catch (e: Exception) {
-                _errorFlow.tryEmit("${p.name} 安装失败: ${e.message}")
+                _errorFlow.tryEmit("扫描插件目录失败: ${e.message}")
             }
         }
     }
 
-    fun uninstallPlugin(p: PluginInfo) {
+    /** 从精选库下载安装插件 */
+    fun installCuratedPlugin(curated: PluginManager.CuratedPlugin) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        if (_pluginDownloadProgress.value.containsKey(curated.id)) {
+            _errorFlow.tryEmit("${curated.name} 正在下载中，请稍候")
             return
         }
         viewModelScope.launch {
             try {
-                pluginManager.uninstall(p, dirName)
-                _messageFlow.tryEmit("${p.name} 卸载完成")
+                pluginManager.installFromUrl(
+                    curated.downloadUrl,
+                    curated.targetFileName,
+                    dirName
+                ) { downloaded, total, speed ->
+                    _pluginDownloadProgress.value = _pluginDownloadProgress.value + (curated.id to PluginDownloadProgress(
+                        pluginId = curated.id,
+                        downloadedBytes = downloaded,
+                        totalBytes = total,
+                        speedBytesPerSec = speed
+                    ))
+                }
+                _messageFlow.tryEmit("${curated.name} 安装完成")
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - curated.id
+                refreshInstalledPlugins()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("${p.name} 卸载失败: ${e.message}")
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - curated.id
+                _errorFlow.tryEmit("${curated.name} 安装失败: ${e.message}")
             }
         }
     }
+
+    /** 从本地 Uri 上传插件 */
+    fun installPluginFromUri(uri: Uri) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val fileName = pluginManager.installFromUri(uri, dirName)
+                _messageFlow.tryEmit("插件 $fileName 上传成功")
+                refreshInstalledPlugins()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("插件上传失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 删除插件 */
+    fun deletePlugin(fileName: String) {
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val ok = pluginManager.delete(fileName, dirName)
+                if (ok) {
+                    _messageFlow.tryEmit("$fileName 已删除")
+                    refreshInstalledPlugins()
+                } else {
+                    _errorFlow.tryEmit("删除失败：文件不存在或被占用")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 切换插件启用/禁用 */
+    fun togglePluginEnabled(fileName: String) {
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val newName = pluginManager.toggleEnabled(fileName, dirName)
+                if (newName != null) {
+                    val action = if (newName.startsWith("-")) "已禁用" else "已启用"
+                    _messageFlow.tryEmit("$action $fileName")
+                    refreshInstalledPlugins()
+                } else {
+                    _errorFlow.tryEmit("切换状态失败：文件不存在")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("切换状态失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 判断精选插件是否已安装（用于 UI 显示徽章） */
+    fun isCuratedPluginInstalled(curated: PluginManager.CuratedPlugin): Boolean {
+        return pluginManager.isCuratedInstalled(curated, _installedPlugins.value)
+    }
+
+    /** 获取当前核心的 plugins 目录路径（用于 UI 显示） */
+    fun currentPluginsPath(): String? {
+        val dirName = activeDirName() ?: return null
+        return java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName/plugins").absolutePath
+    }
+
 
     fun startTunnel() {
         if (!isBootstrapped.value) {
@@ -811,52 +946,6 @@ class McViewModel(
         }
     }
 
-    // ── 真实已安装插件扫描 ──────────────────────────────────────────
-
-    data class InstalledPluginInfo(
-        val fileName: String,
-        val sizeBytes: Long,
-        val sizeText: String,
-        val lastModified: Long
-    )
-
-    private val _installedPlugins = MutableStateFlow<List<InstalledPluginInfo>>(emptyList())
-    val installedPlugins: StateFlow<List<InstalledPluginInfo>> = _installedPlugins.asStateFlow()
-
-    /** 扫描当前核心 plugins 目录下真实存在的 .jar 文件 */
-    fun refreshInstalledPlugins() {
-        if (!isBootstrapped.value) return
-        val dirName = activeDirName() ?: return
-        viewModelScope.launch {
-            try {
-                val pluginsDir = java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName/plugins")
-                _installedPlugins.value = withContext(Dispatchers.IO) {
-                    if (!pluginsDir.exists() || !pluginsDir.isDirectory) emptyList()
-                    else pluginsDir.listFiles { f -> f.isFile && f.name.endsWith(".jar") }
-                        ?.sortedByDescending { it.lastModified() }
-                        ?.map { f ->
-                            InstalledPluginInfo(
-                                fileName = f.name,
-                                sizeBytes = f.length(),
-                                sizeText = formatFileSize(f.length()),
-                                lastModified = f.lastModified()
-                            )
-                        } ?: emptyList()
-                }
-            } catch (e: Exception) {
-                _errorFlow.tryEmit("扫描插件目录失败: ${e.message}")
-            }
-        }
-    }
-
-    private fun formatFileSize(bytes: Long): String {
-        return when {
-            bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
-            bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
-            else -> "$bytes B"
-        }
-    }
-
     // ── 文件管理 ────────────────────────────────────────────────────
 
     data class FileEntry(
@@ -897,7 +986,7 @@ class McViewModel(
                                 path = f.absolutePath,
                                 isDirectory = f.isDirectory,
                                 sizeBytes = if (f.isFile) f.length() else 0L,
-                                sizeText = if (f.isFile) formatFileSize(f.length()) else "",
+                                sizeText = if (f.isFile) formatBytes(f.length()) else "",
                                 lastModified = f.lastModified(),
                                 modifiedText = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(f.lastModified()))
                             )
@@ -917,6 +1006,14 @@ class McViewModel(
             return
         }
         loadFiles(fileManagerRoot)
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        return when {
+            bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
+            bytes >= 1024 -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1024.0)
+            else -> "$bytes B"
+        }
     }
 
     /** 删除文件或目录 */

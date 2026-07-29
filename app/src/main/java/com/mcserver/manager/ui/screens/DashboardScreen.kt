@@ -75,7 +75,6 @@ import kotlinx.coroutines.launch
 fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp: () -> Unit) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
-    val plugins by vm.plugins.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()

@@ -7,11 +7,19 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.consumeAsFlow
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import com.mcserver.manager.runtime.TermuxRuntime
 
@@ -35,10 +43,23 @@ class ServerRepository(
         prefs[CONFIG_KEY]?.let { json.decodeFromString<McConfig>(it) } ?: McConfig()
     }
 
-    suspend fun saveConfig(config: McConfig) {
-        context.configDataStore.edit { prefs ->
-            prefs[CONFIG_KEY] = json.encodeToString(McConfig.serializer(), config)
+    /** Config 写入 debounce 通道，避免输入框每字符触发磁盘写入 */
+    private val saveChannel = Channel<McConfig>(Channel.CONFLATED)
+    private val saveScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // 300ms debounce：连续快速修改只写入最后一次
+        saveScope.launch {
+            saveChannel.consumeAsFlow().debounce(300).collect { config ->
+                context.configDataStore.edit { prefs ->
+                    prefs[CONFIG_KEY] = json.encodeToString(McConfig.serializer(), config)
+                }
+            }
         }
+    }
+
+    suspend fun saveConfig(config: McConfig) {
+        saveChannel.send(config)
     }
 
     private val _serverState = MutableStateFlow(ServerState())
@@ -57,27 +78,4 @@ class ServerRepository(
             )
         }
     }
-
-    /** 已安装插件列表（持久化简化版：保存在 DataStore 单 key） */
-    private val PLUGINS_KEY = stringPreferencesKey("plugins_json")
-    val pluginsFlow: Flow<List<PluginInfo>> = context.configDataStore.data.map { prefs ->
-        prefs[PLUGINS_KEY]?.let { json.decodeFromString<List<PluginInfo>>(it) } ?: defaultPlugins()
-    }
-
-    suspend fun setPlugins(list: List<PluginInfo>) {
-        context.configDataStore.edit { prefs ->
-            prefs[PLUGINS_KEY] = json.encodeToString(
-                kotlinx.serialization.builtins.ListSerializer(PluginInfo.serializer()),
-                list
-            )
-        }
-    }
-
-    private fun defaultPlugins() = listOf(
-        PluginInfo("luckperms", "LuckPerms", "权限与用户组管理", "LP", installed = false),
-        PluginInfo("essentialsx", "EssentialsX", "基础指令与传送", "EX", installed = false),
-        PluginInfo("vault", "Vault", "经济系统接口", "VZ", installed = false),
-        PluginInfo("worldedit", "WorldEdit", "世界编辑神器", "WE", installed = false),
-        PluginInfo("coreprotect", "CoreProtect", "方块日志与回滚", "CP", installed = false)
-    )
 }
