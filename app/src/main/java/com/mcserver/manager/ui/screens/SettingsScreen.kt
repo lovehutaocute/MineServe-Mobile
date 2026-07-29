@@ -1,7 +1,10 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -9,10 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -27,14 +27,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mcserver.manager.data.AptMirror
+import com.mcserver.manager.data.DownloadMirror
 import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
+import com.mcserver.manager.ui.SegPill
+import com.mcserver.manager.ui.SubPage
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.Muted
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SettingsScreen(vm: McViewModel) {
+fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
     val config by vm.config.collectAsState()
 
     Column(
@@ -44,6 +49,7 @@ fun SettingsScreen(vm: McViewModel) {
     ) {
         HeaderBlock(eyebrow = "Settings", title = "设置")
 
+        // JVM 内存上限
         McCard(title = "JVM 内存上限") {
             Text(
                 "为 MC 进程分配 -Xmx，建议不超过设备可用 RAM 的 60%。",
@@ -61,6 +67,49 @@ fun SettingsScreen(vm: McViewModel) {
             )
         }
 
+        // 下载源设置（Termux bootstrap rootfs 下载源）
+        McCard(title = "下载源设置") {
+            Text(
+                "Termux 运行环境下载源（约 50MB），影响初始化速度",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("Termux 下载源", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                DownloadMirror.values().forEach { mirror ->
+                    SegPill(
+                        text = mirror.displayName,
+                        selected = config.downloadMirror == mirror,
+                        onClick = { vm.setDownloadMirror(mirror) }
+                    )
+                }
+            }
+        }
+
+        // APT 镜像设置（JDK/wget/frp 等依赖包下载源）
+        McCard(title = "APT 软件源") {
+            Text(
+                "影响 apt 安装依赖（JDK/wget/frp/proot）的下载速度",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            Text("APT 镜像", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                AptMirror.values().forEach { mirror ->
+                    SegPill(
+                        text = mirror.displayName,
+                        selected = config.aptMirror == mirror,
+                        onClick = { vm.setAptMirror(mirror) }
+                    )
+                }
+            }
+        }
+
+        // 保活与恢复
         McCard(title = "保活与恢复") {
             SettingToggle(
                 title = "崩溃自动重启",
@@ -84,6 +133,22 @@ fun SettingsScreen(vm: McViewModel) {
             )
         }
 
+        // 快捷入口（子页面跳转）
+        McCard(title = "快捷入口") {
+            SettingEntry(
+                title = "server.properties 编辑",
+                subtitle = "修改服务器基础配置（难度/模式/人数等）",
+                onClick = { onNavigate(SubPage.Properties) }
+            )
+            Spacer(Modifier.height(8.dp))
+            SettingEntry(
+                title = "下载帮助",
+                subtitle = "下载慢？查看解决方案",
+                onClick = { onNavigate(SubPage.DownloadHelp) }
+            )
+        }
+
+        // 关于
         McCard(title = "关于") {
             Text(
                 "MC 云控面板 · v1.0.0",
@@ -117,5 +182,26 @@ private fun SettingToggle(
             Text(subtitle, color = Muted, fontSize = 11.sp)
         }
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+@Composable
+private fun SettingEntry(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() }
+            .padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = Indigo)
+            Text(subtitle, color = Muted, fontSize = 11.sp)
+        }
+        Text("→", color = Indigo, fontSize = 16.sp, fontWeight = FontWeight.Bold)
     }
 }

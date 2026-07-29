@@ -100,7 +100,10 @@ fun McApp() {
                     McTab.Files -> FileManagerScreen(vm = vm)
                     McTab.Network -> NetworkScreen(vm = vm, onBack = {})
                     McTab.Backup -> BackupScreen(vm = vm, onBack = {})
-                    McTab.Settings -> SettingsScreen(vm = vm)
+                    McTab.Settings -> SettingsScreen(
+                        vm = vm,
+                        onNavigate = { subPage = it }
+                    )
                 }
             }
         }
