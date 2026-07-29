@@ -1,11 +1,14 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,7 +22,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -59,18 +64,21 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DownloadScreen(vm: McViewModel) {
+fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val availableVersions by vm.availableVersions.collectAsState()
     val isLoadingVersions by vm.isLoadingVersions.collectAsState()
     val isDownloadingCore by vm.isDownloadingCore.collectAsState()
+    val downloadProgress by vm.downloadProgress.collectAsState()
     val consoleLines by vm.consoleLines.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     // 自定义版本输入框
     var customVersion by remember { mutableStateOf("") }
+    // 自定义核心名称
+    var customCoreName by remember { mutableStateOf("") }
 
     // 切换核心时自动加载版本列表
     LaunchedEffect(config.selectedCore) {
@@ -96,26 +104,77 @@ fun DownloadScreen(vm: McViewModel) {
         ) {
             HeaderBlock(eyebrow = "Core Download", title = "服务端核心下载")
 
+            // 下载速度显示（仅在下载中时显示）
+            if (isDownloadingCore) {
+                DownloadSpeedCard(
+                    progress = downloadProgress,
+                    onShowHelp = onShowDownloadHelp
+                )
+            }
+
             // 当前下载状态
-            McCard(title = "当前核心状态") {
-                val downloaded = config.downloadedCore != null
-                if (downloaded) {
-                    Text(
-                        "已下载：${config.downloadedCore?.displayName} ${config.downloadedVersion}",
-                        color = Mint,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                } else {
+            McCard(title = "已安装核心列表") {
+                val installed = config.installedCores
+                if (installed.isEmpty()) {
                     Text(
                         "尚未下载任何服务端核心",
                         color = Muted,
                         fontSize = 13.sp
                     )
+                } else {
+                    installed.forEach { core ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        core.name,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                    if (core.name == config.activeCoreName) {
+                                        Spacer(Modifier.size(6.dp))
+                                        Text(
+                                            "当前选用",
+                                            color = Mint,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                                Text(
+                                    "${core.core.displayName} ${core.version}  ·  文件夹: ${core.dirName}",
+                                    color = Muted,
+                                    fontSize = 11.sp
+                                )
+                            }
+                            OutlinedButton(
+                                onClick = {
+                                    vm.setActiveCore(core.name)
+                                    scope.launch { snackbarHostState.showSnackbar("已选用「${core.name}」") }
+                                },
+                                enabled = core.name != config.activeCoreName,
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Indigo),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) { Text("选用", color = Indigo, fontSize = 11.sp) }
+                            Spacer(Modifier.size(6.dp))
+                            OutlinedButton(
+                                onClick = { vm.deleteCore(core.name) },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Coral),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) { Text("删除", color = Coral, fontSize = 11.sp) }
+                        }
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "下载路径：应用内 home/server/server.jar（自动保存）",
+                    "下载路径：home/servers/{名称}/server.jar（每个核心独立目录）",
                     color = Muted,
                     fontSize = 11.sp
                 )
@@ -223,14 +282,25 @@ fun DownloadScreen(vm: McViewModel) {
                     )
                 } else {
                     Text(
-                        "将下载 ${config.selectedCore.displayName} ${config.mcVersion} 到应用沙盒目录",
+                        "将下载 ${config.selectedCore.displayName} ${config.mcVersion} 到独立目录",
                         color = Muted,
                         fontSize = 11.sp
                     )
+                    Spacer(Modifier.height(10.dp))
+                    // 自定义名称输入
+                    Text("核心名称（用于区分不同核心）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = customCoreName,
+                        onValueChange = { customCoreName = it },
+                        placeholder = { Text("如 生存服-1.20.4", fontSize = 12.sp) },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
                     Spacer(Modifier.height(12.dp))
                     Button(
-                        onClick = { vm.downloadCore() },
-                        enabled = !isDownloadingCore,
+                        onClick = { vm.downloadCore(customCoreName) },
+                        enabled = !isDownloadingCore && customCoreName.isNotBlank(),
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -266,6 +336,83 @@ fun DownloadScreen(vm: McViewModel) {
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+    }
+}
+
+/**
+ * 下载速度卡片：显示当前下载速度、进度，并提供"下载慢?查看解决方式"按钮
+ */
+@Composable
+private fun DownloadSpeedCard(
+    progress: com.mcserver.manager.ui.McViewModel.DownloadProgress,
+    onShowHelp: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(IndigoSoft.copy(alpha = 0.4f))
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Indigo.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("↓", color = Indigo, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.size(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    progress.speedText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Indigo
+                )
+                Text(
+                    "${progress.downloadedText} / ${progress.totalText}",
+                    color = Muted,
+                    fontSize = 11.sp
+                )
+            }
+            Text(
+                "${progress.percent}%",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Indigo
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        LinearProgressIndicator(
+            progress = progress.percent / 100f,
+            modifier = Modifier.fillMaxWidth(),
+            color = Indigo,
+            trackColor = IndigoSoft
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onShowHelp() }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "下载慢?查看解决方式",
+                color = Indigo,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(" →", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

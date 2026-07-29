@@ -2,6 +2,7 @@ package com.mcserver.manager.server
 
 import android.util.Log
 import com.mcserver.manager.data.InstallStep
+import com.mcserver.manager.data.InstalledCore
 import com.mcserver.manager.data.McConfig
 import com.mcserver.manager.data.ServerCore
 import com.mcserver.manager.data.ServerRepository
@@ -33,6 +34,9 @@ class McServerController(
 ) {
 
     private val json = Json { ignoreUnknownKeys = true }
+
+    /** 崩溃报告管理器：MC 进程异常退出时捕获日志生成报告 */
+    private val crashReportManager = CrashReportManager(termux)
 
     @Volatile
     private var isInstalling = false
@@ -76,13 +80,43 @@ class McServerController(
     }
 
     /**
-     * 下载服务端核心（生产化：4 种核心动态解析 API）
-     * 下载到 serverJarFile（home/server/server.jar），使用 Java HTTP 直下载，不依赖 wget
+     * 下载服务端核心到指定自定义名称的独立目录。
+     * 下载到 home/servers/{dirName}/server.jar，使用 Java HTTP 直下载，不依赖 wget。
+     * 下载成功后自动将核心信息添加到 config.installedCores 并设为 activeCore。
+     *
+     * @param customName 用户自定义名称（显示用），如 "生存服-1.20.4"
+     * @return 生成的 dirName（文件夹名）
      */
-    suspend fun downloadCore(config: McConfig) = withContext(Dispatchers.IO) {
-        // 在 APP 层（Java HTTP）解析真实下载 URL，直接下载文件
-        val jarPath = termux.serverJarFile.absolutePath
-        downloadCoreTo(jarPath, config)
+    suspend fun downloadCore(config: McConfig, customName: String) = withContext(Dispatchers.IO) {
+        downloadCore(config, customName) { _, _, _ -> }
+    }
+
+    /**
+     * 下载服务端核心（带进度回调版本）。
+     * @param onProgress 回调参数：(已下载字节, 总字节, 速度 bytes/s)，总字节为 -1 表示未知
+     */
+    suspend fun downloadCore(config: McConfig, customName: String, onProgress: (Long, Long, Long) -> Unit) = withContext(Dispatchers.IO) {
+        val dirName = sanitizeDirName(customName)
+        val jarPath = termux.serverJarFileFor(dirName).absolutePath
+        downloadCoreTo(jarPath, config, dirName, onProgress)
+        // 在新核心目录下创建 eula.txt 和 plugins/ 目录
+        val serverDir = termux.serverDirFor(dirName)
+        val eula = File(serverDir, "eula.txt")
+        if (!eula.exists()) eula.writeText("eula=true\n")
+        File(serverDir, "plugins").mkdirs()
+        // 添加到已安装列表
+        val newCore = InstalledCore(
+            name = customName,
+            core = config.selectedCore,
+            version = config.mcVersion,
+            dirName = dirName
+        )
+        val updated = config.installedCores.filter { it.dirName != dirName } + newCore
+        repo.saveConfig(config.copy(
+            installedCores = updated,
+            activeCoreName = customName
+        ))
+        dirName
     }
 
     /**
@@ -283,9 +317,19 @@ class McServerController(
     /**
      * 下载服务端核心到指定路径（独立方法，供 DownloadScreen 调用）。
      * 使用 Java HTTP 直接下载，不依赖 Termux 的 wget 命令。
-     * 成功后更新 config.downloadedCore 和 downloadedVersion。
+     * @param dirName 核心文件夹名（仅用于日志）
      */
-    suspend fun downloadCoreTo(jarPath: String, config: McConfig) = withContext(Dispatchers.IO) {
+    suspend fun downloadCoreTo(jarPath: String, config: McConfig, dirName: String = "default") = withContext(Dispatchers.IO) {
+        downloadCoreTo(jarPath, config, dirName) { _, _, _ -> }
+    }
+
+    /**
+     * 下载服务端核心到指定路径（带进度回调版本）。
+     * 使用 Java HTTP 直接下载，不依赖 Termux 的 wget 命令。
+     * @param dirName 核心文件夹名（仅用于日志）
+     * @param onProgress 回调参数：(已下载字节, 总字节, 速度 bytes/s)，总字节为 -1 表示未知
+     */
+    suspend fun downloadCoreTo(jarPath: String, config: McConfig, dirName: String = "default", onProgress: (Long, Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         val url = resolveDownloadUrl(config.selectedCore, config.mcVersion)
         Log.i(TAG, "downloadCoreTo: core=${config.selectedCore}, version=${config.mcVersion}, url=$url")
         termux.emitLog("[download] 开始下载 ${config.selectedCore.displayName} ${config.mcVersion}")
@@ -317,6 +361,8 @@ class McServerController(
                 var downloadedBytes = 0L
                 var lastProgressLog = 0L
                 val startTime = System.currentTimeMillis()
+                var lastSpeedCalcTime = startTime
+                var lastSpeedCalcBytes = 0L
 
                 conn.inputStream.use { input ->
                     FileOutputStream(outFile).use { output ->
@@ -326,6 +372,18 @@ class McServerController(
                             if (read <= 0) break
                             output.write(buffer, 0, read)
                             downloadedBytes += read
+
+                            val now = System.currentTimeMillis()
+                            // 每 500ms 回调一次进度（避免过于频繁刷新 UI）
+                            if (now - lastSpeedCalcTime >= 500) {
+                                val elapsedSec = (now - lastSpeedCalcTime) / 1000.0
+                                val speedBytesPerSec = if (elapsedSec > 0) {
+                                    ((downloadedBytes - lastSpeedCalcBytes) / elapsedSec).toLong()
+                                } else 0L
+                                onProgress(downloadedBytes, totalBytes, speedBytesPerSec)
+                                lastSpeedCalcTime = now
+                                lastSpeedCalcBytes = downloadedBytes
+                            }
 
                             // 每 5MB 输出一次进度日志
                             if (downloadedBytes - lastProgressLog >= 5 * 1024 * 1024) {
@@ -340,6 +398,9 @@ class McServerController(
                     }
                 }
 
+                // 下载完成时回调最终进度
+                onProgress(outFile.length(), totalBytes, 0L)
+
                 // 校验文件大小
                 val fileSize = outFile.length()
                 if (fileSize < 1024) {
@@ -347,11 +408,6 @@ class McServerController(
                 }
                 termux.emitLog("[download] 下载完成: ${fileSize / 1024 / 1024}MB")
 
-                // 持久化已下载信息
-                repo.saveConfig(config.copy(
-                    downloadedCore = config.selectedCore,
-                    downloadedVersion = config.mcVersion
-                ))
                 Log.i(TAG, "downloadCoreTo: success, saved to $jarPath (${fileSize} bytes)")
                 return@withContext
             } catch (e: Exception) {
@@ -404,7 +460,8 @@ class McServerController(
 
     /**
      * 启动 MC 服务
-     * - 首次启动或核心/版本变化时重新下载 server.jar
+     * - 从 config.activeCoreName 找到对应的已安装核心
+     * - 如果核心不存在或 jar 缺失，抛出异常
      * - 支持崩溃自动重启（config.autoRestartOnCrash）
      */
     suspend fun start(config: McConfig) = withContext(Dispatchers.IO) {
@@ -419,41 +476,46 @@ class McServerController(
                 throw RuntimeException("依赖安装失败，请先安装依赖后再启动服务器")
             }
         }
-        // 检测核心或版本是否变化，变化则重新下载 server.jar
-        val needRedownload = config.downloadedCore != config.selectedCore ||
-            config.downloadedVersion != config.mcVersion
-        if (needRedownload) {
-            Log.i(TAG, "核心或版本变化(${config.downloadedCore}/${config.downloadedVersion} -> " +
-                "${config.selectedCore}/${config.mcVersion})，重新下载 server.jar")
-            downloadCore(config)
-            // 持久化已下载的核心信息
-            repo.saveConfig(config.copy(
-                downloadedCore = config.selectedCore,
-                downloadedVersion = config.mcVersion
-            ))
+        // 找到当前选用的核心
+        val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+            ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
+        val jarFile = termux.serverJarFileFor(activeCore.dirName)
+        if (!jarFile.exists()) {
+            throw RuntimeException("核心 ${activeCore.name} 的 server.jar 不存在，请重新下载")
         }
         // 启动时重置崩溃重试计数
         restartAttempts = 0
-        launchMc(config)
+        launchMc(config, activeCore.dirName, jarFile.absolutePath)
     }
 
     /**
      * 实际启动 MC 进程（内部方法，供 start 和崩溃重启调用）
-     * 使用 termux.serverJarFile 的绝对路径，避免相对路径解析错误
      */
-    private suspend fun launchMc(config: McConfig) {
-        // 使用 Termux 沙盒内的绝对路径
-        val jarPath = termux.serverJarFile.absolutePath
+    private suspend fun launchMc(config: McConfig, dirName: String, jarPath: String) {
+        val serverDir = termux.serverDirFor(dirName)
         // 检查 server.jar 是否存在
-        if (!termux.serverJarFile.exists()) {
+        if (!File(jarPath).exists()) {
             throw RuntimeException("server.jar 不存在，请先在「下载」Tab 下载服务端核心")
         }
         termux.startMc(
             jarPath = jarPath,
             maxHeapMb = config.maxHeapMb,
+            dirName = dirName,
             onExit = { code ->
                 repo.updateServerState { it.copy(isRunning = false) }
                 Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
+                // 捕获崩溃报告（非正常退出时收集最近日志 + MC 原生崩溃报告）
+                if (code != 0) {
+                    try {
+                        val reportPath = crashReportManager.captureCrash(code, wasRunningBefore = true, dirName = dirName)
+                        if (reportPath != null) {
+                            Log.i(TAG, "崩溃报告已保存: $reportPath")
+                            termux.emitLog("[crash] 检测到异常退出(exit=$code)，崩溃报告已保存: ${File(reportPath).name}")
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "捕获崩溃报告失败: ${e.message}", e)
+                    }
+                }
                 // 崩溃自动重启（exit code 非 0 且用户开启）
                 if (config.autoRestartOnCrash && code != 0) {
                     if (restartAttempts < maxRestartAttempts) {
@@ -463,9 +525,8 @@ class McServerController(
                         Thread {
                             try {
                                 Thread.sleep(3000)
-                                // 用 runBlocking 启动协程重启
                                 kotlinx.coroutines.runBlocking {
-                                    launchMc(config)
+                                    launchMc(config, dirName, jarPath)
                                     repo.updateServerState { it.copy(isRunning = true) }
                                 }
                             } catch (e: Exception) {
@@ -486,6 +547,7 @@ class McServerController(
         repo.updateServerState { it.copy(isRunning = false) }
     }
 
+
     fun sendCommand(line: String) {
         termux.sendCommand(if (line.startsWith("/")) line.substring(1) else line)
     }
@@ -497,5 +559,14 @@ class McServerController(
             "1.21.4", "1.21", "1.20.6", "1.20.4", "1.20.1",
             "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5"
         )
+
+        /** 将用户自定义名称转换为安全的文件夹名：只保留字母数字汉字和连字符，其余替换为下划线 */
+        fun sanitizeDirName(name: String): String {
+            return name
+                .replace(Regex("[^a-zA-Z0-9\\u4e00-\\u9fa5\\-]"), "_")
+                .replace(Regex("_+"), "_")
+                .trimEnd('_')
+                .ifEmpty { "default" }
+        }
     }
 }

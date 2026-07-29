@@ -1,5 +1,6 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -21,8 +22,11 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -43,6 +47,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mcserver.manager.data.InstalledCore
 import com.mcserver.manager.data.ServerCore
 import com.mcserver.manager.data.ServerState
 import com.mcserver.manager.ui.HeaderBlock
@@ -67,20 +72,23 @@ import kotlinx.coroutines.launch
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
+fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp: () -> Unit) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
     val plugins by vm.plugins.collectAsState()
+    val installedPlugins by vm.installedPlugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()
     val consoleLines by vm.consoleLines.collectAsState()
     val isInstalling by vm.isInstalling.collectAsState()
+    val downloadProgress by vm.downloadProgress.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
     var isStarting by remember { mutableStateOf(false) }
     var isStopping by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showCoreDropdown by remember { mutableStateOf(false) }
 
     // 收集 errorFlow 和 messageFlow，显示 Snackbar
     LaunchedEffect(Unit) {
@@ -91,6 +99,12 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
     LaunchedEffect(Unit) {
         vm.messageFlow.collectLatest { msg ->
             snackbarHostState.showSnackbar(msg)
+        }
+    }
+    // 当核心或环境状态变化时，刷新真实插件列表
+    LaunchedEffect(isBootstrapped, config.activeCoreName) {
+        if (isBootstrapped && config.activeCoreName != null) {
+            vm.refreshInstalledPlugins()
         }
     }
 
@@ -104,7 +118,18 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 .verticalScroll(rememberScrollState())
         ) {
             HeaderBlock(eyebrow = "Local Server", title = "云控面板")
-            HeroBlock(state = state, coreLabel = "${config.selectedCore.displayName} ${config.mcVersion}")
+            val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+            val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
+                ?: "${config.selectedCore.displayName} ${config.mcVersion}"
+            HeroBlock(state = state, coreLabel = coreLabel)
+
+            // 下载速度显示（仅在下载中时显示）
+            if (vm.isDownloadingCore.value) {
+                DownloadSpeedBar(
+                    progress = downloadProgress,
+                    onShowHelp = onShowDownloadHelp
+                )
+            }
 
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
@@ -244,37 +269,11 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 }
             }
 
-            // 启动哪个服务端（显示已下载的核心信息）
+            // 启动哪个服务端（显示已安装的核心列表，支持下拉选择）
             McCard(title = "启动服务端") {
-                val downloaded = config.downloadedCore != null
-                if (downloaded) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Mint.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("✓", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "${config.downloadedCore?.displayName} ${config.downloadedVersion}",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                            Text(
-                                "已下载，可点击下方启动按钮运行",
-                                color = Muted,
-                                fontSize = 11.sp
-                            )
-                        }
-                    }
-                } else {
+                val installed = config.installedCores
+                val activeCore = installed.find { it.name == config.activeCoreName }
+                if (installed.isEmpty()) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -299,6 +298,63 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                                 color = Muted,
                                 fontSize = 11.sp
                             )
+                        }
+                    }
+                } else {
+                    // 核心选择下拉框
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Mint.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("✓", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            OutlinedButton(
+                                onClick = { showCoreDropdown = true },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Indigo),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
+                                        ?: "请选择要启动的核心",
+                                    color = if (activeCore != null) Mint else Muted,
+                                    fontSize = 12.sp,
+                                    maxLines = 1
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showCoreDropdown,
+                                onDismissRequest = { showCoreDropdown = false }
+                            ) {
+                                installed.forEach { core ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Column {
+                                                Text(core.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                                Text(
+                                                    "${core.core.displayName} ${core.version}",
+                                                    color = Muted,
+                                                    fontSize = 11.sp
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            vm.setActiveCore(core.name)
+                                            showCoreDropdown = false
+                                            scope.launch { snackbarHostState.showSnackbar("已选用「${core.name}」") }
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -370,41 +426,50 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                 )
             }
 
-            // 插件预览（前 3 个）
-            McCard(title = "插件预览") {
-                plugins.take(3).forEach { p ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 9.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(
+            // 插件预览（真实扫描结果）
+            McCard(title = "已安装插件") {
+                if (installedPlugins.isEmpty()) {
+                    Text(
+                        "当前核心暂无已安装插件",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    installedPlugins.take(5).forEach { p ->
+                        Row(
                             modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(IndigoSoft),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                p.avatarText,
-                                color = Indigo,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        }
-                        Spacer(Modifier.size(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(p.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            Text(p.description, color = Muted, fontSize = 11.sp)
-                        }
-                        PillButton(
-                            text = if (p.installed) "卸载" else "安装",
-                            install = !p.installed,
-                            onClick = {
-                                if (p.installed) vm.uninstallPlugin(p)
-                                else vm.installPlugin(p)
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(IndigoSoft),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    p.fileName.take(2).uppercase(),
+                                    color = Indigo,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
+                            Spacer(Modifier.size(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(p.fileName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Text(p.sizeText, color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                    if (installedPlugins.size > 5) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "共 ${installedPlugins.size} 个插件，查看全部请到「插件」Tab",
+                            color = Muted,
+                            fontSize = 10.sp
                         )
                     }
                 }
@@ -442,6 +507,87 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit) {
                     }
                 }
             )
+        }
+    }
+}
+
+/**
+ * 下载速度显示条：显示当前下载速度、进度，并提供"下载慢?查看解决方式"按钮
+ */
+@Composable
+private fun DownloadSpeedBar(
+    progress: com.mcserver.manager.ui.McViewModel.DownloadProgress,
+    onShowHelp: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(IndigoSoft.copy(alpha = 0.4f))
+            .padding(12.dp)
+    ) {
+        // 速度和进度信息
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // 速度图标
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Indigo.copy(alpha = 0.15f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("↓", color = Indigo, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(Modifier.size(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    progress.speedText,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Indigo
+                )
+                Text(
+                    "${progress.downloadedText} / ${progress.totalText}",
+                    color = Muted,
+                    fontSize = 11.sp
+                )
+            }
+            Text(
+                "${progress.percent}%",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Indigo
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        // 进度条
+        LinearProgressIndicator(
+            progress = progress.percent / 100f,
+            modifier = Modifier.fillMaxWidth(),
+            color = Indigo,
+            trackColor = IndigoSoft
+        )
+        Spacer(Modifier.height(8.dp))
+        // "下载慢?查看解决方式" 文字按钮
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onShowHelp() }
+                .padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                "下载慢?查看解决方式",
+                color = Indigo,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(" →", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

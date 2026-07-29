@@ -694,6 +694,48 @@ class McViewModel(
     private val _isDownloadingCore = MutableStateFlow(false)
     val isDownloadingCore: StateFlow<Boolean> = _isDownloadingCore.asStateFlow()
 
+    /** 核心下载进度信息（已下载字节、总字节、速度 bytes/s），仅在下载中有效 */
+    data class DownloadProgress(
+        val downloadedBytes: Long = 0L,
+        val totalBytes: Long = -1L,
+        val speedBytesPerSec: Long = 0L
+    ) {
+        /** 速度的格式化文本，如 "2.35 MB/s" 或 "128 KB/s" */
+        val speedText: String
+            get() = formatSpeed(speedBytesPerSec)
+        /** 进度百分比（0-100），总字节未知时为 0 */
+        val percent: Int
+            get() = if (totalBytes > 0) ((downloadedBytes * 100) / totalBytes).toInt().coerceIn(0, 100) else 0
+        /** 已下载大小文本，如 "12.5 MB" */
+        val downloadedText: String
+            get() = formatSize(downloadedBytes)
+        /** 总大小文本，如 "58.0 MB"，未知时为 "?" */
+        val totalText: String
+            get() = if (totalBytes > 0) formatSize(totalBytes) else "?"
+
+        private fun formatSpeed(bytesPerSec: Long): String {
+            val mb = bytesPerSec / 1024.0 / 1024.0
+            val kb = bytesPerSec / 1024.0
+            return when {
+                mb >= 1.0 -> String.format("%.2f MB/s", mb)
+                kb >= 1.0 -> String.format("%.0f KB/s", kb)
+                else -> "$bytesPerSec B/s"
+            }
+        }
+        private fun formatSize(bytes: Long): String {
+            val mb = bytes / 1024.0 / 1024.0
+            val kb = bytes / 1024.0
+            return when {
+                mb >= 1.0 -> String.format("%.1f MB", mb)
+                kb >= 1.0 -> String.format("%.0f KB", kb)
+                else -> "$bytes B"
+            }
+        }
+    }
+
+    private val _downloadProgress = MutableStateFlow(DownloadProgress())
+    val downloadProgress: StateFlow<DownloadProgress> = _downloadProgress.asStateFlow()
+
     /** 加载指定核心的可用版本列表 */
     fun loadVersions(core: ServerCore) {
         viewModelScope.launch {
@@ -722,14 +764,18 @@ class McViewModel(
             return
         }
         _isDownloadingCore.value = true
+        _downloadProgress.value = DownloadProgress()
         viewModelScope.launch {
             try {
-                controller.downloadCore(config.value, customName.trim())
+                controller.downloadCore(config.value, customName.trim()) { downloaded, total, speed ->
+                    _downloadProgress.value = DownloadProgress(downloaded, total, speed)
+                }
                 _messageFlow.tryEmit("服务端核心「${customName.trim()}」下载完成")
             } catch (e: Exception) {
                 _errorFlow.tryEmit("服务端核心下载失败: ${e.message}")
             } finally {
                 _isDownloadingCore.value = false
+                _downloadProgress.value = DownloadProgress()
             }
         }
     }
