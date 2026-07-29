@@ -396,7 +396,7 @@ class TunnelManager(private val termux: TermuxRuntime) {
         // [::1]:53 本地 DNS 失败。解决：在 Termux prefix 下生成 resolv.conf，
         // 若 proot 可用则通过 proot -b 绑定挂载到 /etc/resolv.conf。
         val resolvFile = ensureResolvConf()
-        val prootPath = detectProot()
+        val prootPath = ensureProot()
         if (prootPath != null) {
             termux.emitLog("[tunnel] 检测到 proot，将通过 proot 绑定 resolv.conf 解决 DNS 问题")
         } else {
@@ -459,8 +459,32 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     /** 检测 Termux 环境中是否安装了 proot，返回可执行路径或 null */
     private fun detectProot(): String? {
-        val candidate = File(termux.installer.rootDir, "bin/proot")
-        return if (candidate.exists() && candidate.canExecute()) candidate.absolutePath else null
+        // proot 可能装在 bin/ 或 usr/bin/，检查多个候选路径
+        val candidates = listOf(
+            File(termux.installer.rootDir, "bin/proot"),
+            File(termux.installer.rootDir, "usr/bin/proot")
+        )
+        return candidates.firstOrNull { it.exists() && it.canExecute() }?.absolutePath
+    }
+
+    /**
+     * 确保 proot 已安装。若未检测到则自动通过 apt 安装。
+     * @return proot 可执行路径，安装失败返回 null
+     */
+    private suspend fun ensureProot(): String? {
+        detectProot()?.let { return it }
+        // 自动安装 proot
+        termux.emitLog("[tunnel] 未检测到 proot，正在自动安装...")
+        val code = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "proot")
+        if (code != 0) {
+            termux.emitLog("[tunnel] proot 自动安装失败 (code=$code)")
+            return null
+        }
+        val path = detectProot()
+        if (path == null) {
+            termux.emitLog("[tunnel] proot 安装后仍未检测到，可能路径异常")
+        }
+        return path
     }
 
     /**
@@ -502,11 +526,11 @@ class TunnelManager(private val termux: TermuxRuntime) {
         // ngrok 是 Go 程序，同 cloudflared 一样读 /etc/resolv.conf 做 DNS。
         // Android 无该文件，需通过 proot 绑定挂载 Termux 下的 resolv.conf。
         val resolvFile = ensureResolvConf()
-        val prootPath = detectProot()
+        val prootPath = ensureProot()
         if (prootPath != null) {
             termux.emitLog("[tunnel] 检测到 proot，将通过 proot 绑定 resolv.conf 解决 DNS 问题")
         } else {
-            termux.emitLog("[tunnel] 警告: 未检测到 proot，ngrok 可能因 DNS 解析失败无法启动")
+            termux.emitLog("[tunnel] 警告: proot 安装失败，ngrok 可能因 DNS 解析失败无法启动")
         }
 
         // 构造启动命令：
