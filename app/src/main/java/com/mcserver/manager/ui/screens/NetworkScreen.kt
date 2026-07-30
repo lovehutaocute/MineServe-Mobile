@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -62,7 +61,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcserver.manager.data.TunnelType
-import com.mcserver.manager.server.TunnelManager.TunnelStatus
+import com.mcserver.manager.data.TunnelStatus
+import com.mcserver.manager.data.TunnelState
 import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
@@ -274,8 +274,8 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     Text("frp 服务端地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = config.tunnelServerAddr,
-                        onValueChange = { v -> vm.updateConfig { it.copy(tunnelServerAddr = v) } },
+                        value = config.frpServerAddr,
+                        onValueChange = { v -> vm.updateConfig { it.copy(frpServerAddr = v) } },
                         placeholder = { Text("例如: your-vps.com 或 1.2.3.4") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -285,9 +285,9 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     Text("frp 服务端端口", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = config.tunnelServerPort.toString(),
+                        value = config.frpServerPort.toString(),
                         onValueChange = { v ->
-                            v.toIntOrNull()?.let { port -> vm.updateConfig { it.copy(tunnelServerPort = port) } }
+                            v.toIntOrNull()?.let { port -> vm.updateConfig { it.copy(frpServerPort = port) } }
                         },
                         singleLine = true,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -298,8 +298,8 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     Text("认证 Token（可选，与服务端一致）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = config.tunnelToken,
-                        onValueChange = { v -> vm.updateConfig { it.copy(tunnelToken = v) } },
+                        value = config.frpToken,
+                        onValueChange = { v -> vm.updateConfig { it.copy(frpToken = v) } },
                         placeholder = { Text("frp 服务端的 token") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
@@ -364,47 +364,11 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(10.dp))
 
-                    // 协议选择：TCP（MC 直连）/ HTTP（固定域名）
-                    Text("隧道协议", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        com.mcserver.manager.data.NgrokProto.values().forEach { proto ->
-                            SegPill(
-                                text = proto.displayName,
-                                selected = config.ngrokProto == proto,
-                                onClick = { vm.updateConfig { it.copy(ngrokProto = proto) } }
-                            )
-                        }
-                    }
-                    Spacer(Modifier.height(6.dp))
+                    // ngrok 默认 TCP 模式（MC Java 版直连）
                     Text(
-                        when (config.ngrokProto) {
-                            com.mcserver.manager.data.NgrokProto.Tcp ->
-                                "TCP 模式：MC Java 版可直接连接（地址格式 0.tcp.ngrok.io:端口）"
-                            com.mcserver.manager.data.NgrokProto.Http ->
-                                "HTTP 模式：适合浏览器访问，可绑定 ngrok-free.dev 固定域名"
-                        },
+                        "TCP 模式：MC Java 版可直接连接（地址格式 0.tcp.ngrok.io:端口）",
                         color = Muted, fontSize = 10.sp
                     )
-
-                    // HTTP 协议下显示固定域名输入框
-                    if (config.ngrokProto == com.mcserver.manager.data.NgrokProto.Http) {
-                        Spacer(Modifier.height(8.dp))
-                        Text("固定域名（可选，留空则随机）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = config.ngrokDomain,
-                            onValueChange = { v -> vm.updateConfig { it.copy(ngrokDomain = v) } },
-                            placeholder = { Text("如 onstage-turbojet-blurry.ngrok-free.dev") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "需先在 ngrok.com → Cloud Edge → Domains 预留该域名",
-                            color = Muted, fontSize = 10.sp
-                        )
-                    }
 
                     Spacer(Modifier.height(6.dp))
                     Text(
@@ -430,7 +394,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
 
 @Composable
 private fun TunnelStatusCard(
-    tunnelState: com.mcserver.manager.server.TunnelManager.TunnelState,
+    tunnelState: TunnelState,
     onStart: () -> Unit,
     onStop: () -> Unit,
     onCopyUrl: () -> Unit

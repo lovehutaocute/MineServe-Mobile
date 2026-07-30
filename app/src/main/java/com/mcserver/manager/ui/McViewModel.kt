@@ -15,8 +15,6 @@ import com.mcserver.manager.server.McServerController
 import com.mcserver.manager.server.PlayerManager
 import com.mcserver.manager.server.PluginManager
 import com.mcserver.manager.server.ServerPropertiesManager
-import com.mcserver.manager.server.TunnelManager
-import com.mcserver.manager.server.TunnelManager.TunnelStatus
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,8 +41,7 @@ import java.net.NetworkInterface
 class McViewModel(
     private val repo: ServerRepository,
     private val controller: McServerController,
-    private val pluginManager: PluginManager,
-    private val tunnelManager: TunnelManager
+    private val pluginManager: PluginManager
 ) : ViewModel() {
 
     val config: StateFlow<McConfig> = repo.configFlow.stateIn(
@@ -98,9 +95,6 @@ class McViewModel(
     /** 局域网 IP（IPv4，非 loopback），用于 Network Tab 展示和一键复制 */
     private val _lanIp = MutableStateFlow("--")
     val lanIp: StateFlow<String> = _lanIp.asStateFlow()
-
-    /** 隧道运行状态（运行中 / 公网地址 / 错误信息），UI 层订阅展示 */
-    val tunnelState: StateFlow<TunnelManager.TunnelState> = tunnelManager.state
 
     /** 刷新局域网 IP：在 IO 线程遍历网络接口，取第一个非 loopback 的 IPv4 地址 */
     fun refreshLanIp() {
@@ -180,8 +174,7 @@ class McViewModel(
                 return McViewModel(
                     repo = repo,
                     controller = McServerController(repo.termuxRuntime, repo),
-                    pluginManager = PluginManager(repo.termuxRuntime, app),
-                    tunnelManager = TunnelManager(repo.termuxRuntime)
+                    pluginManager = PluginManager(repo.termuxRuntime, app)
                 ) as T
             }
         }
@@ -254,7 +247,6 @@ class McViewModel(
 
     fun setLocalPort(port: Int) = updateConfig { it.copy(localPort = port) }
     fun setDomain(d: String) = updateConfig { it.copy(customDomain = d) }
-    fun setTunnelType(type: com.mcserver.manager.data.TunnelType) = updateConfig { it.copy(tunnelType = type) }
     fun setMaxHeap(mb: Int) = updateConfig { it.copy(maxHeapMb = mb) }
     fun setAutoRestart(v: Boolean) = updateConfig { it.copy(autoRestartOnCrash = v) }
     fun setKeepWifiLock(v: Boolean) = updateConfig { it.copy(keepWifiLock = v) }
@@ -591,62 +583,6 @@ class McViewModel(
         return java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName/plugins").absolutePath
     }
 
-
-    fun startTunnel() {
-        if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
-            return
-        }
-        if (tunnelState.value.status == TunnelStatus.Starting) {
-            _errorFlow.tryEmit("隧道正在启动中，请稍候...")
-            return
-        }
-        viewModelScope.launch {
-            try {
-                tunnelManager.start(config.value)
-                // 根据启动结果反馈
-                val st = tunnelManager.state.value
-                when (st.status) {
-                    TunnelStatus.Running -> {
-                        val url = st.publicUrl
-                        _messageFlow.tryEmit(
-                            if (url.isNotBlank()) "隧道已启动，公网地址: $url"
-                            else "隧道已启动"
-                        )
-                    }
-                    TunnelStatus.Starting -> _messageFlow.tryEmit("隧道正在启动，请查看日志...")
-                    TunnelStatus.Failed -> _errorFlow.tryEmit("隧道启动失败: ${st.errorMessage}")
-                    else -> _messageFlow.tryEmit("隧道指令已发送")
-                }
-            } catch (e: Exception) {
-                _errorFlow.tryEmit("内网穿透启动失败: ${e.message}")
-            }
-        }
-    }
-
-    fun stopTunnel() {
-        viewModelScope.launch {
-            try {
-                tunnelManager.stop()
-                _messageFlow.tryEmit("内网穿透已停止")
-            } catch (e: Exception) {
-                _errorFlow.tryEmit("内网穿透停止失败: ${e.message}")
-            }
-        }
-    }
-
-    /** 复制隧道公网地址到剪贴板 */
-    fun copyTunnelUrl(context: android.content.Context) {
-        val url = tunnelState.value.publicUrl
-        if (url.isBlank()) {
-            _errorFlow.tryEmit("暂无公网地址，请先启动隧道")
-            return
-        }
-        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-            as android.content.ClipboardManager
-        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Tunnel URL", url))
-        _messageFlow.tryEmit("已复制：$url")
-    }
 
     /** 获取当前选用核心的 dirName，未选择时返回 null */
     private fun activeDirName(): String? {

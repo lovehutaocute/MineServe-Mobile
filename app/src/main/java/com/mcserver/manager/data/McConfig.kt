@@ -31,6 +31,28 @@ enum class TunnelType(val displayName: String, val description: String) {
 }
 
 /**
+ * 隧道运行状态枚举（与 TunnelManager 解耦，可直接用于 UI）
+ */
+enum class TunnelStatus {
+    Idle,       // 未启动
+    Starting,   // 正在启动
+    Running,    // 运行中
+    Failed,     // 失败
+    Stopped     // 已手动停止
+}
+
+/**
+ * 隧道运行时状态快照（由 TunnelManager 推送至 StateFlow）
+ */
+data class TunnelState(
+    val isRunning: Boolean = false,
+    val publicUrl: String = "",
+    val status: TunnelStatus = TunnelStatus.Idle,
+    val errorMessage: String = "",
+    val activeType: TunnelType? = null
+)
+
+/**
  * Termux bootstrap rootfs 下载源
  * - Auto: 按顺序尝试所有镜像（镜像优先）
  * - 其余: 指定镜像优先，其余回退
