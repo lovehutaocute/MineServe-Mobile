@@ -129,8 +129,14 @@ class CloudflaredBackend(
                 val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
                 proc.waitFor()
                 if (output.contains("\"id\"")) {
+                    // JSON 格式输出
                     credFile.writeText(output.trim())
                     log("Tunnel 已创建，凭证已保存")
+                } else if (output.contains("Created tunnel")) {
+                    // 纯文本格式: "Created tunnel NAME with id UUID"
+                    log("Tunnel 已创建: ${output.trim().take(200)}")
+                    // 凭证保存在 ~/.cloudflared/<id>.json
+                    if (!recoverCredentials(binary)) return@withContext false
                 } else if (output.contains("already exists")) {
                     log("Tunnel 已存在于云端，尝试自动恢复...")
                     if (!recoverCredentials(binary)) return@withContext false
