@@ -12,16 +12,17 @@ import java.io.File
  *  - Quick Tunnel: 零配置，自动分配 *.trycloudflare.com 地址（每次重启地址变化）
  *  - Named Tunnel: 绑定自有域名（需将域名 DNS 托管到 Cloudflare）
  *
- * cloudflared 有两个来源：
- *  - apt 版 (GOOS=android): DNS 正常，无需 --edge
- *  - GitHub 版 (GOOS=linux): Android 无法解析 DNS，需用 --edge 指定 Cloudflare IP
+ * Android DNS 问题：
+ *  Android Termux bootstrap 环境既没有 /etc/resolv.conf（Go 纯 DNS 失败），
+ *  cgo getaddrinfo 在 proot/bionic 组合下也不可靠。
+ *  因此始终使用 --edge 参数硬编码 Cloudflare 边缘节点 IP，完全绕过 DNS 解析。
  */
 class CloudflaredBackend(
     termux: TermuxRuntime,
     binaryManager: BinaryManager
 ) : TermuxBackend(termux, binaryManager, TunnelType.Cloudflared) {
 
-    /** Cloudflare 边缘节点 IP（GitHub 版绕过 DNS 用） */
+    /** Cloudflare 边缘节点 IP，用于 --edge 参数绕过 DNS */
     private val edgeIps = listOf(
         "198.41.192.7:80",
         "198.41.192.47:80",
@@ -37,16 +38,13 @@ class CloudflaredBackend(
     }
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
-        val needEdge = !binary.startsWith("${termux.installer.rootDir.absolutePath}/bin/")
         val args = mutableListOf<String>()
 
         if (config.cloudflareQuickTunnel) {
-            // Quick Tunnel: 零配置
-            if (needEdge) {
-                args.addAll(listOf("--edge", edgeIps.joinToString(",")))
-            }
+            // Quick Tunnel: 零配置，--edge 硬编码 Cloudflare IP 绕过 DNS
+            args.addAll(listOf("--edge", edgeIps.joinToString(",")))
             args.addAll(listOf("tunnel", "--url", "tcp://localhost:${config.localPort}"))
-            log("Quick Tunnel 模式，本地端口 ${config.localPort}")
+            log("Quick Tunnel 模式，端口 ${config.localPort}，--edge 绕过 DNS")
         } else {
             // Named Tunnel: 需配置文件
             val domain = config.cloudflareDomain
@@ -59,9 +57,7 @@ class CloudflaredBackend(
                 appendLine("    service: tcp://localhost:${config.localPort}")
                 appendLine("  - service: http_status:404")
             })
-            if (needEdge) {
-                args.addAll(listOf("--edge", edgeIps.joinToString(",")))
-            }
+            args.addAll(listOf("--edge", edgeIps.joinToString(",")))
             args.addAll(listOf("tunnel", "--config", configFile.absolutePath, "run"))
             log("Named Tunnel 模式，域名: $domain")
         }
@@ -70,13 +66,10 @@ class CloudflaredBackend(
     }
 
     override fun buildEnv(config: McConfig): Map<String, String> {
-        // 不设置 GODEBUG=netdns=go —— Android 没有 /etc/resolv.conf，
-        // 让 Go 使用 cgo 原生 DNS（getaddrinfo），走系统 WiFi/4G DNS
         return emptyMap()
     }
 
     override fun parsePublicUrl(line: String): String? {
-        // Quick Tunnel 输出: "INF | https://xxx.trycloudflare.com |"
         val regex = Regex("https://([a-z0-9-]+)\\.trycloudflare\\.com")
         val m = regex.find(line)
         val sub = m?.groupValues?.getOrNull(1)
@@ -90,8 +83,8 @@ class CloudflaredBackend(
 
     override fun diagnoseFailure(exitCode: Int, output: String): String {
         return when {
-            output.contains("lookup") || output.contains("connection refused") ->
-                "cloudflared DNS 解析失败。建议使用 Quick Tunnel 模式或换用 frp"
+            output.contains("connection refused") ->
+                "cloudflared 连接被拒，请检查网络或换用 frp"
             output.contains("trycloudflare.com") && output.contains("failed to request") ->
                 "cloudflared 请求 Quick Tunnel 失败，请检查网络后重试"
             output.contains("credentials") ->
