@@ -137,6 +137,18 @@ class TunnelManager(private val termux: TermuxRuntime) {
         return cf.isTunnelCreated()
     }
 
+    /** 撤销 Cloudflare Tunnel */
+    suspend fun deleteCloudflareTunnel(): Boolean {
+        val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return false
+        return cf.deleteTunnel()
+    }
+
+    /** 取消 Cloudflare 认证 */
+    suspend fun revokeCloudflareAuth(): Boolean {
+        val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return false
+        return cf.revokeAuth()
+    }
+
     /** 释放所有资源 */
     fun destroy() {
         scope.cancel()

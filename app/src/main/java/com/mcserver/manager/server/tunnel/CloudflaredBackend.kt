@@ -36,6 +36,9 @@ class CloudflaredBackend(
     private val credFile: File
         get() = File(tunnelDir, "mc-tunnel.json")
 
+    /** 当前 Tunnel 名称（从 McConfig 读取） */
+    private var tunnelName: String = "mc-tunnel"
+
     override suspend fun ensureBinary(): String? {
         return binaryManager.ensureCloudflared()
     }
@@ -172,6 +175,41 @@ class CloudflaredBackend(
         return false
     }
 
+    /**
+     * 撤销 Cloudflare Tunnel（删除云端 Tunnel + 本地凭证）。
+     */
+    suspend fun deleteTunnel(): Boolean = withContext(Dispatchers.IO) {
+        val binary = ensureBinary() ?: return@withContext false
+        try {
+            // 删除云端 Tunnel
+            termux.execOnce(binary, "tunnel", "delete", "-f", tunnelName)
+            // 删除本地凭证
+            if (credFile.exists()) credFile.delete()
+            log("Tunnel '$tunnelName' 已撤销")
+            true
+        } catch (e: Exception) {
+            log("撤销 Tunnel 失败: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * 取消 Cloudflare 认证（删除 cert.pem 和所有本地凭证）。
+     */
+    suspend fun revokeAuth(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (certPem.exists()) certPem.delete()
+            if (credFile.exists()) credFile.delete()
+            File(termux.installer.rootDir, "home/.cloudflared")
+                .listFiles()?.forEach { it.delete() }
+            log("Cloudflare 认证已取消")
+            true
+        } catch (e: Exception) {
+            log("取消认证失败: ${e.message}")
+            false
+        }
+    }
+
     // ── 启动参数 ─────────────────────────────────────────────
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
@@ -194,9 +232,10 @@ class CloudflaredBackend(
                 )
             }
             val domain = config.cloudflareDomain
+            tunnelName = config.cloudflareTunnelName.ifBlank { "mc-tunnel" }
             val configFile = File(tunnelDir, "cloudflared.yml")
             configFile.writeText(buildString {
-                appendLine("tunnel: mc-tunnel")
+                appendLine("tunnel: $tunnelName")
                 appendLine("credentials-file: ${credFile.absolutePath}")
                 appendLine("ingress:")
                 appendLine("  - hostname: $domain")

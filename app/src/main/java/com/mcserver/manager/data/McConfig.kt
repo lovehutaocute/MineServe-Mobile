@@ -144,6 +144,8 @@ data class McConfig(
     val cloudflareQuickTunnel: Boolean = true,
     /** cloudflared: Named Tunnel 域名 */
     val cloudflareDomain: String = "",
+    /** cloudflared: 固定域名模式的 Tunnel 名称 */
+    val cloudflareTunnelName: String = "mc-tunnel",
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
     val keepWifiLock: Boolean = true,

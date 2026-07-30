@@ -422,6 +422,28 @@ class McViewModel(
     fun isCloudflareAuthDone(): Boolean = tunnelManager.isCloudflareAuthenticated()
     fun isCloudflareTunnelReady(): Boolean = tunnelManager.isCloudflareTunnelCreated()
 
+    /** 撤销 Cloudflare Tunnel */
+    fun deleteCloudflareTunnel() {
+        viewModelScope.launch {
+            try {
+                val ok = tunnelManager.deleteCloudflareTunnel()
+                if (ok) _messageFlow.tryEmit("Tunnel 已撤销")
+                else _errorFlow.tryEmit("撤销失败")
+            } catch (e: Exception) { _errorFlow.tryEmit("撤销失败: ${e.message}") }
+        }
+    }
+
+    /** 取消 Cloudflare 认证 */
+    fun revokeCloudflareAuth() {
+        viewModelScope.launch {
+            try {
+                val ok = tunnelManager.revokeCloudflareAuth()
+                if (ok) _messageFlow.tryEmit("认证已取消")
+                else _errorFlow.tryEmit("取消认证失败")
+            } catch (e: Exception) { _errorFlow.tryEmit("取消认证失败: ${e.message}") }
+        }
+    }
+
     fun sendCommand(line: String) {
         try {
             controller.sendCommand(line)

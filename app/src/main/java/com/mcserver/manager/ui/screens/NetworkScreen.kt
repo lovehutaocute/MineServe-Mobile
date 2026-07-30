@@ -46,6 +46,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -342,6 +343,16 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        Spacer(Modifier.height(8.dp))
+                        Text("Tunnel 名称", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(Modifier.height(6.dp))
+                        OutlinedTextField(
+                            value = config.cloudflareTunnelName,
+                            onValueChange = { v -> vm.updateConfig { it.copy(cloudflareTunnelName = v) } },
+                            placeholder = { Text("默认 mc-tunnel") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                         Spacer(Modifier.height(10.dp))
 
                         // 步骤引导
@@ -370,6 +381,14 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                                 "登录地址将自动复制，在浏览器中粘贴打开完成认证",
                                 color = Muted, fontSize = 10.sp
                             )
+                        } else {
+                            Spacer(Modifier.height(6.dp))
+                            TextButton(
+                                onClick = { vm.revokeCloudflareAuth() },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Coral)
+                            ) {
+                                Text("🚫 取消认证", fontSize = 12.sp)
+                            }
                         }
 
                         // 第2步：创建 Tunnel
@@ -396,6 +415,14 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                                     "认证完成后点击此按钮自动创建 Tunnel 凭证",
                                     color = Muted, fontSize = 10.sp
                                 )
+                            } else {
+                                Spacer(Modifier.height(6.dp))
+                                TextButton(
+                                    onClick = { vm.deleteCloudflareTunnel() },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = Coral)
+                                ) {
+                                    Text("🗑 撤销 Tunnel", fontSize = 12.sp)
+                                }
                             }
                         }
                     }
