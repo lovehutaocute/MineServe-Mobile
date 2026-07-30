@@ -70,7 +70,9 @@ class CloudflaredBackend(
     }
 
     override fun buildEnv(config: McConfig): Map<String, String> {
-        return mapOf("GODEBUG" to "netdns=go")
+        // 不设置 GODEBUG=netdns=go —— Android 没有 /etc/resolv.conf，
+        // 让 Go 使用 cgo 原生 DNS（getaddrinfo），走系统 WiFi/4G DNS
+        return emptyMap()
     }
 
     override fun parsePublicUrl(line: String): String? {

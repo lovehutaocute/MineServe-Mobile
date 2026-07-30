@@ -20,7 +20,8 @@ class PlayitBackend(
     }
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
-        return listOf("--secret", "mc-server", "--port", config.localPort.toString())
+        // 新版 playit CLI 只需 --secret，端口在 playit.gg 网页后台配置
+        return listOf("--secret", "mc-server")
     }
 
     override fun parsePublicUrl(line: String): String? {
