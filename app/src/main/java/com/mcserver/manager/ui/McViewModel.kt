@@ -398,6 +398,30 @@ class McViewModel(
         }
     }
 
+    /** Cloudflare 创建 Tunnel（固定域名模式第二步） */
+    fun createCloudflareTunnel() {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                _messageFlow.tryEmit("正在创建 Cloudflare Tunnel...")
+                val ok = tunnelManager.createCloudflareTunnel()
+                if (ok) {
+                    _messageFlow.tryEmit("Tunnel 创建成功，可以启动了！")
+                } else {
+                    _errorFlow.tryEmit("创建 Tunnel 失败，请先完成认证再试")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("创建失败: ${e.message}")
+            }
+        }
+    }
+
+    fun isCloudflareAuthDone(): Boolean = tunnelManager.isCloudflareAuthenticated()
+    fun isCloudflareTunnelReady(): Boolean = tunnelManager.isCloudflareTunnelCreated()
+
     fun sendCommand(line: String) {
         try {
             controller.sendCommand(line)

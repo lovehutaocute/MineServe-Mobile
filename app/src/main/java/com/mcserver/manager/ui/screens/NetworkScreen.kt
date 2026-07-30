@@ -332,6 +332,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
 
                     if (!config.cloudflareQuickTunnel) {
                         Spacer(Modifier.height(8.dp))
+                        // 域名输入
                         Text("Cloudflare 域名", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(6.dp))
                         OutlinedTextField(
@@ -341,20 +342,62 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(10.dp))
+
+                        // 步骤引导
+                        val isAuth = vm.isCloudflareAuthDone()
+                        val isCreated = vm.isCloudflareTunnelReady()
+
+                        // 第1步：一键登录
                         Button(
                             onClick = { vm.loginCloudflare(context) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                            enabled = !isAuth,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAuth) Color(0xFF4CAF50) else Indigo,
+                                disabledContainerColor = Color(0xFF4CAF50)
+                            ),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("🔑 一键登录 Cloudflare", fontSize = 13.sp)
+                            Text(
+                                if (isAuth) "✅ 已完成认证" else "🔑 第1步：一键登录 Cloudflare",
+                                fontSize = 13.sp
+                            )
                         }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "登录地址将自动复制到剪贴板，在浏览器中粘贴打开即可完成认证",
-                            color = Muted, fontSize = 10.sp
-                        )
+                        if (!isAuth) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                "登录地址将自动复制，在浏览器中粘贴打开完成认证",
+                                color = Muted, fontSize = 10.sp
+                            )
+                        }
+
+                        // 第2步：创建 Tunnel
+                        if (isAuth) {
+                            Spacer(Modifier.height(8.dp))
+                            Button(
+                                onClick = { vm.createCloudflareTunnel() },
+                                enabled = !isCreated,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isCreated) Color(0xFF4CAF50) else Indigo,
+                                    disabledContainerColor = Color(0xFF4CAF50)
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    if (isCreated) "✅ Tunnel 已创建" else "📝 第2步：创建 Tunnel",
+                                    fontSize = 13.sp
+                                )
+                            }
+                            if (!isCreated) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    "认证完成后点击此按钮自动创建 Tunnel 凭证",
+                                    color = Muted, fontSize = 10.sp
+                                )
+                            }
+                        }
                     }
                 }
             }

@@ -116,6 +116,27 @@ class TunnelManager(private val termux: TermuxRuntime) {
         return cf.loginTunnel()
     }
 
+    /**
+     * 创建 Cloudflare Tunnel（固定域名模式第二步）。
+     * 前置条件：已通过 loginCloudflare 完成认证。
+     */
+    suspend fun createCloudflareTunnel(): Boolean {
+        val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return false
+        return cf.createTunnel()
+    }
+
+    /** Cloudflare 认证状态 */
+    fun isCloudflareAuthenticated(): Boolean {
+        val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return false
+        return cf.isAuthenticated()
+    }
+
+    /** Cloudflare Tunnel 是否已创建 */
+    fun isCloudflareTunnelCreated(): Boolean {
+        val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return false
+        return cf.isTunnelCreated()
+    }
+
     /** 释放所有资源 */
     fun destroy() {
         scope.cancel()
