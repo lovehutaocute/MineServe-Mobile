@@ -3,6 +3,8 @@ package com.mcserver.manager.server.tunnel
 import com.mcserver.manager.data.McConfig
 import com.mcserver.manager.data.TunnelType
 import com.mcserver.manager.runtime.TermuxRuntime
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.File
 
 /**
@@ -37,36 +39,45 @@ class CloudflaredBackend(
 
     /**
      * Cloudflare Tunnel 一键登录。
-     * 执行 `cloudflared tunnel login`，捕获输出的 URL，
-     * 用户在浏览器中打开 URL 即可完成认证。
+     * 执行 `cloudflared tunnel login`，捕获输出的 URL 后立即返回。
+     * 进程在后台继续运行直到用户完成浏览器认证。
      *
      * @return 登录 URL，失败返回 null
      */
-    suspend fun loginTunnel(): String? {
-        val binary = ensureBinary() ?: return null
+    suspend fun loginTunnel(): String? = withContext(Dispatchers.IO) {
+        val binary = ensureBinary() ?: return@withContext null
         log("正在启动 cloudflared tunnel login...")
-        return try {
+        try {
             val proc = termux.execRaw("tunnel-login", binary, "tunnel", "login")
             val reader = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream))
             var url: String? = null
-            var line: String? = reader.readLine()
-            while (line != null) {
+
+            // 只读前 30 行或 15 秒内获取 URL，不等待进程退出
+            val startTime = System.currentTimeMillis()
+            var lineCount = 0
+            while (url == null && lineCount < 30 &&
+                (System.currentTimeMillis() - startTime) < 15_000) {
+                val line = reader.readLine() ?: break
                 log(line)
-                // cloudflared 输出格式: "Please open the following URL: https://..."
-                if (url == null && line.contains("https://") && line.contains("cloudflare")) {
+                lineCount++
+                if (line.contains("https://") && line.contains("cloudflare")) {
                     url = line.substringAfter("https://").let { "https://$it" }.trim()
                 }
-                line = reader.readLine()
             }
-            proc.waitFor()
+            reader.close()
+
             if (url != null) {
-                log("登录 URL: $url")
+                log("登录 URL: $url，请在浏览器中打开")
+            } else {
+                log("未能获取登录 URL，请重试")
+                proc.destroy()
             }
             url
         } catch (e: Exception) {
             log("tunnel login 失败: ${e.message}")
             null
         }
+    }
     }
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
