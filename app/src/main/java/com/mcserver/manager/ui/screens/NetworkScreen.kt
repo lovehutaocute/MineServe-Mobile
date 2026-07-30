@@ -22,11 +22,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
@@ -41,6 +43,7 @@ import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -559,25 +562,80 @@ private fun TunnelStatusCard(
 
 @Composable
 private fun TunnelLogPreview(consoleLines: List<String>) {
-    // 过滤出隧道相关日志，最多显示 8 条最新的
+    // 过滤出隧道相关日志
     val tunnelLogs: List<String> = remember(consoleLines) {
-        consoleLines.filter { it.contains("[tunnel]") }.takeLast(8)
+        consoleLines.filter { it.contains("[tunnel]") }
     }
 
     if (tunnelLogs.isEmpty()) return
 
+    var showFullLog by remember { mutableStateOf(false) }
+
     McCard(title = "隧道日志") {
-        tunnelLogs.forEach { line ->
+        // 最近 8 条预览
+        tunnelLogs.takeLast(8).forEach { line ->
             Text(
                 line,
                 fontSize = 10.sp,
                 fontFamily = FontFamily.Monospace,
                 color = Muted,
+                maxLines = 1,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 2.dp)
             )
         }
+
+        // 全屏按钮
+        Spacer(Modifier.height(8.dp))
+        Button(
+            onClick = { showFullLog = true },
+            colors = ButtonDefaults.buttonColors(containerColor = IndigoSoft),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Outlined.OpenInFull, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.size(6.dp))
+            Text("查看全部日志 (${tunnelLogs.size} 条)", fontSize = 12.sp)
+        }
+    }
+
+    // 全屏日志 Dialog
+    if (showFullLog) {
+        AlertDialog(
+            onDismissRequest = { showFullLog = false },
+            title = {
+                Text("隧道日志 (${tunnelLogs.size} 条)", fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (tunnelLogs.isEmpty()) {
+                        Text("暂无隧道日志", color = Muted, fontSize = 13.sp)
+                    } else {
+                        tunnelLogs.forEach { line ->
+                            Text(
+                                line,
+                                fontSize = 10.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = Muted,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showFullLog = false }) {
+                    Text("关闭")
+                }
+            }
+        )
     }
 }
 
