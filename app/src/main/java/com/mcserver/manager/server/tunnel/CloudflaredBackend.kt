@@ -86,9 +86,12 @@ class CloudflaredBackend(
     /**
      * 创建 Cloudflare Tunnel（固定域名模式第二步）。
      * 前置条件：已通过 loginTunnel 完成认证（cert.pem 已生成）。
+     * 创建成功后自动添加 DNS 路由（cloudflared tunnel route dns）。
      */
-    suspend fun createTunnel(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun createTunnel(config: McConfig): Boolean = withContext(Dispatchers.IO) {
         val binary = ensureBinary() ?: return@withContext false
+        val name = config.cloudflareTunnelName.ifBlank { "mc-tunnel" }
+        val domain = config.cloudflareDomain
         if (!isAuthenticated()) {
             log("未完成 Cloudflare 认证，请先点击「一键登录」")
             return@withContext false
@@ -97,49 +100,56 @@ class CloudflaredBackend(
             log("Tunnel 已创建: ${credFile.absolutePath}")
             return@withContext true
         }
-        log("正在创建 Cloudflare Tunnel...")
+        log("正在创建 Cloudflare Tunnel '$name'...")
         try {
             // 1. 先查是否已有同名 Tunnel
-            val existingId = findExistingTunnel(binary, "mc-tunnel")
+            val existingId = findExistingTunnel(binary, name)
             if (existingId != null) {
-                // 已有 Tunnel → 尝试从 cloudflared 默认路径恢复凭证
                 val defaultCred = File(termux.installer.rootDir,
                     "home/.cloudflared/$existingId.json")
                 if (defaultCred.exists()) {
                     defaultCred.copyTo(credFile, overwrite = true)
-                    log("已恢复现有 Tunnel 凭证: ${credFile.absolutePath} (ID=$existingId)")
-                    return@withContext true
+                    log("已恢复现有 Tunnel 凭证 (ID=$existingId)")
+                } else {
+                    log("Tunnel 已存在 (ID=$existingId)，正在重新获取凭证...")
+                    val proc = termux.execRaw("tunnel-token", binary, "tunnel", "token", name)
+                    val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
+                    proc.waitFor()
+                    if (output.contains("\"id\"")) {
+                        credFile.writeText(output.trim())
+                        log("Tunnel 凭证已保存")
+                    } else {
+                        log("获取凭证失败: $output")
+                        return@withContext false
+                    }
                 }
-                // 凭证文件不在默认路径 → 用 token 命令重新获取
-                log("Tunnel 已存在 (ID=$existingId)，正在重新获取凭证...")
-                val proc = termux.execRaw("tunnel-token", binary, "tunnel", "token", "mc-tunnel")
+            } else {
+                // 2. 不存在 → 创建新 Tunnel
+                val proc = termux.execRaw("tunnel-create", binary, "tunnel", "create", name)
                 val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
                 proc.waitFor()
                 if (output.contains("\"id\"")) {
                     credFile.writeText(output.trim())
-                    log("Tunnel 凭证已保存: ${credFile.absolutePath}")
-                    return@withContext true
+                    log("Tunnel 已创建，凭证已保存")
+                } else if (output.contains("already exists")) {
+                    log("Tunnel 已存在于云端，尝试自动恢复...")
+                    if (!recoverCredentials(binary)) return@withContext false
+                } else {
+                    log("创建 Tunnel 失败: $output")
+                    return@withContext false
                 }
-                log("获取凭证失败: $output")
-                return@withContext false
             }
 
-            // 2. 不存在 → 创建新 Tunnel
-            val proc = termux.execRaw("tunnel-create", binary, "tunnel", "create", "mc-tunnel")
-            val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
-            proc.waitFor()
-            if (output.contains("\"id\"")) {
-                credFile.writeText(output.trim())
-                log("Tunnel 已创建，凭证保存到: ${credFile.absolutePath}")
-                return@withContext true
+            // 3. 自动添加 DNS 路由
+            if (domain.isNotBlank()) {
+                log("正在添加 DNS 路由: $domain → $name")
+                val routeProc = termux.execRaw("tunnel-route-dns", binary,
+                    "tunnel", "route", "dns", name, domain)
+                val routeOutput = java.io.BufferedReader(java.io.InputStreamReader(routeProc.inputStream)).readText()
+                routeProc.waitFor()
+                log("DNS 路由结果: ${routeOutput.take(200)}")
             }
-            if (output.contains("already exists")) {
-                log("Tunnel 已存在于云端，尝试自动恢复...")
-                // 再次尝试从默认路径恢复
-                return@withContext recoverCredentials(binary)
-            }
-            log("创建 Tunnel 失败: $output")
-            return@withContext false
+            true
         } catch (e: Exception) {
             log("创建 Tunnel 失败: ${e.message}")
             false

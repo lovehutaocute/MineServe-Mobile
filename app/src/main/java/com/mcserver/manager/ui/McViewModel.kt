@@ -407,7 +407,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 _messageFlow.tryEmit("正在创建 Cloudflare Tunnel...")
-                val ok = tunnelManager.createCloudflareTunnel()
+                val ok = tunnelManager.createCloudflareTunnel(config.value)
                 if (ok) {
                     _messageFlow.tryEmit("Tunnel 创建成功，可以启动了！")
                 } else {

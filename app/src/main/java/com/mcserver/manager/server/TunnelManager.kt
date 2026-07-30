@@ -120,9 +120,9 @@ class TunnelManager(private val termux: TermuxRuntime) {
      * 创建 Cloudflare Tunnel（固定域名模式第二步）。
      * 前置条件：已通过 loginCloudflare 完成认证。
      */
-    suspend fun createCloudflareTunnel(): Boolean {
+    suspend fun createCloudflareTunnel(config: McConfig): Boolean {
         val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return false
-        return cf.createTunnel()
+        return cf.createTunnel(config)
     }
 
     /** Cloudflare 认证状态 */

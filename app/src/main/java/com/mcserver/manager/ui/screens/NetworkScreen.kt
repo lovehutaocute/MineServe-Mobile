@@ -355,9 +355,21 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                         )
                         Spacer(Modifier.height(10.dp))
 
-                        // 步骤引导
+                        // 状态刷新计数器（强制重读认证状态）
+                        var refreshKey by remember { mutableStateOf(0) }
                         val isAuth = vm.isCloudflareAuthDone()
                         val isCreated = vm.isCloudflareTunnelReady()
+
+                        // 标题行（含刷新按钮）
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("认证与 Tunnel", color = Muted, fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                            IconButton(onClick = { refreshKey++ }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Outlined.Refresh, contentDescription = "刷新状态",
+                                    tint = Indigo, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                        Spacer(Modifier.height(6.dp))
 
                         // 第1步：一键登录
                         Button(
