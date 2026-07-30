@@ -228,6 +228,17 @@ class CloudflaredBackend(
         termux.execOnce("pkill", "-f", "cloudflared")
     }
 
+    override fun onProcessStarted(config: McConfig) {
+        if (!config.cloudflareQuickTunnel) {
+            // Named Tunnel: 公网地址就是用户配置的域名，不输出 trycloudflare.com
+            updateState(
+                com.mcserver.manager.data.TunnelStatus.Running,
+                publicUrl = config.cloudflareDomain
+            )
+            log("Named Tunnel 已启动，域名: ${config.cloudflareDomain}")
+        }
+    }
+
     override fun diagnoseFailure(exitCode: Int, output: String): String {
         return when {
             output.contains("cert.pem") || output.contains("origin cert") ->
