@@ -5,7 +5,12 @@ import com.mcserver.manager.data.TunnelState
 import com.mcserver.manager.data.TunnelStatus
 import com.mcserver.manager.data.TunnelType
 import com.mcserver.manager.runtime.TermuxRuntime
+import com.mcserver.manager.server.tunnel.BinaryManager
 import com.mcserver.manager.server.tunnel.BoreBackend
+import com.mcserver.manager.server.tunnel.CloudflaredBackend
+import com.mcserver.manager.server.tunnel.FrpBackend
+import com.mcserver.manager.server.tunnel.NgrokBackend
+import com.mcserver.manager.server.tunnel.PlayitBackend
 import com.mcserver.manager.server.tunnel.TunnelBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -32,10 +37,16 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    /** 二进制管理器（Termux 后端共享） */
+    private val binaryManager = BinaryManager(termux)
+
     /** 所有已注册的 Backend 实例 */
     private val backends: Map<TunnelType, TunnelBackend> = mapOf(
+        TunnelType.Playit to PlayitBackend(termux, binaryManager),
+        TunnelType.Cloudflared to CloudflaredBackend(termux, binaryManager),
+        TunnelType.Ngrok to NgrokBackend(termux, binaryManager),
+        TunnelType.Frp to FrpBackend(termux, binaryManager),
         TunnelType.Bore to BoreBackend()
-        // 后续 Phase 3 添加: CloudflaredBackend, NgrokBackend, FrpBackend, PlayitBackend
     ).onEach { (_, backend) ->
         backend.attachLog { msg -> termux.emitLog("[tunnel] $msg") }
     }
