@@ -78,7 +78,6 @@ class CloudflaredBackend(
             null
         }
     }
-    }
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
         if (config.cloudflareQuickTunnel) {
