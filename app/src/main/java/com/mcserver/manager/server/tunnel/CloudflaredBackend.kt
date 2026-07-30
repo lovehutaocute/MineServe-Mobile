@@ -13,17 +13,20 @@ import java.io.File
  *  - Named Tunnel: 绑定自有域名（需 DNS 托管到 Cloudflare）
  *
  * DNS 策略：
- *  cgo resolver 对 A/AAAA 查询工作（api.cloudflare.com PASS），
- *  SRV 查询依赖 $PREFIX/etc/resolv.conf（TermuxBackend.fixDns 写入）。
- *  去掉 --edge 参数，让 cloudflared 正常 DNS 发现 edge IP。
+ *  Android 下 DNS SRV 查询不可用（[::1]:53 无服务），edge discovery 会失败。
+ *  使用单个 --edge IP（QUIC 端口 7844）提供初始连接，绕过 DNS SRV 发现。
+ *  单个 IP cloudflared 能正确处理（多 IP 逗号拼接有 cloudflared 2026.7.3 Bug）。
  */
 class CloudflaredBackend(
     termux: TermuxRuntime,
     binaryManager: BinaryManager
 ) : TermuxBackend(termux, binaryManager, TunnelType.Cloudflared) {
 
-    /** cloudflared 看门狗超时：延长到 60s，DNS 解析可能较慢 */
+    /** cloudflared 看门狗超时 */
     override val watchdogTimeoutMs: Long = 60_000
+
+    /** Cloudflare 边缘节点 IP，QUIC 端口 7844，用于 --edge 绕过 DNS SRV */
+    private val edgeIp = "198.41.192.7:7844"
 
     private val tunnelDir: File
         get() = File(termux.installer.rootDir, "home/tunnel").apply { mkdirs() }
@@ -34,8 +37,12 @@ class CloudflaredBackend(
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
         if (config.cloudflareQuickTunnel) {
-            log("Quick Tunnel 模式，端口 ${config.localPort}")
-            return listOf("tunnel", "--url", "tcp://localhost:${config.localPort}")
+            // Quick Tunnel: --edge 单个 IP 绕过 DNS SRV 发现
+            log("Quick Tunnel 模式，端口 ${config.localPort}，--edge $edgeIp")
+            return listOf(
+                "--edge", edgeIp,
+                "tunnel", "--url", "tcp://localhost:${config.localPort}"
+            )
         } else {
             val domain = config.cloudflareDomain
             val configFile = File(tunnelDir, "cloudflared.yml")
@@ -48,13 +55,14 @@ class CloudflaredBackend(
                 appendLine("  - service: http_status:404")
             })
             log("Named Tunnel 模式，域名: $domain")
-            return listOf("tunnel", "--config", configFile.absolutePath, "run")
+            return listOf(
+                "--edge", edgeIp,
+                "tunnel", "--config", configFile.absolutePath, "run"
+            )
         }
     }
 
     override fun buildEnv(config: McConfig): Map<String, String> {
-        // cgo resolver: A/AAAA 查询走 Android 系统 DNS (getaddrinfo)
-        // 纯 Go resolver (SRV) 回退读 $PREFIX/etc/resolv.conf
         return mapOf("GODEBUG" to "netdns=cgo")
     }
 
@@ -78,8 +86,8 @@ class CloudflaredBackend(
                 "cloudflared 请求 Quick Tunnel 失败，请重试"
             output.contains("credentials") ->
                 "凭证文件缺失：请将 mc-tunnel.json 放到 ${tunnelDir.absolutePath}/"
-            output.contains("failed to resolve any edge address") ->
-                "cloudflared 无法发现边缘节点（DNS 问题），请尝试使用 frp"
+            output.contains("failed to resolve") ->
+                "cloudflared 无法发现边缘节点，请尝试使用 frp"
             else -> super.diagnoseFailure(exitCode, output)
         }
     }

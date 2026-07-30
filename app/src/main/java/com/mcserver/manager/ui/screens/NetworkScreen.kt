@@ -481,18 +481,22 @@ private fun TunnelStatusCard(
             }
         }
 
-        // 公网地址展示（仅 cloudflared/ngrok 有）
+        // 公网地址展示（始终显示，退出后也保留）
         if (tunnelState.publicUrl.isNotBlank()) {
+            val isActive = tunnelState.status == TunnelStatus.Running
             Spacer(Modifier.height(12.dp))
-            Text("公网连接地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(
+                if (isActive) "公网连接地址" else "隧道已断开，上次地址",
+                color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold
+            )
             Spacer(Modifier.height(6.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFE8F5E9))
-                    .border(1.dp, Color(0xFF4CAF50), RoundedCornerShape(12.dp))
+                    .background(if (isActive) Color(0xFFE8F5E9) else Color(0xFFFFF3E0))
+                    .border(1.dp, if (isActive) Color(0xFF4CAF50) else Color(0xFFFFA726), RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
@@ -508,7 +512,8 @@ private fun TunnelStatusCard(
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "将此地址分享给玩家，在 Minecraft「直接连接」中粘贴即可",
+                if (isActive) "将此地址分享给玩家，在 Minecraft「直接连接」中粘贴即可"
+                else "重新启动隧道获取新地址",
                 color = Muted, fontSize = 11.sp
             )
         }
