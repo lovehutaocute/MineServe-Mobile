@@ -16,5 +16,6 @@ local.properties
 
 # Kotlin
 *.kotlin_metadata
+.kotlin/
 
 
