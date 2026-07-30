@@ -19,7 +19,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -54,20 +53,19 @@ class TunnelManager(private val termux: TermuxRuntime) {
     /** 当前活跃的 Backend */
     private var activeBackend: TunnelBackend? = null
 
-    /** 合并后的隧道状态（取活跃 Backend 的状态，无活跃时返回 Idle） */
+    /** 合并后的隧道状态（直接转发 activeBackend 的状态，不依赖 combine 异步合并） */
     private val _state = MutableStateFlow(TunnelState())
     val state: StateFlow<TunnelState> = _state.asStateFlow()
 
     init {
-        // 监听所有 Backend 的状态变化，合并为单一状态流
-        scope.launch {
-            val flows = backends.values.map { it.state }
-            combine(flows) { states ->
-                states.toList().firstOrNull {
-                    (it as TunnelState).status != TunnelStatus.Idle
-                } ?: TunnelState()
-            }.collect { merged ->
-                _state.value = merged as TunnelState
+        // 监听所有 Backend 状态变化，只转发当前活跃 Backend 的状态
+        backends.values.forEach { backend ->
+            scope.launch {
+                backend.state.collect { backendState ->
+                    if (backend == activeBackend) {
+                        _state.value = backendState
+                    }
+                }
             }
         }
     }
@@ -84,16 +82,18 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
         val backend = backends[config.tunnelType]
         if (backend == null) {
-            termux.emitLog("[tunnel] 错误: ${config.tunnelType.displayName} 后端尚未实现")
             _state.value = TunnelState(
                 status = TunnelStatus.Failed,
                 errorMessage = "${config.tunnelType.displayName} 后端尚未实现",
                 activeType = config.tunnelType
             )
+            termux.emitLog("[tunnel] 错误: ${config.tunnelType.displayName} 后端尚未实现")
             return
         }
 
         activeBackend = backend
+        // 立即同步状态为对应 Backend 的当前状态
+        _state.value = backend.state.value
         val result = backend.start(config)
         result.onFailure { e ->
             termux.emitLog("[tunnel] ${config.tunnelType.displayName} 启动失败: ${e.message}")
@@ -104,6 +104,7 @@ class TunnelManager(private val termux: TermuxRuntime) {
     suspend fun stop() {
         activeBackend?.stop()
         activeBackend = null
+        _state.value = TunnelState(status = TunnelStatus.Stopped)
     }
 
     /** 释放所有资源 */
