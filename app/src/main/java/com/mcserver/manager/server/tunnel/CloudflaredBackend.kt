@@ -42,7 +42,8 @@ class CloudflaredBackend(
 
         if (config.cloudflareQuickTunnel) {
             // Quick Tunnel: 零配置，--edge 硬编码 Cloudflare IP 绕过 DNS
-            args.addAll(listOf("--edge", edgeIps.joinToString(",")))
+            // 注意：每个 IP 必须是独立的 --edge 参数，不能用逗号拼接
+            edgeIps.forEach { ip -> args.addAll(listOf("--edge", ip)) }
             args.addAll(listOf("tunnel", "--url", "tcp://localhost:${config.localPort}"))
             log("Quick Tunnel 模式，端口 ${config.localPort}，--edge 绕过 DNS")
         } else {
@@ -57,7 +58,7 @@ class CloudflaredBackend(
                 appendLine("    service: tcp://localhost:${config.localPort}")
                 appendLine("  - service: http_status:404")
             })
-            args.addAll(listOf("--edge", edgeIps.joinToString(",")))
+            edgeIps.forEach { ip -> args.addAll(listOf("--edge", ip)) }
             args.addAll(listOf("tunnel", "--config", configFile.absolutePath, "run"))
             log("Named Tunnel 模式，域名: $domain")
         }

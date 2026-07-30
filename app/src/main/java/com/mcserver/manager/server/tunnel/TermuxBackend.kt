@@ -119,23 +119,30 @@ abstract class TermuxBackend(
     // ── Android DNS 修复 ──────────────────────────────────────
 
     /**
-     * Android 系统没有 /etc/resolv.conf，导致 Go 程序（cloudflared/ngrok/frpc）
-     * 无法解析域名（dial tcp: lookup xxx on [::1]:53: connection refused）。
+     * Android 环境修复：写入 resolv.conf + 创建 /tmp 目录。
      *
-     * 此方法在 Termux PREFIX 下写入 resolv.conf，指向 Google DNS。
+     * - DNS：Go 程序（cloudflared/ngrok）的 SRV 查询需要 /etc/resolv.conf
+     * - /tmp：playit.gg 等程序需要可写的 IPC socket 目录
      */
     private fun fixDns() {
         val prefix = termux.installer.rootDir.absolutePath
-        val resolvConf = java.io.File("$prefix/etc/resolv.conf")
-        val content = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
         try {
+            // 1. DNS resolver
+            val resolvConf = java.io.File("$prefix/etc/resolv.conf")
+            val content = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
             resolvConf.parentFile?.mkdirs()
             if (!resolvConf.exists() || resolvConf.readText() != content) {
                 resolvConf.writeText(content)
                 log("DNS 修复: 已写入 $resolvConf")
             }
+            // 2. /tmp 目录（playit.gg IPC socket 需要）
+            val tmpDir = java.io.File("$prefix/tmp")
+            if (!tmpDir.exists()) {
+                tmpDir.mkdirs()
+                log("tmp 目录已创建: $tmpDir")
+            }
         } catch (e: Exception) {
-            log("DNS 修复失败: ${e.message}")
+            log("环境修复失败: ${e.message}")
         }
     }
 
