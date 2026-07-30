@@ -116,7 +116,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         HeaderBlock(eyebrow = "Networking", title = "端口与内网穿透")
 
         // ── 服务器连接信息（局域网） ──────────────────────────
-        McCard(title = "局域网连接地址") {
+        McCard(title = "本地连接地址") {
             // 运行状态指示灯
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -135,6 +135,39 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
 
+            // 本地回环地址（本机直连，同设备测试用）
+            Text("本机地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color(0xFFF5F6FA))
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    "localhost:${config.localPort}",
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = {
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Server", "localhost:${config.localPort}"))
+                }) {
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制", tint = Indigo)
+                }
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "同一台手机上用 MC 客户端测试时使用此地址",
+                color = Muted, fontSize = 10.sp
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // 局域网 IP（其他设备连接用）
             Text("局域网 IP", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -150,7 +183,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             Text("${config.localPort}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
 
-            Text("连接地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text("局域网连接地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -162,7 +195,9 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             ) {
                 Text(
                     if (lanIp == "--") "--:${config.localPort}" else "$lanIp:${config.localPort}",
-                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)
+                    fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { vm.copyServerAddress(context) }) {
                     Icon(Icons.Outlined.ContentCopy, contentDescription = "复制", tint = Indigo)
