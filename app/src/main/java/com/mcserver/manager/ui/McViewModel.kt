@@ -374,6 +374,27 @@ class McViewModel(
         _messageFlow.tryEmit("已复制：$url")
     }
 
+    /** Cloudflare 一键登录（固定域名模式） */
+    fun loginCloudflare() {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                _messageFlow.tryEmit("正在启动 Cloudflare 登录...")
+                val url = tunnelManager.loginCloudflare()
+                if (url != null) {
+                    _messageFlow.tryEmit("请在浏览器中打开: $url")
+                } else {
+                    _errorFlow.tryEmit("Cloudflare 登录失败，请查看日志")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("登录失败: ${e.message}")
+            }
+        }
+    }
+
     fun sendCommand(line: String) {
         try {
             controller.sendCommand(line)

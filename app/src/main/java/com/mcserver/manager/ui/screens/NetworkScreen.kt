@@ -342,9 +342,18 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                             modifier = Modifier.fillMaxWidth()
                         )
                         Spacer(Modifier.height(6.dp))
+                        Button(
+                            onClick = { vm.loginCloudflare() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("🔑 一键登录 Cloudflare", fontSize = 13.sp)
+                        }
+                        Spacer(Modifier.height(4.dp))
                         Text(
-                            "Named Tunnel 模式需从 PC 端执行 cloudflared tunnel login 并将凭证 JSON 放到 home/tunnel/mc-tunnel.json",
-                            color = Coral, fontSize = 10.sp
+                            "点击后会自动运行 cloudflared tunnel login，在浏览器中打开链接完成认证",
+                            color = Muted, fontSize = 10.sp
                         )
                     }
                 }

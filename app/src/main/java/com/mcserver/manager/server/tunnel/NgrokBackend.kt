@@ -35,8 +35,8 @@ class NgrokBackend(
     }
 
     override fun buildEnv(config: McConfig): Map<String, String> {
-        // cgo resolver: A/AAAA 查询走 Android 系统 DNS
-        return mapOf("GODEBUG" to "netdns=cgo")
+        // netdns=go: 使用 Go 内置 DNS 解析器（读 /etc/resolv.conf）
+        return mapOf("GODEBUG" to "netdns=go")
     }
 
     override fun parsePublicUrl(line: String): String? {

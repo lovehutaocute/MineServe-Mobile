@@ -35,6 +35,40 @@ class CloudflaredBackend(
         return binaryManager.ensureCloudflared()
     }
 
+    /**
+     * Cloudflare Tunnel 一键登录。
+     * 执行 `cloudflared tunnel login`，捕获输出的 URL，
+     * 用户在浏览器中打开 URL 即可完成认证。
+     *
+     * @return 登录 URL，失败返回 null
+     */
+    suspend fun loginTunnel(): String? {
+        val binary = ensureBinary() ?: return null
+        log("正在启动 cloudflared tunnel login...")
+        return try {
+            val proc = termux.execRaw("tunnel-login", binary, "tunnel", "login")
+            val reader = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream))
+            var url: String? = null
+            var line: String? = reader.readLine()
+            while (line != null) {
+                log(line)
+                // cloudflared 输出格式: "Please open the following URL: https://..."
+                if (url == null && line.contains("https://") && line.contains("cloudflare")) {
+                    url = line.substringAfter("https://").let { "https://$it" }.trim()
+                }
+                line = reader.readLine()
+            }
+            proc.waitFor()
+            if (url != null) {
+                log("登录 URL: $url")
+            }
+            url
+        } catch (e: Exception) {
+            log("tunnel login 失败: ${e.message}")
+            null
+        }
+    }
+
     override fun buildArgs(config: McConfig, binary: String): List<String> {
         if (config.cloudflareQuickTunnel) {
             // Quick Tunnel: --edge 单个 IP 绕过 DNS SRV 发现
@@ -63,7 +97,9 @@ class CloudflaredBackend(
     }
 
     override fun buildEnv(config: McConfig): Map<String, String> {
-        return mapOf("GODEBUG" to "netdns=cgo")
+        // netdns=go: 使用 Go 内置 DNS 解析器（读 /etc/resolv.conf）
+        // fixDns 已写入 nameserver 8.8.8.8 到多个路径
+        return mapOf("GODEBUG" to "netdns=go")
     }
 
     override fun parsePublicUrl(line: String): String? {

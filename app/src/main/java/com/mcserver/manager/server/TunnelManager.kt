@@ -107,6 +107,15 @@ class TunnelManager(private val termux: TermuxRuntime) {
         _state.value = TunnelState(status = TunnelStatus.Stopped)
     }
 
+    /**
+     * Cloudflare 一键登录（固定域名模式）。
+     * 返回浏览器 URL，用户在浏览器中打开即可完成认证。
+     */
+    suspend fun loginCloudflare(): String? {
+        val cf = backends[TunnelType.Cloudflared] as? CloudflaredBackend ?: return null
+        return cf.loginTunnel()
+    }
+
     /** 释放所有资源 */
     fun destroy() {
         scope.cancel()

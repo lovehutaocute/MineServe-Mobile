@@ -40,6 +40,11 @@ class PlayitBackend(
         return regex.find(line)?.groupValues?.get(1)
     }
 
+    override fun onProcessStarted(config: McConfig) {
+        // 杀掉残留 playit 进程，防止 "Text file busy" (code=126)
+        termux.execOnce("pkill", "-9", "-f", "playit")
+    }
+
     override fun killProcess() {
         termux.execOnce("pkill", "-f", "playit")
     }
@@ -50,6 +55,8 @@ class PlayitBackend(
                 "playit.gg 需要绑定账号：请在浏览器中打开 claim URL 完成绑定，然后重试"
             output.contains("socket", ignoreCase = true) || output.contains("bind", ignoreCase = true) ->
                 "playit.gg 无法创建 IPC socket，请重试或换用其他隧道方式"
+            output.contains("Text file busy", ignoreCase = true) ->
+                "playit.gg 文件被占用，已自动清理残留进程，请重试"
             output.contains("network", ignoreCase = true) || output.contains("connect", ignoreCase = true) ->
                 "playit.gg 网络连接失败，请检查网络后重试"
             else -> super.diagnoseFailure(exitCode, output)
