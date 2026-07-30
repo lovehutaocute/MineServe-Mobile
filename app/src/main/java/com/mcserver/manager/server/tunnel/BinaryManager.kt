@@ -158,38 +158,37 @@ class BinaryManager(private val termux: TermuxRuntime) {
     }
 
     private fun downloadFile(urlStr: String, target: File): Boolean {
-        val url = URL(urlStr)
-        // Follow redirects
-        var conn: HttpURLConnection = url.openConnection() as HttpURLConnection
+        var currentUrl = urlStr
         var redirects = 0
         while (redirects < 5) {
-            conn = url.openConnection() as HttpURLConnection
-            conn.instanceFollowRedirects = false
-            conn.connectTimeout = 15000
-            conn.readTimeout = 60000
-            conn.connect()
+            val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = false
+                connectTimeout = 15000
+                readTimeout = 60000
+                connect()
+            }
             val code = conn.responseCode
             if (code in 301..308) {
                 val location = conn.getHeaderField("Location") ?: break
                 conn.disconnect()
-                val newUrl = URL(location)
+                currentUrl = location // 更新 URL，下次循环使用新地址
                 redirects++
                 continue
             }
-            break
-        }
-
-        if (conn.responseCode != 200) {
-            termux.emitLog("[tunnel] 下载失败 HTTP ${conn.responseCode}")
-            return false
-        }
-
-        conn.inputStream.use { input ->
-            FileOutputStream(target).use { output ->
-                input.copyTo(output)
+            if (code != 200) {
+                termux.emitLog("[tunnel] 下载失败 HTTP $code")
+                conn.disconnect()
+                return false
             }
+            conn.inputStream.use { input ->
+                FileOutputStream(target).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            conn.disconnect()
+            return target.exists() && target.length() > 0
         }
-        conn.disconnect()
-        return target.exists() && target.length() > 0
+        termux.emitLog("[tunnel] 下载失败：重定向次数过多")
+        return false
     }
 }

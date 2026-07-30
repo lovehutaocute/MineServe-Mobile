@@ -84,6 +84,7 @@ class McServerController(
                     InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25")
                     InstallStep.Wget -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "wget")
                     InstallStep.Frp -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
+                    InstallStep.Rclone -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "rclone")
                     InstallStep.Proot -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "proot")
                 }
                 if (code == 0) {

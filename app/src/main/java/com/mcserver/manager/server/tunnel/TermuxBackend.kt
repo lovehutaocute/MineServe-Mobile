@@ -56,21 +56,24 @@ abstract class TermuxBackend(
                 return@withContext Result.failure(RuntimeException(msg))
             }
 
-            // 2. 构建参数
+            // 2. 修复 Android DNS（写入 resolv.conf，否则 Go 程序无法解析域名）
+            fixDns()
+
+            // 3. 构建参数
             val args = buildArgs(config, binary)
             val env = buildEnv(config)
 
             log("启动命令: $binary ${args.joinToString(" ")}")
 
-            // 3. 启动进程
+            // 4. 启动进程
             val proc = termux.execRaw("tunnel", binary, *args.toTypedArray(), env = env)
             process = proc
             isRunning = true
 
-            // 4. 子类进程启动回调（如 frp 直接设置公网地址）
+            // 5. 子类进程启动回调（如 frp 直接设置公网地址）
             onProcessStarted(config)
 
-            // 5. 启动 stdout 解析线程
+            // 6. 启动 stdout 解析线程
             startMonitorThread(proc, config)
 
             Result.success(Unit)
@@ -112,6 +115,29 @@ abstract class TermuxBackend(
 
     /** 兜底 pkill 进程名 */
     protected abstract fun killProcess()
+
+    // ── Android DNS 修复 ──────────────────────────────────────
+
+    /**
+     * Android 系统没有 /etc/resolv.conf，导致 Go 程序（cloudflared/ngrok/frpc）
+     * 无法解析域名（dial tcp: lookup xxx on [::1]:53: connection refused）。
+     *
+     * 此方法在 Termux PREFIX 下写入 resolv.conf，指向 Google DNS。
+     */
+    private fun fixDns() {
+        val prefix = termux.installer.rootDir.absolutePath
+        val resolvConf = java.io.File("$prefix/etc/resolv.conf")
+        val content = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
+        try {
+            resolvConf.parentFile?.mkdirs()
+            if (!resolvConf.exists() || resolvConf.readText() != content) {
+                resolvConf.writeText(content)
+                log("DNS 修复: 已写入 $resolvConf")
+            }
+        } catch (e: Exception) {
+            log("DNS 修复失败: ${e.message}")
+        }
+    }
 
     // ── 公共方法 ──────────────────────────────────────────────
 
