@@ -96,32 +96,80 @@ class CloudflaredBackend(
         }
         log("正在创建 Cloudflare Tunnel...")
         try {
-            val code = termux.execOnce(binary, "tunnel", "create", "mc-tunnel")
-            if (code != 0) {
-                // tunnel create 输出 JSON 到 stdout，需要手动保存
-                val proc = termux.execRaw("tunnel-create", binary, "tunnel", "create", "mc-tunnel")
+            // 1. 先查是否已有同名 Tunnel
+            val existingId = findExistingTunnel(binary, "mc-tunnel")
+            if (existingId != null) {
+                // 已有 Tunnel → 尝试从 cloudflared 默认路径恢复凭证
+                val defaultCred = File(termux.installer.rootDir,
+                    "home/.cloudflared/$existingId.json")
+                if (defaultCred.exists()) {
+                    defaultCred.copyTo(credFile, overwrite = true)
+                    log("已恢复现有 Tunnel 凭证: ${credFile.absolutePath} (ID=$existingId)")
+                    return@withContext true
+                }
+                // 凭证文件不在默认路径 → 用 token 命令重新获取
+                log("Tunnel 已存在 (ID=$existingId)，正在重新获取凭证...")
+                val proc = termux.execRaw("tunnel-token", binary, "tunnel", "token", "mc-tunnel")
                 val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
                 proc.waitFor()
                 if (output.contains("\"id\"")) {
                     credFile.writeText(output.trim())
-                    log("Tunnel 已创建，凭证保存到: ${credFile.absolutePath}")
-                } else {
-                    log("创建 Tunnel 失败: $output")
-                    return@withContext false
+                    log("Tunnel 凭证已保存: ${credFile.absolutePath}")
+                    return@withContext true
                 }
-            } else {
-                // 凭证可能已在默认路径，尝试复制
-                val srcCred = File(termux.installer.rootDir, "home/.cloudflared/mc-tunnel.json")
-                if (srcCred.exists()) {
-                    srcCred.copyTo(credFile, overwrite = true)
-                    log("Tunnel 凭证已复制: ${credFile.absolutePath}")
-                }
+                log("获取凭证失败: $output")
+                return@withContext false
             }
-            isTunnelCreated()
+
+            // 2. 不存在 → 创建新 Tunnel
+            val proc = termux.execRaw("tunnel-create", binary, "tunnel", "create", "mc-tunnel")
+            val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
+            proc.waitFor()
+            if (output.contains("\"id\"")) {
+                credFile.writeText(output.trim())
+                log("Tunnel 已创建，凭证保存到: ${credFile.absolutePath}")
+                return@withContext true
+            }
+            if (output.contains("already exists")) {
+                log("Tunnel 已存在于云端，尝试自动恢复...")
+                // 再次尝试从默认路径恢复
+                return@withContext recoverCredentials(binary)
+            }
+            log("创建 Tunnel 失败: $output")
+            return@withContext false
         } catch (e: Exception) {
             log("创建 Tunnel 失败: ${e.message}")
             false
         }
+    }
+
+    /** 查询 cloudflared tunnel list，返回 mc-tunnel 的 ID 或 null */
+    private fun findExistingTunnel(binary: String, name: String): String? {
+        try {
+            val proc = termux.execRaw("tunnel-list", binary, "tunnel", "list")
+            val output = java.io.BufferedReader(java.io.InputStreamReader(proc.inputStream)).readText()
+            proc.waitFor()
+            // 输出格式: "<id>  <name>  <created>  <connections>"
+            // 例: "a1b2c3d4-...  mc-tunnel  ..."
+            val regex = Regex("""([a-f0-9-]{30,})\s+${Regex.escape(name)}\s""")
+            return regex.find(output)?.groupValues?.get(1)
+        } catch (_: Exception) { return null }
+    }
+
+    /** 尝试恢复凭证：遍历 ~/.cloudflared/ 下所有 .json 文件 */
+    private suspend fun recoverCredentials(binary: String): Boolean {
+        val cfDir = File(termux.installer.rootDir, "home/.cloudflared")
+        cfDir.listFiles()?.filter { it.extension == "json" && it.name != "cert.pem" }?.forEach { f ->
+            try {
+                val content = f.readText()
+                if (content.contains("\"id\"") && content.contains("\"secret\"")) {
+                    credFile.writeText(content)
+                    log("已从 ${f.name} 恢复凭证")
+                    return true
+                }
+            } catch (_: Exception) {}
+        }
+        return false
     }
 
     // ── 启动参数 ─────────────────────────────────────────────
