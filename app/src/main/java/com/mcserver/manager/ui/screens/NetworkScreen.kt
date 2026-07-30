@@ -377,6 +377,54 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     )
                 }
             }
+
+            AnimatedVisibility(
+                visible = config.tunnelType == TunnelType.Bore,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Text("bore 服务端地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = config.boreServerAddr,
+                        onValueChange = { v -> vm.updateConfig { it.copy(boreServerAddr = v) } },
+                        placeholder = { Text("例如: your-vps.com:7835") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "bore 是纯手机端运行的轻量隧道，无需下载额外程序。在 VPS 上运行 bore server 即可。",
+                        color = Muted, fontSize = 10.sp
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = config.tunnelType == TunnelType.Playit,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Text(
+                        "无需任何配置",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Mint
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "playit.gg 专为 Minecraft 设计，完全免费。首次启动时会生成一个链接，在浏览器中打开即可绑定账号。绑定后每次启动自动分配公网地址。",
+                        color = Muted, fontSize = 11.sp
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "免费层限制：无限流量，但延迟和带宽取决于 playit.gg 服务器负载",
+                        color = Coral, fontSize = 10.sp
+                    )
+                }
+            }
         }
 
         // ── 隧道日志预览 ──────────────────────────────────────
@@ -560,6 +608,8 @@ private fun GuideSection(tunnelType: TunnelType) {
                     TunnelType.Frp -> FrpGuide()
                     TunnelType.Cloudflared -> CloudflaredGuide()
                     TunnelType.Ngrok -> NgrokGuide()
+                    TunnelType.Bore -> BoreGuide()
+                    TunnelType.Playit -> PlayitGuide()
                 }
             }
         }
@@ -601,6 +651,29 @@ private fun NgrokGuide() {
         GuideStep("4", "点启动就行", "点上面的「启动穿透」按钮，程序自动下载 ngrok 程序并启动。TCP 会给你分 0.tcp.ngrok.io:端口；HTTP 固定域名则直接给你预留的 xxx.ngrok-free.dev。")
         GuideStep("5", "把地址给朋友", "启动后状态卡片会自动显示公网地址，点复制按钮发给朋友。TCP 地址在 MC 多人游戏→直接连接里粘贴；HTTP 域名只能用浏览器访问（MC 客户端不认 https 地址）。")
         GuideStep("6", "免费版有啥限制", "每月 1GB 流量（几个人玩够用），TCP 地址每次重启都变，最多 3 个同时连接。如果用超了或者嫌地址总变，可以升级付费版预留固定域名，或者换 frp / Cloudflare Tunnel。")
+    }
+}
+
+@Composable
+private fun BoreGuide() {
+    GuideBlock(title = "bore 使用教程（纯手机端运行）") {
+        GuideStep("1", "bore 是啥？", "bore 是一个极简的 TCP 隧道工具，协议超级简单只有 3 种消息。手机端直接用纯 Kotlin 实现，无需下载任何程序，秒启动。")
+        GuideStep("2", "你需要一台云服务器", "跟 frp 一样，需要一台有公网 IP 的 VPS。去 GitHub 搜 ekzhang/bore，下载 bore 二进制，在服务器上运行：./bore server")
+        GuideStep("3", "填服务端地址", "把服务器的 IP 和端口（默认 7835）填到上面的输入框，格式如 your-vps.com:7835。")
+        GuideStep("4", "点启动就行", "点「启动穿透」按钮，程序直接用手机网络连接 bore 服务端。不需要 Termux，不需要下载，启动只需几秒。")
+        GuideStep("5", "把地址给朋友", "启动后状态卡片显示公网地址（serverIP:端口），复制发给朋友在 MC 直接连接粘贴即可。")
+        GuideStep("6", "优点和限制", "优点：极轻量（~300 行代码），秒启动。限制：仅 TCP，需自建服务器。适合追求低延迟和轻量体验的用户。")
+    }
+}
+
+@Composable
+private fun PlayitGuide() {
+    GuideBlock(title = "playit.gg 使用教程（MC 专享免费隧道）") {
+        GuideStep("1", "playit.gg 是啥？", "专门为 Minecraft 设计的免费内网穿透服务。不用注册不用配置不用买服务器，点一下就能让 MC 服务器出现在公网。")
+        GuideStep("2", "首次绑定账号", "首次启动后终端会显示一个链接（https://playit.gg/claim/xxxx），在浏览器中打开即可绑定账号。只需操作一次。")
+        GuideStep("3", "之后自动运行", "绑定后每次点「启动穿透」自动分配公网地址，无需任何操作。地址格式：auto.playit.gg:端口。")
+        GuideStep("4", "分享给朋友", "朋友在 MC 多人游戏→直接连接中输入 auto.playit.gg:端口 即可加入。")
+        GuideStep("5", "免费版限制", "完全免费不限流量。延迟取决于 playit.gg 服务器，高峰时段可能略高。追求极致低延迟建议考虑 frp 或 bore。")
     }
 }
 
