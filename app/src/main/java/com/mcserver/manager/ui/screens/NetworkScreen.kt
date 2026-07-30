@@ -647,9 +647,9 @@ private fun NgrokGuide() {
     GuideBlock(title = "ngrok 使用教程（最省事）") {
         GuideStep("1", "ngrok 是啥？", "跟 Cloudflare Tunnel 类似，帮你把本地服务暴露到公网。区别是 ngrok 是商业服务，有免费额度但有限制。好处是配置超级简单，注册拿个 Token 就能用。")
         GuideStep("2", "注册拿 Token", "去 ngrok.com 注册个免费账号，登录后在 Dashboard 页面找到你的 Authtoken，复制粘贴到上面的输入框里。")
-        GuideStep("3", "选协议", "TCP 模式：MC Java 版可直接连接，地址格式 0.tcp.ngrok.io:端口（推荐，简单）。HTTP 模式：浏览器访问，可绑定 ngrok-free.dev 固定域名（需在 ngrok.com 预留域名）。")
-        GuideStep("4", "点启动就行", "点上面的「启动穿透」按钮，程序自动下载 ngrok 程序并启动。TCP 会给你分 0.tcp.ngrok.io:端口；HTTP 固定域名则直接给你预留的 xxx.ngrok-free.dev。")
-        GuideStep("5", "把地址给朋友", "启动后状态卡片会自动显示公网地址，点复制按钮发给朋友。TCP 地址在 MC 多人游戏→直接连接里粘贴；HTTP 域名只能用浏览器访问（MC 客户端不认 https 地址）。")
+        GuideStep("3", "默认 TCP 模式", "MC Java 版可直接连接，地址格式 0.tcp.ngrok.io:端口。这是唯一支持的模式，无需额外选择。")
+        GuideStep("4", "点启动就行", "点上面的「启动穿透」按钮，程序自动下载 ngrok 并启动，给你分一个 0.tcp.ngrok.io:端口 的地址。")
+        GuideStep("5", "把地址给朋友", "启动后状态卡片会自动显示公网地址，点复制按钮发给朋友。在 MC 多人游戏→直接连接里粘贴即可。")
         GuideStep("6", "免费版有啥限制", "每月 1GB 流量（几个人玩够用），TCP 地址每次重启都变，最多 3 个同时连接。如果用超了或者嫌地址总变，可以升级付费版预留固定域名，或者换 frp / Cloudflare Tunnel。")
     }
 }
