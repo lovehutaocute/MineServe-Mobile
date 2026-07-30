@@ -142,9 +142,10 @@ class CloudflaredBackend(
 
             // 3. 自动添加 DNS 路由
             if (domain.isNotBlank()) {
-                log("正在添加 DNS 路由: $domain → $name")
+                val subdomain = domain.substringBefore(".")
+                log("正在添加 DNS 路由: $subdomain → $name")
                 val routeProc = termux.execRaw("tunnel-route-dns", binary,
-                    "tunnel", "route", "dns", name, domain)
+                    "tunnel", "route", "dns", name, subdomain)
                 val routeOutput = java.io.BufferedReader(java.io.InputStreamReader(routeProc.inputStream)).readText()
                 routeProc.waitFor()
                 log("DNS 路由结果: ${routeOutput.take(200)}")
