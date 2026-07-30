@@ -195,31 +195,49 @@ class TunnelManager(private val termux: TermuxRuntime) {
     // ── 二进制管理 ────────────────────────────────────────────
 
     /**
-     * 确保指定隧道类型的二进制可用。
+     * 查找 apt 安装的二进制实际路径。
      *
-     * 关键决策（参考 AceDroidX/frp-Android 和 Termux 实践）：
-     * - Android 10+ 的 W^X 策略禁止从 app data 目录执行二进制（execve: Permission denied）
-     * - GOOS=linux 编译的 Go 二进制读 /etc/resolv.conf，Android 无此文件导致 DNS 失败
-     * - Termux apt 安装的包用 GOOS=android 编译，用 Android 原生 DNS 机制，且通过
-     *   Termux 的 termux-exec 机制绕过 W^X 限制
+     * Termux 的 dpkg-wrapper 跳过了 configure 步骤（no-op），导致 post-install 脚本未执行，
+     * 包文件被解压到 $PREFIX/data/data/com.termux/files/usr/bin/ 而非 $PREFIX/bin/。
+     * 此方法在多个候选路径中查找，找到后创建符号链接到 $PREFIX/bin/ 方便后续使用。
      *
-     * 因此：
-     * - frp: apt install frp（已实现）
-     * - cloudflared: 优先 apt install cloudflared（GOOS=android，无 DNS 问题）；
-     *   apt 失败才从 GitHub 下载（GOOS=linux，需 --edge 绕过 DNS）
-     * - ngrok: 从 equinox.io 下载 tgz（无 Termux 官方包，DNS 可能失败）
-     *
-     * @return 二进制路径，无法获取时返回 null
+     * @param binaryName 二进制文件名（如 frpc, cloudflared）
+     * @return 二进制绝对路径，未找到返回 null
      */
+    private fun findAptBinary(prefix: String, binaryName: String): String? {
+        val candidates = listOf(
+            File("$prefix/bin/$binaryName"),                                  // 标准路径
+            File("$prefix/data/data/com.termux/files/usr/bin/$binaryName"),   // dpkg 实际解压路径
+            File("$prefix/usr/bin/$binaryName")                               // 备用路径
+        )
+        val found = candidates.firstOrNull { it.exists() && it.canExecute() }
+        if (found != null && found.absolutePath != "$prefix/bin/$binaryName") {
+            // 创建符号链接到 $PREFIX/bin/ 方便后续查找
+            val link = File("$prefix/bin/$binaryName")
+            link.parentFile?.mkdirs()
+            if (!link.exists()) {
+                try {
+                    // 优先尝试符号链接（失败则用 cp 复制）
+                    val code = termux.execOnce("ln", "-sf", found.absolutePath, link.absolutePath)
+                    if (code != 0 || !link.exists()) {
+                        termux.execOnce("cp", found.absolutePath, link.absolutePath)
+                        termux.execOnce("chmod", "755", link.absolutePath)
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "findAptBinary: 创建 $binaryName 符号链接失败: ${e.message}")
+                }
+            }
+            return if (link.exists() && link.canExecute()) link.absolutePath else found.absolutePath
+        }
+        return found?.absolutePath
+    }
+
     private suspend fun ensureBinary(type: TunnelType): String? {
         val prefix = termux.installer.rootDir.absolutePath
 
         // frp 由 apt 安装
         if (type == TunnelType.Frp) {
-            val frpcPath = File("$prefix/bin/frpc")
-            if (frpcPath.exists() && frpcPath.canExecute()) {
-                return frpcPath.absolutePath
-            }
+            findAptBinary(prefix, "frpc")?.let { return it }
             termux.emitLog("[tunnel] frp 未安装，正在通过 apt 自动安装...")
             _state.value = _state.value.copy(
                 status = TunnelStatus.Starting,
@@ -227,9 +245,11 @@ class TunnelManager(private val termux: TermuxRuntime) {
             )
             termux.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
             val code = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
-            if (code == 0 && frpcPath.exists()) {
-                termux.emitLog("[tunnel] frp 安装完成")
-                return frpcPath.absolutePath
+            if (code == 0) {
+                findAptBinary(prefix, "frpc")?.let {
+                    termux.emitLog("[tunnel] frp 安装完成: $it")
+                    return it
+                }
             }
             termux.emitLog("[tunnel] apt 安装 frp 失败 (code=$code)")
             return null
@@ -238,10 +258,9 @@ class TunnelManager(private val termux: TermuxRuntime) {
         // cloudflared 优先用 apt 安装（GOOS=android 编译，解决 DNS 和执行权限问题）
         // 参考 segmentfault.com/a/1190000046200121：Termux 支持 pkg install cloudflared
         if (type == TunnelType.Cloudflared) {
-            val aptPath = File("$prefix/bin/cloudflared")
-            if (aptPath.exists() && aptPath.canExecute()) {
-                termux.emitLog("[tunnel] cloudflared 已安装（apt 版本）")
-                return aptPath.absolutePath
+            findAptBinary(prefix, "cloudflared")?.let {
+                termux.emitLog("[tunnel] cloudflared 已安装（apt 版本）: $it")
+                return it
             }
             termux.emitLog("[tunnel] cloudflared 未安装，尝试通过 apt 安装（GOOS=android 编译，解决 DNS 问题）...")
             _state.value = _state.value.copy(
@@ -250,9 +269,11 @@ class TunnelManager(private val termux: TermuxRuntime) {
             )
             termux.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
             val aptCode = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "cloudflared")
-            if (aptCode == 0 && aptPath.exists() && aptPath.canExecute()) {
-                termux.emitLog("[tunnel] cloudflared apt 安装完成")
-                return aptPath.absolutePath
+            if (aptCode == 0) {
+                findAptBinary(prefix, "cloudflared")?.let {
+                    termux.emitLog("[tunnel] cloudflared apt 安装完成: $it")
+                    return it
+                }
             }
             termux.emitLog("[tunnel] apt 安装 cloudflared 失败 (code=$aptCode)，回退到 GitHub 下载（需 --edge 绕过 DNS）...")
         }
