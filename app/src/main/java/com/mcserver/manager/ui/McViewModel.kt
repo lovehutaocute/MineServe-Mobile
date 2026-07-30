@@ -374,8 +374,8 @@ class McViewModel(
         _messageFlow.tryEmit("已复制：$url")
     }
 
-    /** Cloudflare 一键登录（固定域名模式） */
-    fun loginCloudflare() {
+    /** Cloudflare 一键登录（固定域名模式），自动复制 URL 到剪贴板 */
+    fun loginCloudflare(context: android.content.Context) {
         if (!isBootstrapped.value) {
             _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
             return
@@ -385,7 +385,10 @@ class McViewModel(
                 _messageFlow.tryEmit("正在启动 Cloudflare 登录...")
                 val url = tunnelManager.loginCloudflare()
                 if (url != null) {
-                    _messageFlow.tryEmit("请在浏览器中打开: $url")
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Cloudflare Login", url))
+                    _messageFlow.tryEmit("已复制登录地址，请在浏览器中粘贴打开")
                 } else {
                     _errorFlow.tryEmit("Cloudflare 登录失败，请查看日志")
                 }

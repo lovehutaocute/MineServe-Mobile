@@ -343,7 +343,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                         )
                         Spacer(Modifier.height(6.dp))
                         Button(
-                            onClick = { vm.loginCloudflare() },
+                            onClick = { vm.loginCloudflare(context) },
                             colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.fillMaxWidth()
@@ -352,7 +352,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                         }
                         Spacer(Modifier.height(4.dp))
                         Text(
-                            "点击后会自动运行 cloudflared tunnel login，在浏览器中打开链接完成认证",
+                            "登录地址将自动复制到剪贴板，在浏览器中粘贴打开即可完成认证",
                             color = Muted, fontSize = 10.sp
                         )
                     }
