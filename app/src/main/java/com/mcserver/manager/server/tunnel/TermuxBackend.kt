@@ -126,33 +126,42 @@ abstract class TermuxBackend(
     /** 兜底 pkill 进程名 */
     protected abstract fun killProcess()
 
-    // ── Android DNS 修复 ──────────────────────────────────────
+    // ── Android 环境修复 ──────────────────────────────────────
 
     /**
-     * Android 环境修复：写入 resolv.conf + 创建 /tmp 目录。
+     * 写入 DNS 配置 + 创建 /tmp 目录。
      *
-     * - DNS：Go 程序（cloudflared/ngrok）的 SRV 查询需要 /etc/resolv.conf
-     * - /tmp：playit.gg 等程序需要可写的 IPC socket 目录
+     * Go 程序在不同的执行上下文中读不同路径的 /etc/resolv.conf：
+     *  - 直接运行：读 Android 系统路径（通常不存在）
+     *  - proot 内：/etc → $PREFIX/etc/
+     *  - Termux compat：/data/data/com.termux/files/usr/etc/
+     *
+     * 写入所有可能路径，确保无论哪种上下文都能读到。
      */
     private fun fixDns() {
         val prefix = termux.installer.rootDir.absolutePath
-        try {
-            // 1. DNS resolver
-            val resolvConf = java.io.File("$prefix/etc/resolv.conf")
-            val content = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
-            resolvConf.parentFile?.mkdirs()
-            if (!resolvConf.exists() || resolvConf.readText() != content) {
-                resolvConf.writeText(content)
-                log("DNS 修复: 已写入 $resolvConf")
-            }
-            // 2. /tmp 目录（playit.gg IPC socket 需要）
-            val tmpDir = java.io.File("$prefix/tmp")
-            if (!tmpDir.exists()) {
-                tmpDir.mkdirs()
-                log("tmp 目录已创建: $tmpDir")
-            }
-        } catch (e: Exception) {
-            log("环境修复失败: ${e.message}")
+        val content = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
+
+        // 写入所有可能的 DNS 解析路径
+        val dnsPaths = listOf(
+            "$prefix/etc/resolv.conf",                                     // proot /etc
+            "/data/data/com.termux/files/usr/etc/resolv.conf"             // Termux compat
+        )
+        dnsPaths.forEach { path ->
+            try {
+                val f = java.io.File(path)
+                f.parentFile?.mkdirs()
+                f.writeText(content)
+            } catch (_: Exception) {}
+        }
+
+        // 创建 /tmp 目录（playit.gg 硬编码 /tmp/playit_gg.sock）
+        val tmpPaths = listOf(
+            "$prefix/tmp",
+            "/data/data/com.termux/files/usr/tmp"
+        )
+        tmpPaths.forEach { path ->
+            try { java.io.File(path).mkdirs() } catch (_: Exception) {}
         }
     }
 

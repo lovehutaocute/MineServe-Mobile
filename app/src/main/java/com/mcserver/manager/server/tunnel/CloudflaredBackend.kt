@@ -67,10 +67,13 @@ class CloudflaredBackend(
     }
 
     override fun parsePublicUrl(line: String): String? {
+        // Quick Tunnel 输出: "https://xxx.trycloudflare.com"
+        // 返回纯域名（Minecraft 直接连接需要格式 xxx.trycloudflare.com）
         val regex = Regex("https://([a-z0-9-]+)\\.trycloudflare\\.com")
         val m = regex.find(line)
         val sub = m?.groupValues?.getOrNull(1)
-        if (m != null && sub != null && sub != "api" && sub != "www") return m.value
+        if (m != null && sub != null && sub != "api" && sub != "www")
+            return "${sub}.trycloudflare.com"
         return null
     }
 
