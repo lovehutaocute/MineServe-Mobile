@@ -196,22 +196,30 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     /**
      * 确保指定隧道类型的二进制可用。
-     * - frp: 由 Termux apt 安装（$PREFIX/bin/frpc）
-     * - cloudflared: 从 GitHub releases 下载到 home/tunnel/bin/cloudflared
-     * - ngrok: 从 equinox.io 下载 tgz 解压到 home/tunnel/bin/ngrok
+     *
+     * 关键决策（参考 AceDroidX/frp-Android 和 Termux 实践）：
+     * - Android 10+ 的 W^X 策略禁止从 app data 目录执行二进制（execve: Permission denied）
+     * - GOOS=linux 编译的 Go 二进制读 /etc/resolv.conf，Android 无此文件导致 DNS 失败
+     * - Termux apt 安装的包用 GOOS=android 编译，用 Android 原生 DNS 机制，且通过
+     *   Termux 的 termux-exec 机制绕过 W^X 限制
+     *
+     * 因此：
+     * - frp: apt install frp（已实现）
+     * - cloudflared: 优先 apt install cloudflared（GOOS=android，无 DNS 问题）；
+     *   apt 失败才从 GitHub 下载（GOOS=linux，需 --edge 绕过 DNS）
+     * - ngrok: 从 equinox.io 下载 tgz（无 Termux 官方包，DNS 可能失败）
      *
      * @return 二进制路径，无法获取时返回 null
      */
     private suspend fun ensureBinary(type: TunnelType): String? {
         val prefix = termux.installer.rootDir.absolutePath
 
-        // frp 由 apt 安装，直接返回命令名（PATH 中可找到）
+        // frp 由 apt 安装
         if (type == TunnelType.Frp) {
             val frpcPath = File("$prefix/bin/frpc")
             if (frpcPath.exists() && frpcPath.canExecute()) {
                 return frpcPath.absolutePath
             }
-            // frp 未安装，尝试 apt 安装（先 update 确保包列表最新）
             termux.emitLog("[tunnel] frp 未安装，正在通过 apt 自动安装...")
             _state.value = _state.value.copy(
                 status = TunnelStatus.Starting,
@@ -227,6 +235,29 @@ class TunnelManager(private val termux: TermuxRuntime) {
             return null
         }
 
+        // cloudflared 优先用 apt 安装（GOOS=android 编译，解决 DNS 和执行权限问题）
+        // 参考 segmentfault.com/a/1190000046200121：Termux 支持 pkg install cloudflared
+        if (type == TunnelType.Cloudflared) {
+            val aptPath = File("$prefix/bin/cloudflared")
+            if (aptPath.exists() && aptPath.canExecute()) {
+                termux.emitLog("[tunnel] cloudflared 已安装（apt 版本）")
+                return aptPath.absolutePath
+            }
+            termux.emitLog("[tunnel] cloudflared 未安装，尝试通过 apt 安装（GOOS=android 编译，解决 DNS 问题）...")
+            _state.value = _state.value.copy(
+                status = TunnelStatus.Starting,
+                errorMessage = "正在通过 apt 安装 cloudflared..."
+            )
+            termux.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
+            val aptCode = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "cloudflared")
+            if (aptCode == 0 && aptPath.exists() && aptPath.canExecute()) {
+                termux.emitLog("[tunnel] cloudflared apt 安装完成")
+                return aptPath.absolutePath
+            }
+            termux.emitLog("[tunnel] apt 安装 cloudflared 失败 (code=$aptCode)，回退到 GitHub 下载（需 --edge 绕过 DNS）...")
+        }
+
+        // ngrok 或 cloudflared apt 失败时，从网络下载
         val binaryName = when (type) {
             TunnelType.Cloudflared -> "cloudflared"
             TunnelType.Ngrok -> "ngrok"
@@ -392,7 +423,7 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     /**
      * Cloudflare 边缘节点 IP（固定，用于绕过 DNS 解析）
-     * 这些是 Cloudflare 公开的 anycast IP，cloudflared --edge 参数接受
+     * 仅在 GitHub 下载版（GOOS=linux）需要，apt 版（GOOS=android）DNS 正常
      */
     private val cloudflareEdgeIps = listOf(
         "198.41.192.7:80",
@@ -403,16 +434,23 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     private suspend fun startCloudflared(config: McConfig, binary: String) {
         val env = mapOf("GODEBUG" to "netdns=go")
+        // 判断二进制来源：apt 安装在 $PREFIX/bin/，GitHub 下载在 home/tunnel/bin/
+        // apt 版用 GOOS=android 编译，DNS 正常；GitHub 版用 GOOS=linux，需 --edge 绕过 DNS
+        val isAptVersion = binary.startsWith("${termux.installer.rootDir.absolutePath}/bin/")
+        val edgeArg = cloudflareEdgeIps.joinToString(",")
+        val needEdge = !isAptVersion
+        if (needEdge) {
+            termux.emitLog("[tunnel] GitHub 下载版 cloudflared，使用 --edge 绕过 DNS: $edgeArg")
+        } else {
+            termux.emitLog("[tunnel] apt 版 cloudflared（GOOS=android），DNS 正常无需 --edge")
+        }
 
         if (config.cloudflareQuickTunnel) {
             termux.emitLog("[tunnel] 启动 cloudflared Quick Tunnel，本地端口 ${config.localPort}")
-            // Quick Tunnel 用 --edge 参数指定 Cloudflare 边缘节点 IP，绕过 DNS
-            // cloudflared 连接 Cloudflare 边缘后，边缘服务器会分配 *.trycloudflare.com 域名
-            val edgeArg = cloudflareEdgeIps.joinToString(",")
-            termux.emitLog("[tunnel] 使用 --edge 参数绕过 DNS: $edgeArg")
-            val process = termux.execRaw("tunnel",
-                binary, "tunnel", "--edge", edgeArg,
-                "--url", "tcp://localhost:${config.localPort}", env = env)
+            val args = mutableListOf("tunnel")
+            if (needEdge) args.addAll(listOf("--edge", edgeArg))
+            args.addAll(listOf("--url", "tcp://localhost:${config.localPort}"))
+            val process = termux.execRaw("tunnel", binary, *args.toTypedArray(), env = env)
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, "")
         } else {
@@ -430,12 +468,10 @@ class TunnelManager(private val termux: TermuxRuntime) {
             termux.emitLog("[tunnel] cloudflared Named Tunnel 配置已写入，域名: $domain")
             termux.emitLog("[tunnel] 注意: 需将凭证文件 mc-tunnel.json 放到 ${tunnelDir.absolutePath}/")
 
-            // Named Tunnel 同样用 --edge 绕过 DNS
-            val edgeArg = cloudflareEdgeIps.joinToString(",")
-            termux.emitLog("[tunnel] 使用 --edge 参数绕过 DNS: $edgeArg")
-            val process = termux.execRaw("tunnel",
-                binary, "tunnel", "--edge", edgeArg,
-                "--config", configFile.absolutePath, "run", env = env)
+            val args = mutableListOf("tunnel")
+            if (needEdge) args.addAll(listOf("--edge", edgeArg))
+            args.addAll(listOf("--config", configFile.absolutePath, "run"))
+            val process = termux.execRaw("tunnel", binary, *args.toTypedArray(), env = env)
             tunnelProcess = process
             startMonitorThread(process, config.tunnelType, domain)
         }
