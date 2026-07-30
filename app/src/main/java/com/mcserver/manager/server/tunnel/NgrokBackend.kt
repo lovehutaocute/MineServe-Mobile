@@ -17,6 +17,9 @@ class NgrokBackend(
     binaryManager: BinaryManager
 ) : TermuxBackend(termux, binaryManager, TunnelType.Ngrok) {
 
+    /** 通过 proot 运行以解决 DNS */
+    override val useProot: Boolean = true
+
     override suspend fun ensureBinary(): String? {
         return binaryManager.ensure("ngrok")
     }

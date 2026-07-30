@@ -39,6 +39,9 @@ abstract class TermuxBackend(
     /** 看门狗超时 ms */
     protected open val watchdogTimeoutMs: Long = 30_000
 
+    /** 是否通过 proot 运行（让 /etc/resolv.conf → PREFIX/etc/resolv.conf） */
+    protected open val useProot: Boolean = false
+
     override fun attachLog(logger: (String) -> Unit) {
         log = logger
     }
@@ -63,10 +66,17 @@ abstract class TermuxBackend(
             val args = buildArgs(config, binary)
             val env = buildEnv(config)
 
-            log("启动命令: $binary ${args.joinToString(" ")}")
+            // 4. 启动进程（useProot 时用 proot 包装，让 /etc/resolv.conf 映射到 PREFIX/etc/）
+            val (cmd, displayedCmd) = if (useProot) {
+                val prefix = termux.installer.rootDir.absolutePath
+                val prootArgs = arrayOf("proot", "-r", prefix, "-b", "/dev", "-b", "/proc", "-b", "/sys", binary, *args.toTypedArray())
+                Pair(prootArgs, "proot -r ... $binary ${args.joinToString(" ")}")
+            } else {
+                Pair(arrayOf(binary, *args.toTypedArray()), "$binary ${args.joinToString(" ")}")
+            }
+            log("启动命令: $displayedCmd")
 
-            // 4. 启动进程
-            val proc = termux.execRaw("tunnel", binary, *args.toTypedArray(), env = env)
+            val proc = termux.execRaw("tunnel", *cmd, env = env)
             process = proc
             isRunning = true
 

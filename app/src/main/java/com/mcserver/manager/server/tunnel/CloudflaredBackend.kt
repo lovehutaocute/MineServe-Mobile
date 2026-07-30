@@ -25,6 +25,9 @@ class CloudflaredBackend(
     /** cloudflared 看门狗超时 */
     override val watchdogTimeoutMs: Long = 60_000
 
+    /** 通过 proot 运行以解决 DNS（/etc/resolv.conf 映射）*/
+    override val useProot: Boolean = true
+
     /** Cloudflare 边缘节点 IP，QUIC 端口 7844，用于 --edge 绕过 DNS SRV */
     private val edgeIp = "198.41.192.7:7844"
 
