@@ -321,6 +321,10 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         TunnelLogPreview(consoleLines)
 
         // ── 操作指南（说明书） ──────────────────────────────────
+        GuideSection(config.tunnelType)
+
+        Spacer(Modifier.height(16.dp))
+        }
     }
 }
 
@@ -571,6 +575,9 @@ private fun FrpGuide() {
         GuideStep("7", "别忘了开端口", "服务器的防火墙要放行 7000（frp 通信用）和 25565（MC 用）两个端口，不然连不上。建议设 Token 密码防别人乱连。")
     }
 }
+
+@Composable
+
 @Composable
 private fun GuideBlock(title: String, content: @Composable () -> Unit) {
     Column {
