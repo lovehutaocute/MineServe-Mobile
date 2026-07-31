@@ -1190,6 +1190,20 @@ class McViewModel(
         loadFiles(fileManagerRoot)
     }
 
+    /** 向上返回上级目录 */
+    fun navigateUp() {
+        val current = java.io.File(_currentPath.value)
+        val parent = current.parentFile
+        if (parent != null && parent.absolutePath.startsWith(fileManagerRoot.absolutePath)) {
+            loadFiles(parent)
+        }
+    }
+
+    /** 刷新当前目录文件列表 */
+    fun refreshFiles() {
+        loadFiles(java.io.File(_currentPath.value))
+    }
+
     private fun formatBytes(bytes: Long): String {
         return when {
             bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))

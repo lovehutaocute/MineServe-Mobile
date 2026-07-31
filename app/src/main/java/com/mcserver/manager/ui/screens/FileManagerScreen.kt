@@ -25,6 +25,8 @@ import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -126,21 +128,30 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
 
             // 路径导航栏
             McCard(title = "当前路径") {
-                val rootPath = vm.fileManagerRoot.absolutePath
-                val relPath = if (currentPath.startsWith(rootPath)) {
-                    currentPath.removePrefix(rootPath).removePrefix(File.separator)
-                } else {
-                    currentPath
-                }
-                val displayPath = if (relPath.isEmpty()) "servers/" else "servers/$relPath"
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    val rootPath = vm.fileManagerRoot.absolutePath
+                    val relPath = if (currentPath.startsWith(rootPath)) {
+                        currentPath.removePrefix(rootPath).removePrefix(File.separator)
+                    } else {
+                        currentPath
+                    }
+                    val displayPath = if (relPath.isEmpty()) "servers/" else "servers/$relPath"
 
-                Text(
-                    displayPath,
-                    color = Muted,
-                    fontSize = 11.sp,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    Text(
+                        displayPath, color = Muted, fontSize = 11.sp,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    // 向上按钮
+                    IconButton(onClick = { vm.navigateUp() }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.ArrowUpward, "上级目录", tint = Indigo, modifier = Modifier.size(18.dp))
+                    }
+                    // 刷新按钮
+                    IconButton(onClick = { vm.refreshFiles() }, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Outlined.Refresh, "刷新", tint = Indigo, modifier = Modifier.size(18.dp))
+                    }
+                }
 
                 Spacer(Modifier.height(8.dp))
 
