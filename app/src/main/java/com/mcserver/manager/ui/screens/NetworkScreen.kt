@@ -222,6 +222,9 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             onCopyUrl = { vm.copyTunnelUrl(context) }
         )
 
+        // ── 隧道日志预览 ──────────────────────────────────────
+        TunnelLogPreview(consoleLines)
+
         // ── 本地端口配置 ──────────────────────────────────────
         McCard(title = "本地端口") {
             Text("Minecraft 服务器监听端口，默认 25565", color = Muted, fontSize = 11.sp)
