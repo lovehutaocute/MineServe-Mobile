@@ -15,18 +15,12 @@ enum class ServerCore(val displayName: String) {
 
 /**
  * 内网穿透方式
- * - Playit: playit.gg 免费隧道，专为 Minecraft 设计，零配置
- * - Cloudflared: Cloudflare Tunnel，Quick Tunnel 零配置，Named Tunnel 绑定自有域名
- * - Ngrok: 快速分享，免费层有随机域名
  * - Frp: 自建 frp 服务器，最灵活，功能最全
  * - Bore: 自建 bore 服务器，协议极简，纯 Kotlin 实现无需 Termux
  */
 @Serializable
 enum class TunnelType(val displayName: String, val description: String) {
-    Playit("playit.gg", "免费 MC 专用隧道，零配置，自动分配公网地址"),
-    Cloudflared("Cloudflare Tunnel", "免费快速隧道（需自有域名以固定地址）"),
-    Ngrok("ngrok", "快速分享，免费层有随机域名/端口"),
-    Frp("frp", "自建服务器，功能最全，自定义域名和端口"),
+    Frp("frp", "自建服务器，功能最全，支持自定义端口"),
     Bore("bore", "自建服务器，协议最简，纯手机端运行无需下载二进制")
 }
 
@@ -129,23 +123,11 @@ data class McConfig(
     val coreSubDescription: String = "性能优化版，兼容大部分插件",
     val localPort: Int = 25565,
     val customDomain: String = "myworld.mcserver.top",
-    val tunnelType: TunnelType = TunnelType.Playit,
-    /** frp: 服务端地址 (serverAddr) */
-    val frpServerAddr: String = "",
-    /** frp: 服务端端口 (serverPort)，默认 7000 */
-    val frpServerPort: Int = 7000,
-    /** frp: 认证 token */
-    val frpToken: String = "",
+    val tunnelType: TunnelType = TunnelType.Frp,
+    /** frp: 完整 frpc.toml 配置文本（粘贴或文件导入） */
+    val frpConfigText: String = "",
     /** bore: 服务端地址 (serverAddr:port) */
     val boreServerAddr: String = "",
-    /** ngrok: authtoken（从 ngrok.com 获取） */
-    val ngrokAuthtoken: String = "",
-    /** cloudflared: Quick Tunnel（零配置）或 Named Tunnel */
-    val cloudflareQuickTunnel: Boolean = true,
-    /** cloudflared: Named Tunnel 域名 */
-    val cloudflareDomain: String = "",
-    /** cloudflared: 固定域名模式的 Tunnel 名称 */
-    val cloudflareTunnelName: String = "mc-tunnel",
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
     val keepWifiLock: Boolean = true,

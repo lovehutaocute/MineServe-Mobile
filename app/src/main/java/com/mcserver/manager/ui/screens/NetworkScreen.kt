@@ -275,45 +275,50 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 exit = shrinkVertically()
             ) {
                 Column {
-                    Text("frp 服务端地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text("frpc.toml 配置", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = config.frpServerAddr,
-                        onValueChange = { v -> vm.updateConfig { it.copy(frpServerAddr = v) } },
-                        placeholder = { Text("例如: your-vps.com 或 1.2.3.4") },
-                        singleLine = true,
+                        value = config.frpConfigText,
+                        onValueChange = { v -> vm.updateConfig { it.copy(frpConfigText = v) } },
+                        placeholder = { Text("粘贴完整 frpc.toml 内容...") },
+                        minLines = 6,
+                        maxLines = 12,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(Modifier.height(8.dp))
-
-                    Text("frp 服务端端口", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = config.frpServerPort.toString(),
-                        onValueChange = { v ->
-                            v.toIntOrNull()?.let { port -> vm.updateConfig { it.copy(frpServerPort = port) } }
-                        },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-
-                    Text("认证 Token（可选，与服务端一致）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = config.frpToken,
-                        onValueChange = { v -> vm.updateConfig { it.copy(frpToken = v) } },
-                        placeholder = { Text("frp 服务端的 token") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
+                    Text(
+                        "粘贴完整的 frpc.toml 配置文本，或从文件管理器导入",
+                        color = Muted, fontSize = 10.sp
                     )
                 }
             }
 
             AnimatedVisibility(
-                visible = config.tunnelType == TunnelType.Cloudflared,
+                visible = config.tunnelType == TunnelType.Bore,
                 enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column {
+                    Text("bore 服务端地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = config.boreServerAddr,
+                        onValueChange = { v -> vm.updateConfig { it.copy(boreServerAddr = v) } },
+                        placeholder = { Text("例如: your-vps.com:7835") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "bore 是纯手机端运行的轻量隧道，无需下载额外程序。在 VPS 上运行 bore server 即可。",
+                        color = Muted, fontSize = 10.sp
+                    )
+                }
+            }
+        }
+
+        // ── 隧道日志预览 ──────────────────────────────────────
+        TunnelLogPreview(consoleLines)
                 exit = shrinkVertically()
             ) {
                 Column {
@@ -760,10 +765,7 @@ private fun GuideSection(tunnelType: TunnelType) {
             Column {
                 when (tunnelType) {
                     TunnelType.Frp -> FrpGuide()
-                    TunnelType.Cloudflared -> CloudflaredGuide()
-                    TunnelType.Ngrok -> NgrokGuide()
                     TunnelType.Bore -> BoreGuide()
-                    TunnelType.Playit -> PlayitGuide()
                 }
             }
         }

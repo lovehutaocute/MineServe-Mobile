@@ -5,16 +5,11 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.MessageDigest
 
 /**
  * 隧道二进制管理：下载、缓存、校验。
  *
- * 支持的二进制：
- *  - playit: https://github.com/playit-cloud/playit-agent/releases
- *  - cloudflared: Termux apt 优先，回退 GitHub Release
- *  - ngrok: equinox.io 下载 tgz 解压
- *  - frp: Termux apt 安装
+ * 当前只支持 frp（Termux apt 安装）。
  */
 class BinaryManager(private val termux: TermuxRuntime) {
 
@@ -22,47 +17,8 @@ class BinaryManager(private val termux: TermuxRuntime) {
     private val binDir: File
         get() = File(termux.installer.rootDir, "home/tunnel/bin").apply { mkdirs() }
 
-    /** 设备架构 */
-    val arch: String
-        get() = if (android.os.Build.SUPPORTED_ABIS.any { it.startsWith("arm64") }) "arm64" else "386"
-
-    /** 下载 URL 映射 */
-    private val downloadUrls = mapOf(
-        "playit" to if (arch == "arm64")
-            "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-linux-aarch64"
-        else "https://github.com/playit-cloud/playit-agent/releases/latest/download/playit-linux-386",
-
-        "cloudflared" to if (arch == "arm64")
-            "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64"
-        else "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-386",
-
-        "ngrok" to if (arch == "arm64")
-            "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-arm64.tgz"
-        else "https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-386.tgz"
-    )
-
     /**
-     * 确保二进制可用，返回可执行文件的绝对路径。
-     * 优先查找 Termux apt 安装版本，其次查找本地缓存，最后从网络下载。
-     */
-    fun ensure(binaryName: String): String? {
-        val prefix = termux.installer.rootDir.absolutePath
-
-        // 1. 优先 apt 安装路径
-        val aptPath = findAptBinary(prefix, binaryName)
-        if (aptPath != null) return aptPath
-
-        // 2. 本地缓存
-        val cached = File(binDir, binaryName)
-        if (cached.exists() && cached.canExecute()) return cached.absolutePath
-
-        // 3. 网络下载
-        val url = downloadUrls[binaryName] ?: return null
-        return downloadAndInstall(binaryName, url)
-    }
-
-    /**
-     * frp 特殊处理：通过 apt-get 安装
+     * frp 通过 apt-get 安装
      */
     fun ensureFrp(): String? {
         val prefix = termux.installer.rootDir.absolutePath
@@ -74,29 +30,6 @@ class BinaryManager(private val termux: TermuxRuntime) {
         if (code != 0) return null
 
         return findAptBinary(prefix, "frpc")
-    }
-
-    /**
-     * cloudflared 特殊处理：优先 apt，失败回退 GitHub
-     */
-    fun ensureCloudflared(): String? {
-        val prefix = termux.installer.rootDir.absolutePath
-        // apt 优先
-        findAptBinary(prefix, "cloudflared")?.let {
-            termux.emitLog("[tunnel] cloudflared (apt): $it")
-            return it
-        }
-        // 尝试 apt 安装
-        termux.emitLog("[tunnel] 尝试 apt install cloudflared...")
-        termux.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
-        termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "cloudflared")
-        findAptBinary(prefix, "cloudflared")?.let {
-            termux.emitLog("[tunnel] cloudflared apt 安装成功: $it")
-            return it
-        }
-        // 回退 GitHub
-        termux.emitLog("[tunnel] apt 失败，从 GitHub 下载 cloudflared...")
-        return ensure("cloudflared")
     }
 
     // ── 内部实现 ──────────────────────────────────────────────
@@ -122,73 +55,5 @@ class BinaryManager(private val termux: TermuxRuntime) {
             return if (link.exists() && link.canExecute()) link.absolutePath else found.absolutePath
         }
         return found?.absolutePath
-    }
-
-    private fun downloadAndInstall(binaryName: String, urlStr: String): String? {
-        return try {
-            val target = File(binDir, binaryName)
-            termux.emitLog("[tunnel] 正在下载 $binaryName ...")
-
-            if (binaryName == "ngrok") {
-                // ngrok 是 tgz，需要解压
-                downloadNgrok(urlStr)
-            } else {
-                // 直链下载
-                downloadFile(urlStr, target)
-                termux.execOnce("chmod", "755", target.absolutePath)
-            }
-
-            if (target.exists() && target.canExecute()) target.absolutePath else null
-        } catch (e: Exception) {
-            termux.emitLog("[tunnel] 下载 $binaryName 失败: ${e.message}")
-            null
-        }
-    }
-
-    private fun downloadNgrok(urlStr: String): String? {
-        val tgz = File(binDir, "ngrok.tgz")
-        downloadFile(urlStr, tgz)
-        termux.execOnce("tar", "-xzf", tgz.absolutePath, "-C", binDir.absolutePath)
-        tgz.delete()
-        val ngrokBin = File(binDir, "ngrok")
-        return if (ngrokBin.exists()) {
-            termux.execOnce("chmod", "755", ngrokBin.absolutePath)
-            ngrokBin.absolutePath
-        } else null
-    }
-
-    private fun downloadFile(urlStr: String, target: File): Boolean {
-        var currentUrl = urlStr
-        var redirects = 0
-        while (redirects < 5) {
-            val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = false
-                connectTimeout = 15000
-                readTimeout = 60000
-                connect()
-            }
-            val code = conn.responseCode
-            if (code in 301..308) {
-                val location = conn.getHeaderField("Location") ?: break
-                conn.disconnect()
-                currentUrl = location // 更新 URL，下次循环使用新地址
-                redirects++
-                continue
-            }
-            if (code != 200) {
-                termux.emitLog("[tunnel] 下载失败 HTTP $code")
-                conn.disconnect()
-                return false
-            }
-            conn.inputStream.use { input ->
-                FileOutputStream(target).use { output ->
-                    input.copyTo(output)
-                }
-            }
-            conn.disconnect()
-            return target.exists() && target.length() > 0
-        }
-        termux.emitLog("[tunnel] 下载失败：重定向次数过多")
-        return false
     }
 }
