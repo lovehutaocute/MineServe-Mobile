@@ -257,8 +257,6 @@ class CloudflaredBackend(
                 appendLine("ingress:")
                 appendLine("  - hostname: $domain")
                 appendLine("    service: tcp://localhost:${config.localPort}")
-                appendLine("  - hostname: '*'")
-                appendLine("    service: tcp://localhost:${config.localPort}")
                 appendLine("  - service: http_status:404")
             })
             log("Named Tunnel 模式，域名: $domain")
