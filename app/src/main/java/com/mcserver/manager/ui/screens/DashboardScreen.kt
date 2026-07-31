@@ -78,6 +78,9 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val installedPlugins by vm.installedPlugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()
+    val tunnelState by vm.tunnelState.collectAsState()
+    val lanIp by vm.lanIp.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
     val consoleLines by vm.consoleLines.collectAsState()
     val isInstalling by vm.isInstalling.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
@@ -437,52 +440,52 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 )
             }
 
-            // 插件预览（真实扫描结果）
-            McCard(title = "已安装插件") {
-                if (installedPlugins.isEmpty()) {
-                    Text(
-                        "当前核心暂无已安装插件",
-                        color = Muted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 8.dp)
-                    )
-                } else {
-                    installedPlugins.take(5).forEach { p ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(IndigoSoft),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    p.fileName.take(2).uppercase(),
-                                    color = Indigo,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Spacer(Modifier.size(10.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(p.fileName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                                Text(p.sizeText, color = Muted, fontSize = 11.sp)
-                            }
+            // ── 服务器地址 ──
+            McCard(title = "服务器地址") {
+                // 局域网
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        androidx.compose.material3.Text("局域网", color = Muted, fontSize = 10.sp)
+                        androidx.compose.material3.Text("${lanIp}:${config.localPort}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    }
+                    androidx.compose.material3.IconButton(onClick = {
+                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        cm.setPrimaryClip(android.content.ClipData.newPlainText("", "${lanIp}:${config.localPort}"))
+                    }) {
+                        androidx.compose.material3.Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(16.dp))
+                    }
+                }
+                // 公网穿透
+                if (tunnelState.publicUrl.isNotBlank()) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            androidx.compose.material3.Text("公网穿透", color = Muted, fontSize = 10.sp)
+                            androidx.compose.material3.Text(tunnelState.publicUrl, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Indigo, maxLines = 1)
+                        }
+                        androidx.compose.material3.IconButton(onClick = { vm.copyTunnelUrl(context) }) {
+                            androidx.compose.material3.Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(16.dp))
                         }
                     }
-                    if (installedPlugins.size > 5) {
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            "共 ${installedPlugins.size} 个插件，查看全部请到「插件」Tab",
-                            color = Muted,
-                            fontSize = 10.sp
-                        )
-                    }
+                }
+                // MC终端按钮
+                Spacer(Modifier.height(8.dp))
+                androidx.compose.material3.Button(
+                    onClick = { vm.launchMcConsole(); onShowLogs() },
+                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    androidx.compose.material3.Text("▶ 打开 MC 终端", fontSize = 12.sp)
+                }
+            }
+
+            // 插件入口（精简）
+            McCard(title = "已安装插件") {
+                if (installedPlugins.isEmpty()) {
+                    Text("暂无已安装插件", color = Muted, fontSize = 11.sp)
+                } else {
+                    Text("${installedPlugins.size} 个插件已安装", fontSize = 11.sp)
                 }
             }
             Spacer(Modifier.height(16.dp))
