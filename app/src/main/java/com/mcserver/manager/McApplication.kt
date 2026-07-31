@@ -45,6 +45,37 @@ class McApplication : Application(), Configuration.Provider {
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // 全局崩溃捕获：写入文件 + 推送到日志流
+        val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            val crashLog = buildString {
+                appendLine("========================================")
+                appendLine("崩溃时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
+                appendLine("线程: ${thread.name}")
+                appendLine("异常: ${throwable.javaClass.name}: ${throwable.message}")
+                for (el in throwable.stackTrace.take(30)) {
+                    appendLine("  at $el")
+                }
+                var cause = throwable.cause
+                while (cause != null) {
+                    appendLine("Caused by: ${cause.javaClass.name}: ${cause.message}")
+                    for (el in cause.stackTrace.take(10)) {
+                        appendLine("  at $el")
+                    }
+                    cause = cause.cause
+                }
+                appendLine("========================================")
+            }
+            try {
+                java.io.File(filesDir, "crash_log.txt").appendText("$crashLog\n")
+                // 推送到 UI 日志
+                termuxRuntime.emitLog("[crash] $crashLog")
+            } catch (_: Exception) {}
+            // 交给系统默认处理（弹窗/退出）
+            defaultHandler?.uncaughtException(thread, throwable)
+        }
+
         termuxRuntime = TermuxRuntime(this)
         repository = ServerRepository(this, termuxRuntime)
         createNotificationChannel()
