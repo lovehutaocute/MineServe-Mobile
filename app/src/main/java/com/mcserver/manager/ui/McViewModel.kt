@@ -1204,6 +1204,12 @@ class McViewModel(
         loadFiles(java.io.File(_currentPath.value))
     }
 
+    /** 打开 MC 终端前初始化日志 */
+    fun launchMcConsole() {
+        // 确保终端日志色标已处理
+        _messageFlow.tryEmit("MC 终端已就绪，输入 help 查看可用命令")
+    }
+
     private fun formatBytes(bytes: Long): String {
         return when {
             bytes >= 1024 * 1024 -> String.format(java.util.Locale.US, "%.1f MB", bytes / (1024.0 * 1024.0))
