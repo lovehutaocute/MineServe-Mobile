@@ -107,22 +107,22 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                         if (i > 0) Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(snap.fileName, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                                Text("${snap.sizeText} · ${snap.date}", color = Muted, fontSize = 10.sp)
+                                Text(snap.name, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+                                Text("${snap.sizeText} · ${snap.createdText}", color = Muted, fontSize = 10.sp)
                             }
                             IconButton(onClick = {
                                 scope.launch {
-                                    val ok = vm.restoreSnapshot(snap.fileName)
-                                    snackbarHostState.showSnackbar(if (ok) "还原成功" else "还原失败")
+                                    vm.restoreSnapshot(snap.name)
+                                    snackbarHostState.showSnackbar("还原已启动")
                                 }
                             }, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Outlined.Restore, "还原", tint = Indigo, modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = {
                                 scope.launch {
-                                    vm.deleteSnapshot(snap.fileName)
+                                    vm.deleteSnapshot(snap.name)
                                     vm.loadSnapshots()
-                                    snackbarHostState.showSnackbar("已删除 ${snap.fileName}")
+                                    snackbarHostState.showSnackbar("已删除 ${snap.name}")
                                 }
                             }, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Outlined.Delete, "删除", tint = Coral, modifier = Modifier.size(18.dp))
