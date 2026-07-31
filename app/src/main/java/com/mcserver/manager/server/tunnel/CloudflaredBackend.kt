@@ -155,7 +155,14 @@ class CloudflaredBackend(
                 val routeOutput = java.io.BufferedReader(java.io.InputStreamReader(routeProc.inputStream)).readText()
                 routeProc.waitFor()
                 if (routeOutput.contains("already exists")) {
-                    log("⚠ DNS 记录已存在（可能是旧隧道遗留），请前往 Cloudflare DNS 面板手动更新 CNAME 指向新 Tunnel")
+                    // 旧路由冲突 → 先删除再重新添加
+                    log("DNS 路由冲突，正在删除旧记录...")
+                    termux.execOnce(binary, "tunnel", "route", "delete", name, subdomain)
+                    val retryProc = termux.execRaw("tunnel-route-dns-retry", binary,
+                        "tunnel", "route", "dns", name, subdomain)
+                    val retryOutput = java.io.BufferedReader(java.io.InputStreamReader(retryProc.inputStream)).readText()
+                    retryProc.waitFor()
+                    log("DNS 路由结果: ${retryOutput.take(200)}")
                 } else {
                     log("DNS 路由结果: ${routeOutput.take(200)}")
                 }
