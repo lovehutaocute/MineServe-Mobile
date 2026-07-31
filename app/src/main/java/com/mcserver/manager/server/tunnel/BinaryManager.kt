@@ -51,9 +51,9 @@ class BinaryManager(private val termux: TermuxRuntime) {
             return it
         }
 
-        // 3. 下载
+        // 3. 下载（同步阻塞调用内部使用 runBlocking 等待并行结果）
         termux.emitLog("[tunnel] frpc 未安装，从 GitHub 下载...")
-        return downloadFrp() ?: installViaApt()
+        return kotlinx.coroutines.runBlocking { downloadFrp() } ?: installViaApt()
     }
 
     /** 检查 frpc 是否已安装（供一键依赖模块幂等判断） */
@@ -79,27 +79,38 @@ class BinaryManager(private val termux: TermuxRuntime) {
 
     // ── 内部实现 ──────────────────────────────────────────────
 
-    private fun downloadFrp(): String? {
-        for (mirror in mirrors) {
+    private suspend fun downloadFrp(): String? {
+        // 镜像并行下载，首个成功即返回（避免直连超时时串行等待 ~200s）
+        val results = mirrors.map { mirror ->
             val url = if (mirror.isEmpty()) frpReleaseUrl else "$mirror$frpReleaseUrl"
-            termux.emitLog("[tunnel] 尝试下载 frpc: ${url.take(80)}...")
-            try {
-                val tgz = File(binDir, "frp.tar.gz")
-                if (downloadFile(url, tgz)) {
-                    termux.execOnce("tar", "-xzf", tgz.absolutePath, "-C", binDir.absolutePath,
-                        "--strip-components=1", "frp_${frpVersion}_linux_$arch/frpc")
-                    tgz.delete()
-                    val frpc = File(binDir, "frpc")
-                    if (frpc.exists()) {
-                        termux.execOnce("chmod", "755", frpc.absolutePath)
-                        termux.emitLog("[tunnel] frpc 下载完成: ${frpc.absolutePath}")
-                        return frpc.absolutePath
-                    }
-                }
+            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { tryDownloadFrp(url, mirror) }
+        }
+        // 依次等待结果，返回第一个成功的
+        for (deferred in results) {
+            val path = try { deferred.await() } catch (_: Exception) { null }
+            if (path != null) return path
+        }
+        return null
+    }
+
+    private fun tryDownloadFrp(url: String, mirror: String): String? {
+        termux.emitLog("[tunnel] 尝试下载 frpc: ${url.take(80)}...")
+        try {
+            val tgz = File(binDir, "frp-${mirror.hashCode().toHexString()}.tar.gz")
+            if (downloadFile(url, tgz)) {
+                termux.execOnce("tar", "-xzf", tgz.absolutePath, "-C", binDir.absolutePath,
+                    "--strip-components=1", "frp_${frpVersion}_linux_$arch/frpc")
                 tgz.delete()
-            } catch (e: Exception) {
-                termux.emitLog("[tunnel] $mirror 下载失败: ${e.message}")
+                val frpc = File(binDir, "frpc")
+                if (frpc.exists()) {
+                    termux.execOnce("chmod", "755", frpc.absolutePath)
+                    termux.emitLog("[tunnel] frpc 下载完成: ${frpc.absolutePath}")
+                    return frpc.absolutePath
+                }
             }
+            tgz.delete()
+        } catch (e: Exception) {
+            termux.emitLog("[tunnel] $mirror 下载失败: ${e.message}")
         }
         return null
     }

@@ -338,12 +338,15 @@ class TermuxRuntime(context: Context) {
                     java.io.FileOutputStream(logFile, true), Charsets.UTF_8), 8192)
                 val reader = process.inputStream.bufferedReader()
                 var line = reader.readLine()
+                var lineCount = 0
                 while (line != null) {
                     executor.emit(line)
                     writer.appendLine(line)
-                    writer.flush()
+                    // 批量 flush：每 50 行或退出时写入磁盘，避免每行一次 IO
+                    if (++lineCount % 50 == 0) writer.flush()
                     line = reader.readLine()
                 }
+                writer.flush()
                 writer.close()
             } catch (e: Exception) {
                 Log.w(TAG, "mc stdout reader error: ${e.message}")
