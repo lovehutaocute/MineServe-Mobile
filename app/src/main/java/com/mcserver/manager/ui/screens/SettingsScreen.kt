@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -33,6 +32,7 @@ import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
 import com.mcserver.manager.ui.SegPill
+import com.mcserver.manager.ui.DebouncedTextField
 import com.mcserver.manager.ui.SubPage
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.Muted
@@ -57,9 +57,10 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 fontSize = 11.sp
             )
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
+            DebouncedTextField(
                 value = config.maxHeapMb.toString(),
                 onValueChange = { v -> v.toIntOrNull()?.let { vm.setMaxHeap(it) } },
+                sanitize = { it.filter(Char::isDigit) },
                 singleLine = true,
                 label = { Text("最大堆 (MB)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),

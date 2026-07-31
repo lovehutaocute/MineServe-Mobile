@@ -13,21 +13,32 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcserver.manager.data.ServerState
 import com.mcserver.manager.data.StepStatus
+import kotlinx.coroutines.delay
 import com.mcserver.manager.ui.theme.Coral
 import com.mcserver.manager.ui.theme.CoralSoft
 import com.mcserver.manager.ui.theme.FieldGray
@@ -328,3 +339,64 @@ fun PillButton(
 
 private fun formatMemory(mb: Long): String =
     if (mb >= 1024) String.format("%.1fG", mb / 1024.0) else "${mb}M"
+
+/**
+ * 防抖输入框：本地即时编辑 + 300ms 防抖写回外部值，失焦时立即写回。
+ *
+ * 解决 TextField 直接绑定持久化 StateFlow（如 config）导致的输入延迟与
+ * 快速输入文字顺序错乱问题：输入过程完全在本地状态上进行，停顿 300ms
+ * 后才把结果回传（快速连续输入只回传最后一次），失焦时立即回传避免丢失。
+ *
+ * @param sanitize 可选输入清洗函数（如数字框只保留数字），每次输入后应用
+ */
+@Composable
+fun DebouncedTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    sanitize: ((String) -> String)? = null,
+    enabled: Boolean = true,
+    singleLine: Boolean = false,
+    label: (@Composable () -> Unit)? = null,
+    placeholder: (@Composable () -> Unit)? = null,
+    minLines: Int = 1,
+    maxLines: Int = Int.MAX_VALUE,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    shape: Shape = OutlinedTextFieldDefaults.shape
+) {
+    var text by remember { mutableStateOf(value) }
+    var isFocused by remember { mutableStateOf(false) }
+
+    // 外部值变化（如加载/重置）时同步到本地；输入过程中外部值滞后于本地则不覆盖
+    LaunchedEffect(value) {
+        if (text != value) text = value
+    }
+
+    // 输入停顿 300ms 后写回（连续输入只写回最后一次）
+    LaunchedEffect(text) {
+        if (text == value) return@LaunchedEffect
+        delay(300)
+        if (text != value) onValueChange(text)
+    }
+
+    // 失焦时立即写回，避免切换页面丢失最后输入
+    LaunchedEffect(isFocused) {
+        if (!isFocused && text != value) onValueChange(text)
+    }
+
+    OutlinedTextField(
+        value = text,
+        onValueChange = { newText ->
+            text = sanitize?.invoke(newText) ?: newText
+        },
+        modifier = modifier.onFocusChanged { isFocused = it.isFocused },
+        enabled = enabled,
+        singleLine = singleLine,
+        label = label,
+        placeholder = placeholder,
+        minLines = minLines,
+        maxLines = maxLines,
+        keyboardOptions = keyboardOptions,
+        shape = shape
+    )
+}

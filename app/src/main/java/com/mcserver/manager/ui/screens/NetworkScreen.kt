@@ -42,7 +42,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
@@ -76,6 +75,7 @@ import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
 import com.mcserver.manager.ui.SegPill
+import com.mcserver.manager.ui.DebouncedTextField
 import com.mcserver.manager.ui.theme.Coral
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.IndigoSoft
@@ -236,9 +236,10 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         McCard(title = "本地端口") {
             Text("Minecraft 服务器监听端口，默认 25565", color = Muted, fontSize = 11.sp)
             Spacer(Modifier.height(8.dp))
-            OutlinedTextField(
+            DebouncedTextField(
                 value = config.localPort.toString(),
                 onValueChange = { v -> v.toIntOrNull()?.let { vm.setLocalPort(it) } },
+                sanitize = { it.filter(Char::isDigit) },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
@@ -287,7 +288,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 Column {
                     Text("frpc.toml 配置", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
-                    OutlinedTextField(
+                    DebouncedTextField(
                         value = config.frpConfigText,
                         onValueChange = { v -> vm.updateConfig { it.copy(frpConfigText = v) } },
                         placeholder = { Text("粘贴完整 frpc.toml 内容...") },
@@ -311,7 +312,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 Column {
                     Text("bore 服务端地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
-                    OutlinedTextField(
+                    DebouncedTextField(
                         value = config.boreServerAddr,
                         onValueChange = { v -> vm.updateConfig { it.copy(boreServerAddr = v) } },
                         placeholder = { Text("例如: your-vps.com:7835") },

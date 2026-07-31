@@ -19,7 +19,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -42,6 +41,7 @@ import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
 import com.mcserver.manager.ui.SegPill
+import com.mcserver.manager.ui.DebouncedTextField
 import com.mcserver.manager.ui.theme.Coral
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.IndigoSoft
@@ -224,7 +224,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Text("服务器 IP", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
+                DebouncedTextField(
                     value = props["server-ip"] ?: "",
                     onValueChange = { v -> props = props.toMutableMap().apply { put("server-ip", v) } },
                     singleLine = true,
@@ -234,7 +234,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(12.dp))
                 Text("MOTD（服务器描述）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
+                DebouncedTextField(
                     value = props["motd"] ?: "A Minecraft Server",
                     onValueChange = { v -> props = props.toMutableMap().apply { put("motd", v) } },
                     singleLine = true,
@@ -360,9 +360,10 @@ private fun LabeledNumberField(
 ) {
     Text(label, color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
     Spacer(Modifier.height(6.dp))
-    OutlinedTextField(
+    DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
+        sanitize = { it.filter(Char::isDigit) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
         modifier = Modifier.fillMaxWidth()
