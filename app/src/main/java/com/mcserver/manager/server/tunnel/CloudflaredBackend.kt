@@ -154,7 +154,11 @@ class CloudflaredBackend(
                     "tunnel", "route", "dns", name, subdomain)
                 val routeOutput = java.io.BufferedReader(java.io.InputStreamReader(routeProc.inputStream)).readText()
                 routeProc.waitFor()
-                log("DNS 路由结果: ${routeOutput.take(200)}")
+                if (routeOutput.contains("already exists")) {
+                    log("⚠ DNS 记录已存在（可能是旧隧道遗留），请前往 Cloudflare DNS 面板手动更新 CNAME 指向新 Tunnel")
+                } else {
+                    log("DNS 路由结果: ${routeOutput.take(200)}")
+                }
             }
             true
         } catch (e: Exception) {
