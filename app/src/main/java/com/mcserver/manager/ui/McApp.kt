@@ -1,5 +1,6 @@
 package com.mcserver.manager.ui
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -47,6 +48,20 @@ fun McApp() {
     var tab by remember { mutableStateOf(McTab.Dashboard) }
     var showLogs by remember { mutableStateOf(false) }
     var subPage by remember { mutableStateOf<SubPage?>(null) }
+
+    // 系统返回键：逐级返回上一页面，禁止直接退出应用。
+    // 优先级：日志页 → 子页面 → 其他 Tab → 概览（Dashboard）；已在概览时消费返回键不退出。
+    BackHandler {
+        when {
+            showLogs -> showLogs = false
+            subPage != null -> subPage = null
+            tab != McTab.Dashboard -> {
+                tab = McTab.Dashboard
+                showLogs = false
+                subPage = null
+            }
+        }
+    }
 
     Scaffold(
         bottomBar = {
