@@ -1,6 +1,10 @@
 package com.mcserver.manager.server.tunnel
 
 import com.mcserver.manager.runtime.TermuxRuntime
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -53,7 +57,7 @@ class BinaryManager(private val termux: TermuxRuntime) {
 
         // 3. 下载（同步阻塞调用内部使用 runBlocking 等待并行结果）
         termux.emitLog("[tunnel] frpc 未安装，从 GitHub 下载...")
-        return kotlinx.coroutines.runBlocking { downloadFrp() } ?: installViaApt()
+        return runBlocking { downloadFrp() } ?: installViaApt()
     }
 
     /** 检查 frpc 是否已安装（供一键依赖模块幂等判断） */
@@ -81,10 +85,10 @@ class BinaryManager(private val termux: TermuxRuntime) {
 
     private suspend fun downloadFrp(): String? {
         // 镜像并行下载，首个成功即返回（避免直连超时时串行等待 ~200s）
-        return kotlinx.coroutines.coroutineScope {
+        return coroutineScope {
             val results = mirrors.map { mirror ->
                 val url = if (mirror.isEmpty()) frpReleaseUrl else "$mirror$frpReleaseUrl"
-                kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { tryDownloadFrp(url, mirror) }
+                async(Dispatchers.IO) { tryDownloadFrp(url, mirror) }
             }
             // 依次等待结果，返回第一个成功的
             for (deferred in results) {
