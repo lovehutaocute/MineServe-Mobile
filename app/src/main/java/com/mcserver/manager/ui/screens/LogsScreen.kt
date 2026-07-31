@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -29,6 +30,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -129,23 +131,32 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                     Text("暂无日志输出\n启动 MC 服务后将在此看到实时控制台流", color = Color(0xFF8888AA), fontSize = 12.sp)
                 }
             } else {
-                // 自动滚动到底部
-                androidx.compose.runtime.LaunchedEffect(lines.size) {
-                    if (lines.isNotEmpty()) listState.animateScrollToItem(lines.size - 1)
+                // 自动滚动：仅当用户已位于底部附近时才跟随（瞬时，不打扰上翻）
+                val atBottom by remember {
+                    derivedStateOf {
+                        val info = listState.layoutInfo
+                        val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                        lastVisible >= info.totalItemsCount - 3
+                    }
+                }
+                androidx.compose.runtime.LaunchedEffect(lines.size, atBottom) {
+                    if (lines.isNotEmpty() && atBottom) listState.scrollToItem(lines.size - 1)
                 }
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    items(lines) { line ->
-                        val color = when {
-                            line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
-                            line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
-                            line.contains("[tunnel]") -> Color(0xFF89B4FA)
-                            line.contains("[crash]") -> Color(0xFFFAB387)
-                            line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
-                            else -> Color(0xFFCDD6F4)
+                    itemsIndexed(lines, key = { index, _ -> index }) { _, line ->
+                        val color = remember(line) {
+                            when {
+                                line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
+                                line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
+                                line.contains("[tunnel]") -> Color(0xFF89B4FA)
+                                line.contains("[crash]") -> Color(0xFFFAB387)
+                                line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
+                                else -> Color(0xFFCDD6F4)
+                            }
                         }
                         Text(line, color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }

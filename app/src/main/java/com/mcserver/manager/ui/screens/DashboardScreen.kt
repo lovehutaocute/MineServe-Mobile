@@ -43,6 +43,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import kotlinx.coroutines.flow.map
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -83,7 +84,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val tunnelState by vm.tunnelState.collectAsState()
     val lanIp by vm.lanIp.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val consoleLines by vm.consoleLines.collectAsState()
+    val consoleLines by vm.consoleLines.map { it.takeLast(5) }.collectAsState(initial = emptyList())
     val isInstalling by vm.isInstalling.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
