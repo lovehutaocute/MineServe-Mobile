@@ -231,6 +231,50 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
                     placeholder = { Text("留空默认监听所有网卡") },
                     modifier = Modifier.fillMaxWidth()
                 )
+                Spacer(Modifier.height(12.dp))
+                Text("MOTD（服务器描述）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(6.dp))
+                OutlinedTextField(
+                    value = props["motd"] ?: "A Minecraft Server",
+                    onValueChange = { v -> props = props.toMutableMap().apply { put("motd", v) } },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+
+            // ── 高级设置 ──
+            McCard(title = "高级设置") {
+                LabeledNumberField(
+                    label = "出生点保护半径 (0-16)",
+                    value = props["spawn-protection"] ?: "16",
+                    onValueChange = { v -> props = props.toMutableMap().apply { put("spawn-protection", v) } }
+                )
+                Spacer(Modifier.height(12.dp))
+                LabeledNumberField(
+                    label = "网络压缩阈值",
+                    value = props["network-compression-threshold"] ?: "256",
+                    onValueChange = { v -> props = props.toMutableMap().apply { put("network-compression-threshold", v) } }
+                )
+                Spacer(Modifier.height(12.dp))
+                LabeledNumberField(
+                    label = "玩家空闲超时(分钟,0=禁用)",
+                    value = props["player-idle-timeout"] ?: "0",
+                    onValueChange = { v -> props = props.toMutableMap().apply { put("player-idle-timeout", v) } }
+                )
+                Spacer(Modifier.height(8.dp))
+                PropertySwitch(
+                    title = "极限模式",
+                    subtitle = "死亡后永久封禁",
+                    checked = boolOf(props, "hardcore", false),
+                    onChange = { v -> props = props.toMutableMap().apply { put("hardcore", v.toString()) } }
+                )
+                Spacer(Modifier.height(8.dp))
+                PropertySwitch(
+                    title = "命令方块",
+                    subtitle = "启用命令方块",
+                    checked = boolOf(props, "enable-command-block", false),
+                    onChange = { v -> props = props.toMutableMap().apply { put("enable-command-block", v.toString()) } }
+                )
             }
             Spacer(Modifier.height(16.dp))
         }
