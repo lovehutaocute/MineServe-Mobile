@@ -42,11 +42,15 @@ class McApplication : Application(), Configuration.Provider {
     private val _bootstrapSpeed = MutableStateFlow(0L)
     val bootstrapSpeed: StateFlow<Long> = _bootstrapSpeed.asStateFlow()
 
+    /** 上次崩溃日志路径（APP 内文件管理器可访问） */
+    val crashLogFile: java.io.File
+        get() = java.io.File(filesDir, "home/crash_log.txt")
+
     override fun onCreate() {
         super.onCreate()
         instance = this
 
-        // 全局崩溃捕获：写入文件 + 推送到日志流
+        // 全局崩溃捕获
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val crashLog = buildString {
@@ -68,15 +72,23 @@ class McApplication : Application(), Configuration.Provider {
                 appendLine("========================================")
             }
             try {
-                java.io.File(filesDir, "crash_log.txt").appendText("$crashLog\n")
-                // 推送到 UI 日志
-                termuxRuntime.emitLog("[crash] $crashLog")
+                java.io.File(filesDir, "home").mkdirs()
+                java.io.File(filesDir, "home/crash_log.txt").appendText("$crashLog\n")
             } catch (_: Exception) {}
-            // 交给系统默认处理（弹窗/退出）
             defaultHandler?.uncaughtException(thread, throwable)
         }
 
         termuxRuntime = TermuxRuntime(this)
+
+        // 启动时推送上次崩溃日志到控制台
+        if (crashLogFile.exists() && crashLogFile.length() > 0) {
+            try {
+                val lastCrash = crashLogFile.readText().takeLast(3000)
+                termuxRuntime.emitLog("[crash] 上次崩溃日志:\n$lastCrash")
+                // 读取后重命名，避免重复推送
+                crashLogFile.renameTo(java.io.File(filesDir, "home/crash_log_read.txt"))
+            } catch (_: Exception) {}
+        }
         repository = ServerRepository(this, termuxRuntime)
         createNotificationChannel()
         WorkManager.initialize(this, workManagerConfiguration)
