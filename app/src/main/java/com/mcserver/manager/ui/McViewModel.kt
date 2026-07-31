@@ -793,7 +793,9 @@ class McViewModel(
 
     // ── 玩家管理 ────────────────────────────────────────────────────
 
-    private val playerManager = PlayerManager(repo.termuxRuntime)
+    // 注意：playerManager 等属性被 init 中启动的协程（IO 线程）访问，
+    // 声明位置在 init 之后，必须用 lazy 延迟初始化，避免构造函数未完成时读到 null
+    private val playerManager: PlayerManager by lazy { PlayerManager(repo.termuxRuntime) }
 
     private val _ops = MutableStateFlow<List<PlayerManager.OpEntry>>(emptyList())
     val ops: StateFlow<List<PlayerManager.OpEntry>> = _ops.asStateFlow()
@@ -809,8 +811,8 @@ class McViewModel(
     val whitelistEnabled: StateFlow<Boolean> = _whitelistEnabled.asStateFlow()
 
     /** 在线玩家名列表（从日志解析） */
-    private val _onlinePlayerNames = MutableStateFlow<List<String>>(emptyList())
-    val onlinePlayerNames: StateFlow<List<String>> = _onlinePlayerNames.asStateFlow()
+    private val _onlinePlayerNames: MutableStateFlow<List<String>> by lazy { MutableStateFlow(emptyList()) }
+    val onlinePlayerNames: StateFlow<List<String>> by lazy { _onlinePlayerNames.asStateFlow() }
 
     /** 玩家进服/离服历史记录（最新在前，上限 500 条），持久化到 app 私有目录 */
     @Serializable
@@ -820,16 +822,16 @@ class McViewModel(
         val time: String
     )
 
-    private val _playerHistory = MutableStateFlow<List<PlayerHistoryEntry>>(emptyList())
-    val playerHistory: StateFlow<List<PlayerHistoryEntry>> = _playerHistory.asStateFlow()
+    private val _playerHistory: MutableStateFlow<List<PlayerHistoryEntry>> by lazy { MutableStateFlow(emptyList()) }
+    val playerHistory: StateFlow<List<PlayerHistoryEntry>> by lazy { _playerHistory.asStateFlow() }
 
     private val playerHistoryFile: java.io.File
         get() = java.io.File(McApplication.get().filesDir, "player_history.json")
 
-    private val historyJson = Json { ignoreUnknownKeys = true }
+    private val historyJson: Json by lazy { Json { ignoreUnknownKeys = true } }
 
     /** 历史记录文件读写互斥，避免多人进出服时并发写导致 JSON 损坏 */
-    private val historyMutex = Mutex()
+    private val historyMutex: Mutex by lazy { Mutex() }
 
     /** 启动时异步加载历史记录文件（文件缺失/损坏时从空历史开始） */
     private fun loadPlayerHistory() {
