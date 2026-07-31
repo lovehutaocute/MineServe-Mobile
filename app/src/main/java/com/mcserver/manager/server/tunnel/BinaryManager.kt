@@ -81,22 +81,24 @@ class BinaryManager(private val termux: TermuxRuntime) {
 
     private suspend fun downloadFrp(): String? {
         // 镜像并行下载，首个成功即返回（避免直连超时时串行等待 ~200s）
-        val results = mirrors.map { mirror ->
-            val url = if (mirror.isEmpty()) frpReleaseUrl else "$mirror$frpReleaseUrl"
-            kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { tryDownloadFrp(url, mirror) }
+        return kotlinx.coroutines.coroutineScope {
+            val results = mirrors.map { mirror ->
+                val url = if (mirror.isEmpty()) frpReleaseUrl else "$mirror$frpReleaseUrl"
+                kotlinx.coroutines.async(kotlinx.coroutines.Dispatchers.IO) { tryDownloadFrp(url, mirror) }
+            }
+            // 依次等待结果，返回第一个成功的
+            for (deferred in results) {
+                val path = try { deferred.await() } catch (_: Exception) { null }
+                if (path != null) return@coroutineScope path
+            }
+            null
         }
-        // 依次等待结果，返回第一个成功的
-        for (deferred in results) {
-            val path = try { deferred.await() } catch (_: Exception) { null }
-            if (path != null) return path
-        }
-        return null
     }
 
     private fun tryDownloadFrp(url: String, mirror: String): String? {
         termux.emitLog("[tunnel] 尝试下载 frpc: ${url.take(80)}...")
         try {
-            val tgz = File(binDir, "frp-${mirror.hashCode().toHexString()}.tar.gz")
+            val tgz = File(binDir, "frp-${Integer.toHexString(mirror.hashCode())}.tar.gz")
             if (downloadFile(url, tgz)) {
                 termux.execOnce("tar", "-xzf", tgz.absolutePath, "-C", binDir.absolutePath,
                     "--strip-components=1", "frp_${frpVersion}_linux_$arch/frpc")
