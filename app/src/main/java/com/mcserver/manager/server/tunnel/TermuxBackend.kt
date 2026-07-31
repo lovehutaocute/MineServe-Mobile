@@ -131,21 +131,35 @@ abstract class TermuxBackend(
     /**
      * 写入 DNS 配置 + 创建 /tmp 目录。
      *
-     * Go 程序在不同的执行上下文中读不同路径的 /etc/resolv.conf：
-     *  - 直接运行：读 Android 系统路径（通常不存在）
-     *  - proot 内：/etc → $PREFIX/etc/
-     *  - Termux compat：/data/data/com.termux/files/usr/etc/
-     *
-     * 写入所有可能路径，确保无论哪种上下文都能读到。
+     * 用 getprop 读取 Android 系统真实 DNS（WiFi/4G），
+     * 写入所有可能路径，让 Go 程序无论什么上下文都能解析域名。
      */
     private fun fixDns() {
         val prefix = termux.installer.rootDir.absolutePath
-        val content = "nameserver 8.8.8.8\nnameserver 8.8.4.4\n"
+
+        // 用 getprop 获取 Android 真实 DNS，失败则用 8.8.8.8
+        val androidDns1 = runCatching {
+            Runtime.getRuntime().exec(arrayOf("/system/bin/getprop", "net.dns1"))
+                .inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("")
+        val androidDns2 = runCatching {
+            Runtime.getRuntime().exec(arrayOf("/system/bin/getprop", "net.dns2"))
+                .inputStream.bufferedReader().readText().trim()
+        }.getOrDefault("")
+
+        val nameservers = mutableListOf<String>()
+        if (androidDns1.isNotBlank()) nameservers.add("nameserver $androidDns1")
+        if (androidDns2.isNotBlank()) nameservers.add("nameserver $androidDns2")
+        if (nameservers.isEmpty()) {
+            nameservers.add("nameserver 8.8.8.8")
+            nameservers.add("nameserver 8.8.4.4")
+        }
+        val content = nameservers.joinToString("\n") + "\n"
 
         // 写入所有可能的 DNS 解析路径
         val dnsPaths = listOf(
-            "$prefix/etc/resolv.conf",                                     // proot /etc
-            "/data/data/com.termux/files/usr/etc/resolv.conf"             // Termux compat
+            "$prefix/etc/resolv.conf",
+            "/data/data/com.termux/files/usr/etc/resolv.conf"
         )
         dnsPaths.forEach { path ->
             try {
@@ -155,12 +169,8 @@ abstract class TermuxBackend(
             } catch (_: Exception) {}
         }
 
-        // 创建 /tmp 目录（playit.gg 硬编码 /tmp/playit_gg.sock）
-        val tmpPaths = listOf(
-            "$prefix/tmp",
-            "/data/data/com.termux/files/usr/tmp"
-        )
-        tmpPaths.forEach { path ->
+        // 创建 /tmp 目录
+        listOf("$prefix/tmp", "/data/data/com.termux/files/usr/tmp").forEach { path ->
             try { java.io.File(path).mkdirs() } catch (_: Exception) {}
         }
     }
