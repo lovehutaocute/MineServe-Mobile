@@ -21,6 +21,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -367,7 +368,8 @@ fun DebouncedTextField(
     var text by remember { mutableStateOf(value) }
     var isFocused by remember { mutableStateOf(false) }
 
-    // 外部值变化（如加载/重置）时同步到本地；输入过程中外部值滞后于本地则不覆盖
+    // 外部值变化（如加载/重置/回传生效）时同步到本地。
+    // 防抖/失焦/销毁回传后外部值与本地一致，故正常输入过程不会被覆盖。
     LaunchedEffect(value) {
         if (text != value) text = value
     }
@@ -382,6 +384,13 @@ fun DebouncedTextField(
     // 失焦时立即写回，避免切换页面丢失最后输入
     LaunchedEffect(isFocused) {
         if (!isFocused && text != value) onValueChange(text)
+    }
+
+    // 组合移除（切页/销毁）时立即回传未写回内容，避免防抖窗口内输入丢失
+    DisposableEffect(Unit) {
+        onDispose {
+            if (text != value) onValueChange(text)
+        }
     }
 
     OutlinedTextField(

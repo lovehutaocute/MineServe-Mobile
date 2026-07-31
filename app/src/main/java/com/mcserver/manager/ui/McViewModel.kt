@@ -32,6 +32,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -826,17 +828,22 @@ class McViewModel(
 
     private val historyJson = Json { ignoreUnknownKeys = true }
 
+    /** 历史记录文件读写互斥，避免多人进出服时并发写导致 JSON 损坏 */
+    private val historyMutex = Mutex()
+
     /** 启动时异步加载历史记录文件（文件缺失/损坏时从空历史开始） */
     private fun loadPlayerHistory() {
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val f = playerHistoryFile
-                if (f.exists()) {
-                    val list = historyJson.decodeFromString<List<PlayerHistoryEntry>>(f.readText())
-                    _playerHistory.value = list
+            historyMutex.withLock {
+                try {
+                    val f = playerHistoryFile
+                    if (f.exists()) {
+                        val list = historyJson.decodeFromString<List<PlayerHistoryEntry>>(f.readText())
+                        _playerHistory.value = list
+                    }
+                } catch (e: Exception) {
+                    // 忽略损坏文件
                 }
-            } catch (e: Exception) {
-                // 忽略损坏文件
             }
         }
     }
@@ -847,10 +854,12 @@ class McViewModel(
         _playerHistory.value = (listOf(entry) + _playerHistory.value).take(500)
         val snapshot = _playerHistory.value
         viewModelScope.launch(Dispatchers.IO) {
-            try {
-                playerHistoryFile.writeText(historyJson.encodeToString(snapshot))
-            } catch (e: Exception) {
-                // 写入失败不阻断运行
+            historyMutex.withLock {
+                try {
+                    playerHistoryFile.writeText(historyJson.encodeToString(snapshot))
+                } catch (e: Exception) {
+                    // 写入失败不阻断运行
+                }
             }
         }
     }
