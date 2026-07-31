@@ -81,7 +81,8 @@
             android:name="bin.mt.file.content.MTDataFilesProvider"
             android:authorities="${applicationId}.mt.datafiles"
             android:exported="true"
-            android:grantUriPermissions="true" />
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS" />
 
         <activity
             android:name="bin.mt.file.content.MTDataFilesWakeUpActivity"
