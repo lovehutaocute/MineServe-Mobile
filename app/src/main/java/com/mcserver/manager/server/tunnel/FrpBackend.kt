@@ -63,6 +63,8 @@ class FrpBackend(
 
     override fun diagnoseFailure(exitCode: Int, output: String): String {
         return when {
+            output.contains("unknown field") || output.contains("unmarshal") ->
+                "frpc 版本过旧，不支持配置中的字段（如 autoTLS）。正在自动下载最新版 frpc，请重试。"
             output.contains("connection refused") ->
                 "无法连接 frp 服务端，请检查配置中的 serverAddr 和 serverPort 是否正确"
             output.contains("token") || output.contains("auth") ->
