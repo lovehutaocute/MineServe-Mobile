@@ -838,8 +838,14 @@ class McViewModel(
                 try {
                     val f = playerHistoryFile
                     if (f.exists()) {
-                        val list = historyJson.decodeFromString<List<PlayerHistoryEntry>>(f.readText())
-                        _playerHistory.value = list
+                        val fileList = historyJson.decodeFromString<List<PlayerHistoryEntry>>(f.readText())
+                        // 与启动瞬间已记录的内存事件合并去重（按时间倒序，保留最新 500 条），
+                        // 避免文件加载晚于首条进服事件时覆盖内存新条目
+                        val merged = (_playerHistory.value + fileList)
+                            .distinct()
+                            .sortedByDescending { it.time }
+                            .take(500)
+                        _playerHistory.value = merged
                     }
                 } catch (e: Exception) {
                     // 忽略损坏文件
