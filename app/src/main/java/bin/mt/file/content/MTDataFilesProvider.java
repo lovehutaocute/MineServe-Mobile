@@ -61,17 +61,21 @@ public class MTDataFilesProvider extends DocumentsProvider {
     @Override
     public void attachInfo(Context context, ProviderInfo info) {
         super.attachInfo(context, info);
-        packageName = context.getPackageName();
-        dataDir = context.getFilesDir().getParentFile();
-        String dataDirPath = dataDir.getPath();
-        if (dataDirPath.startsWith("/data/user/")) {
-            userDeDataDir = new File("/data/user_de/" + dataDirPath.substring(11));
+        try {
+            packageName = context.getPackageName();
+            dataDir = context.getFilesDir().getParentFile();
+            String dataDirPath = dataDir.getPath();
+            if (dataDirPath.startsWith("/data/user/")) {
+                userDeDataDir = new File("/data/user_de/" + dataDirPath.substring(11));
+            }
+            File externalFilesDir = context.getExternalFilesDir(null);
+            if (externalFilesDir != null) {
+                androidDataDir = externalFilesDir.getParentFile();
+            }
+            androidObbDir = context.getObbDir();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
-        File externalFilesDir = context.getExternalFilesDir(null);
-        if (externalFilesDir != null) {
-            androidDataDir = externalFilesDir.getParentFile();
-        }
-        androidObbDir = context.getObbDir();
     }
 
     /**
@@ -219,7 +223,12 @@ public class MTDataFilesProvider extends DocumentsProvider {
 
     @Override
     public boolean onCreate() {
-        return true;
+        try {
+            return true;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     @Override
