@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -29,6 +32,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.OpenInFull
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Refresh
@@ -323,8 +327,8 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             }
         }
 
-        // ── 隧道日志预览 ──────────────────────────────────────
-        TunnelLogPreview(consoleLines)
+        // ── 免费 FRP 平台 ──────────────────────────────────────
+        FreeFrpPlatformsCard(context)
 
         // ── 操作指南（说明书） ──────────────────────────────────
         GuideSection(config.tunnelType)
@@ -572,6 +576,11 @@ private fun GuideSection(tunnelType: TunnelType) {
 @Composable
 private fun FrpGuide() {
     GuideBlock(title = "frp 使用教程（自建服务器）") {
+        Text(
+            "💡 不想自建服务器？页面下方「免费 FRP 平台」卡片提供 OpenFrp / ChmlFrp / StarryFrp / SakuraFrp 等免费 frp 服务：注册账号后，把平台分配的节点地址、端口与 Token 填入上方 frpc.toml 配置，点「启动穿透」即可。",
+            color = Coral, fontSize = 11.sp, lineHeight = 15.sp
+        )
+        Spacer(Modifier.height(10.dp))
         GuideStep("1", "啥是 frp？", "简单说就是打个「隧道」：你的手机通过 frp 连到一台有公网 IP 的服务器，别人访问那台服务器就能连到你的手机。就像在墙上凿了个洞，外面的人通过洞就能看到里面的东西。")
         GuideStep("2", "你需要一台云服务器", "去阿里云、腾讯云或 Oracle Cloud（有免费的 ARM 实例）租一台云服务器，最便宜的就够用。关键是要有「公网 IP」。")
         GuideStep("3", "在服务器上装 frp 服务端", "登录服务器后，去 GitHub 搜 fatedier/frp，下载对应版本，解压后编辑 frps.toml 文件：\nbindPort = 7000\nauth.method = \"token\"\nauth.token = \"随便设个密码\"\n然后运行 ./frps -c frps.toml 启动服务端。")
@@ -624,6 +633,58 @@ private fun GuideStep(step: String, title: String, description: String) {
             Text(title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(2.dp))
             Text(description, color = Muted, fontSize = 11.sp, lineHeight = 16.sp)
+        }
+    }
+}
+
+// ── 免费 FRP 平台 ──────────────────────────────────────────────
+
+/** 免费 FRP 平台清单（官方网址，点击跳转浏览器） */
+private data class FrpPlatform(val name: String, val url: String)
+
+private val freeFrpPlatforms = listOf(
+    FrpPlatform("OpenFrp", "https://www.openfrp.net/"),
+    FrpPlatform("ChmlFrp", "https://www.chmlfrp.cn/"),
+    FrpPlatform("StarryFrp（星空FRP）", "https://frp.starryfrp.com/"),
+    FrpPlatform("SakuraFrp（樱花映射）", "https://www.natfrp.com/")
+)
+
+@Composable
+private fun FreeFrpPlatformsCard(context: Context) {
+    McCard(title = "免费 FRP 平台") {
+        Text(
+            "不想自建服务器？以下免费 frp 平台注册后即可使用：把平台提供的节点地址、端口与 Token 填入上方 frpc.toml 配置即可启动。",
+            color = Muted, fontSize = 10.sp, lineHeight = 14.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        freeFrpPlatforms.forEach { p ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(IndigoSoft)
+                    .clickable {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(p.url)))
+                        } catch (e: Exception) {
+                            // 设备上无可用浏览器时静默忽略
+                        }
+                    }
+                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(p.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(p.url, color = Indigo, fontSize = 10.sp)
+                }
+                Icon(
+                    Icons.AutoMirrored.Outlined.OpenInNew,
+                    contentDescription = "打开官网",
+                    tint = Indigo,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
