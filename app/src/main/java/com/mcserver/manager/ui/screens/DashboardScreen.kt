@@ -1,10 +1,5 @@
 package com.mcserver.manager.ui.screens
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -24,7 +19,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,8 +83,6 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
     val installSpeed by vm.installSpeed.collectAsState()
-    val tunnelState by vm.tunnelState.collectAsState()
-    val lanIp by vm.lanIp.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -445,56 +437,51 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 )
             }
 
-            // ── 服务器地址 ──
-            McCard(title = "服务器地址") {
-                // 局域网地址
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("局域网", color = Muted, fontSize = 10.sp)
-                        Text("127.0.0.1:${config.localPort} / ${lanIp}:${config.localPort}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
-                    }
-                    IconButton(onClick = {
-                        val cm = LocalContext.current.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                        cm.setPrimaryClip(android.content.ClipData.newPlainText("IP", "${lanIp}:${config.localPort}"))
-                    }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(14.dp))
-                    }
-                }
-                // 内网穿透地址
-                if (tunnelState.publicUrl.isNotBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("公网穿透", color = Muted, fontSize = 10.sp)
-                            Text(tunnelState.publicUrl, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Indigo, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        IconButton(onClick = { vm.copyTunnelUrl(LocalContext.current) }, modifier = Modifier.size(28.dp)) {
-                            Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(14.dp))
-                        }
-                    }
-                }
-                // MC 终端按钮
-                Spacer(Modifier.height(8.dp))
-                Button(
-                    onClick = { vm.launchMcConsole(); onShowLogs() },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(PlayArrow, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(6.dp))
-                    Text("打开 MC 终端", fontSize = 12.sp)
-                }
-            }
-
-            // 插件入口
+            // 插件预览（真实扫描结果）
             McCard(title = "已安装插件") {
                 if (installedPlugins.isEmpty()) {
-                    Text("当前核心暂无已安装插件", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 4.dp))
+                    Text(
+                        "当前核心暂无已安装插件",
+                        color = Muted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
                 } else {
-                    Text("${installedPlugins.size} 个插件已安装", fontSize = 11.sp)
-                    installedPlugins.take(3).forEach { p ->
-                        Text(p.fileName, fontSize = 11.sp, color = Muted, maxLines = 1)
+                    installedPlugins.take(5).forEach { p ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(IndigoSoft),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    p.fileName.take(2).uppercase(),
+                                    color = Indigo,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.size(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(p.fileName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                Text(p.sizeText, color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                    if (installedPlugins.size > 5) {
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "共 ${installedPlugins.size} 个插件，查看全部请到「插件」Tab",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
                     }
                 }
             }
