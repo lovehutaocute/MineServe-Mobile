@@ -874,10 +874,11 @@ esac
         val input = conn.inputStream
         val output = FileOutputStream(target, existing > 0)
 
-        val buf = ByteArray(8192)
+        val buf = ByteArray(64 * 1024)
         var read: Int
         var downloaded = existing
         var lastLogPct = -1
+        var lastProgressTime = 0L
         var lastSpeedCalcTime = System.currentTimeMillis()
         var lastSpeedCalcBytes = downloaded
         while (input.read(buf).also { read = it } != -1) {
@@ -894,7 +895,9 @@ esac
                 lastSpeedCalcBytes = downloaded
             }
 
-            if (total > 0) {
+            // 进度回调节流：每 100ms 一次，避免每 64KB 触发 ServerState.copy
+            if (total > 0 && now - lastProgressTime >= 100) {
+                lastProgressTime = now
                 val pct = range.first + ((range.last - range.first) * downloaded / total).toInt()
                 onProgress(pct.coerceIn(range.first, range.last))
 
@@ -905,12 +908,15 @@ esac
                     onLog?.invoke("已下载 $logPct% (${downloaded / 1024 / 1024}MB)")
                 }
             } else {
-                // chunked encoding: 没有 Content-Length，按已下载字节数估算
-                val mb = (downloaded / 1024 / 1024).toInt()
-                onProgress(range.first + (mb.coerceAtMost(30) * (range.last - range.first) / 30).toInt())
-                if (mb != lastLogPct) {
-                    lastLogPct = mb
-                    onLog?.invoke("已下载 ${mb}MB")
+                // chunked encoding: 没有 Content-Length，按已下载字节数估算（同样 100ms 节流）
+                if (now - lastProgressTime >= 100) {
+                    lastProgressTime = now
+                    val mb = (downloaded / 1024 / 1024).toInt()
+                    onProgress(range.first + (mb.coerceAtMost(30) * (range.last - range.first) / 30).toInt())
+                    if (mb != lastLogPct) {
+                        lastLogPct = mb
+                        onLog?.invoke("已下载 ${mb}MB")
+                    }
                 }
             }
         }

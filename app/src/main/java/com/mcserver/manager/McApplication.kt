@@ -80,14 +80,15 @@ class McApplication : Application(), Configuration.Provider {
 
         termuxRuntime = TermuxRuntime(this)
 
-        // 启动时推送上次崩溃日志到控制台
+        // 启动时推送上次崩溃日志到控制台（IO 线程，不阻塞主线程启动）
         if (crashLogFile.exists() && crashLogFile.length() > 0) {
-            try {
-                val lastCrash = crashLogFile.readText().takeLast(3000)
-                termuxRuntime.emitLog("[crash] 上次崩溃日志:\n$lastCrash")
-                // 读取后重命名，避免重复推送
-                crashLogFile.renameTo(java.io.File(filesDir, "home/crash_log_read.txt"))
-            } catch (_: Exception) {}
+            GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    val lastCrash = crashLogFile.readText().takeLast(3000)
+                    termuxRuntime.emitLog("[crash] 上次崩溃日志:\n$lastCrash")
+                    crashLogFile.renameTo(java.io.File(filesDir, "home/crash_log_read.txt"))
+                } catch (_: Exception) {}
+            }
         }
         repository = ServerRepository(this, termuxRuntime)
         createNotificationChannel()
