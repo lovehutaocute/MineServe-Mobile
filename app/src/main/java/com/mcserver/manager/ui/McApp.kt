@@ -24,6 +24,7 @@ import com.mcserver.manager.ui.screens.DashboardScreen
 import com.mcserver.manager.ui.screens.DownloadHelpScreen
 import com.mcserver.manager.ui.screens.DownloadScreen
 import com.mcserver.manager.ui.screens.FileManagerScreen
+import com.mcserver.manager.ui.screens.MtGuideScreen
 import com.mcserver.manager.ui.screens.LogsScreen
 import com.mcserver.manager.ui.screens.NetworkScreen
 import com.mcserver.manager.ui.screens.PlayersScreen
@@ -35,7 +36,7 @@ import com.mcserver.manager.ui.theme.IndigoSoft
 import com.mcserver.manager.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -82,6 +83,7 @@ fun McApp() {
                         SubPage.Network -> NetworkScreen(vm = vm, onBack = { subPage = null })
                         SubPage.Backup -> BackupScreen(vm = vm, onBack = { subPage = null })
                         SubPage.DownloadHelp -> DownloadHelpScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.MtGuide -> MtGuideScreen(onBack = { subPage = null })
                         null -> {}
                     }
                 }
@@ -97,7 +99,7 @@ fun McApp() {
                     )
                     McTab.Players -> PlayersScreen(vm = vm)
                     McTab.Plugins -> PluginsScreen(vm = vm)
-                    McTab.Files -> FileManagerScreen(vm = vm)
+                    McTab.Files -> FileManagerScreen(vm = vm, onOpenMtGuide = { subPage = SubPage.MtGuide })
                     McTab.Network -> NetworkScreen(vm = vm, onBack = {})
                     McTab.Backup -> BackupScreen(vm = vm, onBack = {})
                     McTab.Settings -> SettingsScreen(

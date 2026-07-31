@@ -65,7 +65,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 @Composable
-fun FileManagerScreen(vm: McViewModel) {
+fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
     val files by vm.fileList.collectAsState()
     val currentPath by vm.currentPath.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
@@ -113,6 +113,16 @@ fun FileManagerScreen(vm: McViewModel) {
                 .padding(paddingValues)
         ) {
             HeaderBlock(eyebrow = "File Manager", title = "文件管理")
+
+            // MT 管理器按钮
+            Button(
+                onClick = onOpenMtGuide,
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            ) {
+                Text("📁 MT 管理器管理文件", fontSize = 13.sp)
+            }
 
             // 路径导航栏
             McCard(title = "当前路径") {
