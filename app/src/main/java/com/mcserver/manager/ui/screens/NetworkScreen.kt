@@ -577,6 +577,16 @@ private fun FrpGuide() {
 }
 
 @Composable
+private fun BoreGuide() {
+    GuideBlock(title = "bore 使用教程（纯手机端运行）") {
+        GuideStep("1", "bore 是啥？", "bore 是一个极简的 TCP 隧道工具，协议超级简单只有 3 种消息。手机端直接用纯 Kotlin 实现，无需下载任何程序，秒启动。")
+        GuideStep("2", "你需要一台云服务器", "跟 frp 一样，需要一台有公网 IP 的 VPS。去 GitHub 搜 ekzhang/bore，下载 bore 二进制，在服务器上运行：./bore server")
+        GuideStep("3", "填服务端地址", "把服务器的 IP 和端口（默认 7835）填到上面的输入框，格式如 your-vps.com:7835。")
+        GuideStep("4", "点启动就行", "点「启动穿透」按钮，程序直接用手机网络连接 bore 服务端。不需要 Termux，不需要下载，启动只需几秒。")
+        GuideStep("5", "把地址给朋友", "启动后状态卡片显示公网地址（serverIP:端口），复制发给朋友在 MC 直接连接粘贴即可。")
+        GuideStep("6", "优点和限制", "优点：极轻量（~300 行代码），秒启动。限制：仅 TCP，需自建服务器。适合追求低延迟和轻量体验的用户。")
+    }
+}
 
 @Composable
 private fun GuideBlock(title: String, content: @Composable () -> Unit) {
