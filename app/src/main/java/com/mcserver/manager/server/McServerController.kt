@@ -83,7 +83,8 @@ class McServerController(
                 val code = when (step) {
                     InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25")
                     InstallStep.Wget -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "wget")
-                    InstallStep.Frp -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
+                    InstallStep.Frp -> termux.execOnce("/system/bin/sh", "-c",
+                        "which frpc >/dev/null 2>&1 || apt-get install --allow-unauthenticated -y frp")
                     InstallStep.Rclone -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "rclone")
                     InstallStep.Proot -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "proot")
                 }
