@@ -18,7 +18,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
@@ -30,6 +32,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -50,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
@@ -69,7 +73,7 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private enum class PlayerListTab(val label: String) { Ops("OP 列表"), Whitelist("白名单"), Banned("封禁列表") }
+private enum class PlayerListTab(val label: String) { Online("在线玩家"), Ops("OP 列表"), Whitelist("白名单"), Banned("封禁列表") }
 
 private enum class BanDuration(val label: String, val value: String) {
     FOREVER("永久", ""),
@@ -107,19 +111,27 @@ fun PlayersScreen(vm: McViewModel) {
     val whitelist by vm.whitelist.collectAsState()
     val banned by vm.bannedPlayers.collectAsState()
     val whitelistEnabled by vm.whitelistEnabled.collectAsState()
+    val onlinePlayers by vm.onlinePlayerNames.collectAsState()
+    val playerHistory by vm.playerHistory.collectAsState()
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
-    var activeTab by remember { mutableStateOf(PlayerListTab.Ops) }
+    var activeTab by remember { mutableStateOf(PlayerListTab.Online) }
     var detailPlayer by remember { mutableStateOf<DetailInfo?>(null) }
+    var showHistory by remember { mutableStateOf(false) }
 
     LaunchedEffect(isBootstrapped, config.activeCoreName) {
         if (isBootstrapped && config.activeCoreName != null) {
             vm.refreshPlayers()
         }
+    }
+    // 进入在线玩家 tab 时发送 list 命令，全量校正在线名单
+    LaunchedEffect(activeTab) {
+        if (activeTab == PlayerListTab.Online) vm.refreshOnlinePlayers()
     }
     LaunchedEffect(Unit) { vm.errorFlow.collectLatest { snackbarHostState.showSnackbar(it) } }
     LaunchedEffect(Unit) { vm.messageFlow.collectLatest { snackbarHostState.showSnackbar(it) } }
@@ -138,7 +150,23 @@ fun PlayersScreen(vm: McViewModel) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Player Management", title = "玩家管理")
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HeaderBlock(
+                    eyebrow = "Player Management",
+                    title = "玩家管理",
+                    modifier = Modifier.weight(1f)
+                )
+                // 页面右上角：玩家进服/离服历史记录入口
+                IconButton(
+                    onClick = { showHistory = true },
+                    modifier = Modifier.padding(end = 8.dp)
+                ) {
+                    Icon(Icons.Outlined.History, contentDescription = "玩家历史记录", tint = Indigo)
+                }
+            }
 
             // ── 服务器状态横幅 ──
             ServerStatusBanner(
@@ -161,6 +189,7 @@ fun PlayersScreen(vm: McViewModel) {
             ) {
                 PlayerListTab.values().forEach { tab ->
                     val count = when (tab) {
+                        PlayerListTab.Online -> onlinePlayers.size
                         PlayerListTab.Ops -> ops.size
                         PlayerListTab.Whitelist -> whitelist.size
                         PlayerListTab.Banned -> banned.size
@@ -186,6 +215,16 @@ fun PlayersScreen(vm: McViewModel) {
             }
 
             when (activeTab) {
+                PlayerListTab.Online -> OnlineTab(
+                    players = onlinePlayers,
+                    isRunning = isRunning,
+                    onRefresh = { vm.refreshOnlinePlayers() },
+                    onCopy = { name ->
+                        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Player", name))
+                        scope.launch { snackbarHostState.showSnackbar("已复制：$name") }
+                    }
+                )
                 PlayerListTab.Ops -> OpsTab(
                     ops = ops,
                     isRunning = isRunning,
@@ -229,6 +268,89 @@ fun PlayersScreen(vm: McViewModel) {
             onGiveXp = { name, amount -> vm.giveXp(name, amount) }
         )
     }
+
+    // 玩家进服/离服历史记录对话框
+    if (showHistory) {
+        PlayerHistoryDialog(
+            history = playerHistory,
+            onDismiss = { showHistory = false }
+        )
+    }
+}
+
+// ── 玩家历史记录对话框 ──────────────────────────────────────────────
+
+@Composable
+private fun PlayerHistoryDialog(
+    history: List<McViewModel.PlayerHistoryEntry>,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.History, contentDescription = null, tint = Indigo, modifier = Modifier.size(20.dp))
+                Spacer(Modifier.size(8.dp))
+                Text("玩家进服/离服记录", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            if (history.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 24.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("暂无历史记录", color = Muted, fontSize = 12.sp)
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    history.forEach { h ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val isJoin = h.event == "进服"
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(if (isJoin) MintSoft else CoralSoft)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    h.event,
+                                    color = if (isJoin) Mint else Coral,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(Modifier.size(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    h.player,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(h.time, color = Muted, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("关闭") }
+        }
+    )
 }
 
 // ── 服务器状态横幅 ──────────────────────────────────────────────────
@@ -287,6 +409,71 @@ private fun StatusRow(color: Color, text: String) {
         Box(modifier = Modifier.size(8.dp).clip(RoundedCornerShape(4.dp)).background(color))
         Spacer(Modifier.size(6.dp))
         Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+// ── 在线玩家标签 ────────────────────────────────────────────────────
+
+@Composable
+private fun OnlineTab(
+    players: List<String>,
+    isRunning: Boolean,
+    onRefresh: () -> Unit,
+    onCopy: (String) -> Unit
+) {
+    McCard(title = "在线玩家") {
+        if (!isRunning) {
+            StatusRow(color = Coral, text = "服务器未运行，无在线玩家")
+        } else if (players.isEmpty()) {
+            EmptyHint("暂无玩家在线")
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                players.forEach { name ->
+                    OnlinePlayerRow(name = name, onCopy = { onCopy(name) })
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            TextButton(onClick = onRefresh) {
+                Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = Indigo)
+                Spacer(Modifier.size(4.dp))
+                Text("刷新在线列表", color = Indigo, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OnlinePlayerRow(name: String, onCopy: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(IndigoSoft)
+            .padding(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(32.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Mint),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(name.take(2).uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.size(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text("在线", color = Mint, fontSize = 10.sp)
+        }
+        IconButton(onClick = onCopy) {
+            Icon(Icons.Outlined.ContentCopy, contentDescription = "复制玩家名", tint = Indigo, modifier = Modifier.size(16.dp))
+        }
     }
 }
 

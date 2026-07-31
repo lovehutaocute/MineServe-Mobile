@@ -171,6 +171,23 @@ class PlayerManager(private val termux: TermuxRuntime) {
         return names.split(",").map { it.trim() }.filter { it.isNotEmpty() }
     }
 
+    /**
+     * 从 "xxx joined the game" / "xxx left the game" 日志行中提取玩家名。
+     * 自动剥离日志时间戳/线程前缀（如 "[11:45:34] [Server thread/INFO]: "）。
+     * @param event 事件关键字，如 "joined the game" / "left the game"
+     * @return 玩家名；无法提取时返回 null
+     */
+    fun extractPlayerName(logLine: String, event: String): String? {
+        val idx = logLine.indexOf(" $event")
+        if (idx < 0) return null
+        val before = logLine.substring(0, idx).trim()
+        if (before.isBlank()) return null
+        // 取最后一个 ": " 之后的内容，剥离日志前缀（形如 "[11:45:34] [Server thread/INFO]: Steve"）
+        val sep = before.lastIndexOf(": ")
+        val name = if (sep >= 0) before.substring(sep + 2).trim() else before.trim()
+        return name.takeIf { it.isNotEmpty() }
+    }
+
     // ── 游戏模式切换 ────────────────────────────────────────────
 
     /**

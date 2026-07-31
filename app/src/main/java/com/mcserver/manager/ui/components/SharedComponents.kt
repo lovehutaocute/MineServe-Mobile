@@ -45,9 +45,13 @@ import com.mcserver.manager.ui.theme.Muted
  * 顶部 Header：参考界面 eyebrow + h1
  */
 @Composable
-fun HeaderBlock(eyebrow: String, title: String) {
+fun HeaderBlock(
+    eyebrow: String,
+    title: String,
+    modifier: Modifier = Modifier
+) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .padding(horizontal = 20.dp, vertical = 22.dp)

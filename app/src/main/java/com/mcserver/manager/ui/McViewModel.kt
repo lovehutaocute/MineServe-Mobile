@@ -33,6 +33,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import java.net.Inet4Address
 import java.net.NetworkInterface
 
@@ -143,6 +147,7 @@ class McViewModel(
     }
 
     init {
+        loadPlayerHistory()
         // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
         viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->
@@ -201,10 +206,18 @@ class McViewModel(
                     repo.updateServerState {
                         it.copy(onlinePlayers = (it.onlinePlayers + 1).coerceAtLeast(0))
                     }
+                    playerManager.extractPlayerName(line, "joined the game")?.let { name ->
+                        addOnlinePlayer(name)
+                        recordPlayerEvent(name, "进服")
+                    }
                 }
                 line.contains("left the game") -> {
                     repo.updateServerState {
                         it.copy(onlinePlayers = (it.onlinePlayers - 1).coerceAtLeast(0))
+                    }
+                    playerManager.extractPlayerName(line, "left the game")?.let { name ->
+                        removeOnlinePlayer(name)
+                        recordPlayerEvent(name, "离服")
                     }
                 }
                 line.contains("players online") -> {
@@ -213,6 +226,10 @@ class McViewModel(
                         val online = m.groupValues[1].toIntOrNull() ?: return
                         val max = m.groupValues[2].toIntOrNull() ?: return
                         repo.updateServerState { it.copy(onlinePlayers = online, maxPlayers = max) }
+                        // 全量校正在线玩家名单（list 命令响应）
+                        playerManager.parseOnlinePlayers(line)?.let { names ->
+                            _onlinePlayerNames.value = names
+                        }
                     }
                 }
                 line.contains("TPS from last 1m") -> {
@@ -792,6 +809,72 @@ class McViewModel(
     /** 在线玩家名列表（从日志解析） */
     private val _onlinePlayerNames = MutableStateFlow<List<String>>(emptyList())
     val onlinePlayerNames: StateFlow<List<String>> = _onlinePlayerNames.asStateFlow()
+
+    /** 玩家进服/离服历史记录（最新在前，上限 500 条），持久化到 app 私有目录 */
+    @Serializable
+    data class PlayerHistoryEntry(
+        val player: String,
+        val event: String,
+        val time: String
+    )
+
+    private val _playerHistory = MutableStateFlow<List<PlayerHistoryEntry>>(emptyList())
+    val playerHistory: StateFlow<List<PlayerHistoryEntry>> = _playerHistory.asStateFlow()
+
+    private val playerHistoryFile: java.io.File
+        get() = java.io.File(McApplication.get().filesDir, "player_history.json")
+
+    private val historyJson = Json { ignoreUnknownKeys = true }
+
+    /** 启动时异步加载历史记录文件（文件缺失/损坏时从空历史开始） */
+    private fun loadPlayerHistory() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val f = playerHistoryFile
+                if (f.exists()) {
+                    val list = historyJson.decodeFromString<List<PlayerHistoryEntry>>(f.readText())
+                    _playerHistory.value = list
+                }
+            } catch (e: Exception) {
+                // 忽略损坏文件
+            }
+        }
+    }
+
+    /** 追加一条进服/离服事件并异步持久化（保留最近 500 条） */
+    private fun recordPlayerEvent(player: String, event: String) {
+        val entry = PlayerHistoryEntry(player, event, timeNow())
+        _playerHistory.value = (listOf(entry) + _playerHistory.value).take(500)
+        val snapshot = _playerHistory.value
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                playerHistoryFile.writeText(historyJson.encodeToString(snapshot))
+            } catch (e: Exception) {
+                // 写入失败不阻断运行
+            }
+        }
+    }
+
+    private fun timeNow(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
+            .format(java.util.Date())
+
+    /** 在线玩家集合维护（进服：增量添加，去重） */
+    private fun addOnlinePlayer(name: String) {
+        val cur = _onlinePlayerNames.value
+        if (name !in cur) _onlinePlayerNames.value = cur + name
+    }
+
+    /** 在线玩家集合维护（离服：移除） */
+    private fun removeOnlinePlayer(name: String) {
+        _onlinePlayerNames.value = _onlinePlayerNames.value.filter { it != name }
+    }
+
+    /** 请求在线玩家列表（发送 list 命令，结果通过日志解析全量校正名单） */
+    fun refreshOnlinePlayers() {
+        if (!repo.termuxRuntime.isMcRunning()) return
+        playerManager.requestOnlineList()
+    }
 
     /** 刷新玩家数据（OP/白名单/封禁列表） */
     fun refreshPlayers() {
