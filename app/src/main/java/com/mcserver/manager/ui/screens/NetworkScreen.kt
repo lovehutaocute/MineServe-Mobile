@@ -151,14 +151,14 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
-                    "localhost:${config.localPort}",
+                    "127.0.0.1:${config.localPort}",
                     fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = {
                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Server", "localhost:${config.localPort}"))
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Server", "127.0.0.1:${config.localPort}"))
                 }) {
                     Icon(Icons.Outlined.ContentCopy, contentDescription = "复制", tint = Indigo)
                 }
