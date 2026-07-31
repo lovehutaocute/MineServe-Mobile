@@ -7,20 +7,27 @@ import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Send
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -88,7 +95,27 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             }
         }
 
+        // 快捷指令按钮
+        val quickCommands = listOf("/list", "/tps", "/say ", "/kick ", "/help")
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            quickCommands.forEach { cmd ->
+                androidx.compose.material3.TextButton(
+                    onClick = { input = cmd; vm.sendCommand(cmd); input = "" },
+                    modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp).height(28.dp),
+                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color(0xFF89B4FA))
+                ) {
+                    Text(cmd, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+        }
+
         // 日志列表
+        val listState = rememberLazyListState()
         Box(
             modifier = Modifier
                 .weight(1f)
@@ -98,28 +125,29 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                 .background(Color(0xFF1E1E2E))
         ) {
             if (lines.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        "暂无日志输出\n启动 MC 服务后将在此看到实时控制台流",
-                        color = Color(0xFF8888AA),
-                        fontSize = 12.sp
-                    )
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("暂无日志输出\n启动 MC 服务后将在此看到实时控制台流", color = Color(0xFF8888AA), fontSize = 12.sp)
                 }
             } else {
+                // 自动滚动到底部
+                androidx.compose.runtime.LaunchedEffect(lines.size) {
+                    if (lines.isNotEmpty()) listState.animateScrollToItem(lines.size - 1)
+                }
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     items(lines) { line ->
-                        Text(
-                            line,
-                            color = Color(0xFFCDD6F4),
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
+                        val color = when {
+                            line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
+                            line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
+                            line.contains("[tunnel]") -> Color(0xFF89B4FA)
+                            line.contains("[crash]") -> Color(0xFFFAB387)
+                            line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
+                            else -> Color(0xFFCDD6F4)
+                        }
+                        Text(line, color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                     }
                 }
             }
