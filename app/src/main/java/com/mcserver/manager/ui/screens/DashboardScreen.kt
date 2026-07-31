@@ -1,9 +1,9 @@
 package com.mcserver.manager.ui.screens
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.ui.text.style.TextOverflow
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -25,7 +25,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material.icons.outlined.ContentCopy
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -455,7 +454,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         Text("127.0.0.1:${config.localPort} / ${lanIp}:${config.localPort}", fontSize = 11.sp, fontWeight = FontWeight.Medium)
                     }
                     IconButton(onClick = {
-                        val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                        val cm = LocalContext.current.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("IP", "${lanIp}:${config.localPort}"))
                     }, modifier = Modifier.size(28.dp)) {
                         Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(14.dp))
@@ -469,7 +468,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             Text("公网穿透", color = Muted, fontSize = 10.sp)
                             Text(tunnelState.publicUrl, fontSize = 11.sp, fontWeight = FontWeight.Medium, color = Indigo, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = { vm.copyTunnelUrl(context) }, modifier = Modifier.size(28.dp)) {
+                        IconButton(onClick = { vm.copyTunnelUrl(LocalContext.current) }, modifier = Modifier.size(28.dp)) {
                             Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(14.dp))
                         }
                     }
@@ -482,7 +481,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Icon(Icons.Outlined.PlayArrow, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
+                    Icon(PlayArrow, null, tint = Color(0xFF4CAF50), modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(6.dp))
                     Text("打开 MC 终端", fontSize = 12.sp)
                 }
