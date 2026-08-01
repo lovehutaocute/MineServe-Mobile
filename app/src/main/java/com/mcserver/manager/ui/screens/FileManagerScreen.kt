@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -373,13 +374,26 @@ private fun FileItemRow(
 
         // 文件名和信息
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                entry.name,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    entry.name,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false)
+                )
+                // 自动功能注释（如 world【主世界存档文件夹】）
+                fileAnnotation(entry)?.let { ann ->
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        "【$ann】",
+                        color = Muted,
+                        fontSize = 10.sp,
+                        maxLines = 1
+                    )
+                }
+            }
             Text(
                 if (entry.isDirectory) entry.modifiedText else "${entry.sizeText} · ${entry.modifiedText}",
                 color = Muted,
@@ -401,4 +415,51 @@ private fun FileItemRow(
             )
         }
     }
+}
+
+// ── 服务器目录文件/文件夹中文功能注释 ────────────────────────────────
+
+private val fileAnnotations = mapOf(
+    "server.jar" to "服务端核心文件",
+    "server.properties" to "服务器核心配置文件",
+    "ops.json" to "OP（管理员）列表",
+    "whitelist.json" to "白名单列表",
+    "banned-players.json" to "封禁玩家列表",
+    "banned-ips.json" to "封禁 IP 列表",
+    "eula.txt" to "最终用户许可协议（EULA）",
+    "usercache.json" to "玩家 UUID 缓存",
+    "usernamecache.json" to "用户名缓存",
+    "permissions.json" to "权限配置",
+    "help.yml" to "帮助命令配置",
+    "bukkit.yml" to "Bukkit 插件服务器配置",
+    "spigot.yml" to "Spigot 服务器配置",
+    "paper.yml" to "Paper 服务器配置",
+    "commands.yml" to "命令别名配置",
+    "seedcache" to "世界种子缓存",
+    "version_history.json" to "版本历史记录",
+    "latest.log" to "最新运行日志",
+    "debug.log" to "调试日志"
+)
+
+private val dirAnnotations = mapOf(
+    "world" to "主世界存档文件夹",
+    "world_nether" to "下界存档文件夹",
+    "world_the_end" to "末地存档文件夹",
+    "logs" to "服务器运行日志文件夹",
+    "log" to "服务器日志文件夹（旧版）",
+    "plugins" to "插件文件夹",
+    "config" to "插件配置文件文件夹",
+    "versions" to "服务端版本文件夹",
+    "libraries" to "服务端依赖库文件夹",
+    "crash-reports" to "崩溃报告文件夹",
+    "cache" to "缓存文件夹",
+    "generated" to "生成数据文件夹",
+    "datapacks" to "数据包文件夹",
+    "world_backup" to "世界备份文件夹"
+)
+
+/** 返回文件/文件夹的中文功能注释，未知名称返回 null */
+private fun fileAnnotation(entry: McViewModel.FileEntry): String? {
+    val key = entry.name.lowercase()
+    return if (entry.isDirectory) dirAnnotations[key] else fileAnnotations[key]
 }
