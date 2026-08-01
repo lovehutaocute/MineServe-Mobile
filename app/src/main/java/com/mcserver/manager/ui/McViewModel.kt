@@ -297,6 +297,8 @@ class McViewModel(
                             maxMemoryMb = config.value.maxHeapMb.toLong(),
                             runningSinceMs = android.os.SystemClock.elapsedRealtime())
                     }
+                    // 启动完成：主动请求一次 list，全量校正在线玩家名单
+                    if (repo.termuxRuntime.isMcRunning()) playerManager.requestOnlineList()
                 }
             }
         } catch (e: Exception) {

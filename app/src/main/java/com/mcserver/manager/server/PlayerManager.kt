@@ -23,7 +23,10 @@ class PlayerManager(private val termux: TermuxRuntime) {
 
     /** 进服/离服日志解析：日志前缀(]: 结尾) + 玩家名(1-16位字母数字下划线) + 可选[IP]后缀 + (has) joined/left the game。
      * 以 ": " 锚定日志前缀结尾，过滤聊天消息（如 "<Steve> I joined the game"）误提取。 */
-    private val joinLeaveRegex = Regex(":\\s*([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
+    private val joinLeaveStrictRegex = Regex(":\\s*([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
+
+    /** 宽松回退：兼容无日志前缀冒号的极端格式（如直接输出 "Steve joined the game"） */
+    private val joinLeaveLooseRegex = Regex("([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
 
     @Serializable
     data class OpEntry(val name: String, val uuid: String, val level: Int = 4)
@@ -183,8 +186,8 @@ class PlayerManager(private val termux: TermuxRuntime) {
      * @return 玩家名；无法提取或格式非法时返回 null
      */
     fun extractPlayerName(logLine: String): String? {
-        // 玩家名可能带 [ip] 后缀，has 为可选变体
-        val m = joinLeaveRegex.find(logLine) ?: return null
+        // 先严格匹配（冒号锚定日志前缀，防聊天误报），失败再宽松回退（兼容无前缀格式）
+        val m = joinLeaveStrictRegex.find(logLine) ?: joinLeaveLooseRegex.find(logLine) ?: return null
         return m.groupValues[1]
     }
 
