@@ -37,6 +37,8 @@ class PluginManager(
         private const val TAG = "PluginManager"
         private const val JAR_EXT = ".jar"
         private const val DISABLED_PREFIX = "-"
+        /** 模组禁用后缀（Fabric/Forge 官方约定：xxx.jar → xxx.jar.disabled） */
+        private const val MOD_DISABLED_SUFFIX = ".jar.disabled"
         private const val UPDATE_CHECK_COOLDOWN_MS = 5 * 60 * 1000L  // 更新检测冷却 5 分钟
     }
 
@@ -608,7 +610,7 @@ class PluginManager(
                 names.indices.forEach { i ->
                     val n = names.getOrNull(i) ?: return@forEach
                     val u = urls.getOrNull(i) ?: return@forEach
-                    if (n.contains(pattern) && n.endsWith(".jar")) return u
+                    if (n.contains(pattern, ignoreCase = true) && n.endsWith(".jar")) return u
                 }
                 null
             } finally {
@@ -714,26 +716,32 @@ class PluginManager(
         val isEnabled: Boolean
     )
 
-    /** 读取 mods/ 目录下的模组列表（禁用文件为 - 前缀，沿用插件约定） */
+    /** 读取 mods/ 目录下的模组列表（禁用文件为 .jar.disabled 后缀，Fabric/Forge 官方约定） */
     fun readMods(dirName: String): List<ModEntry> {
         val dir = modsDirOf(dirName)
         if (!dir.exists() || !dir.isDirectory) return emptyList()
-        return dir.listFiles { f -> f.isFile && f.name.endsWith(JAR_EXT, ignoreCase = true) }
+        return dir.listFiles { f ->
+            f.isFile && (f.name.endsWith(JAR_EXT, ignoreCase = true) || f.name.endsWith(MOD_DISABLED_SUFFIX, ignoreCase = true))
+        }
             ?.sortedBy { it.name.lowercase() }
             ?.map { f ->
-                val isEnabled = !f.name.startsWith(DISABLED_PREFIX)
+                val isEnabled = f.name.endsWith(JAR_EXT, ignoreCase = true)
                 val baseName = if (isEnabled) f.name.removeSuffix(JAR_EXT)
-                               else f.name.removeSuffix(JAR_EXT).removePrefix(DISABLED_PREFIX)
+                               else f.name.removeSuffix(MOD_DISABLED_SUFFIX)
                 ModEntry(f.name, baseName, formatSize(f.length()), isEnabled)
             } ?: emptyList()
     }
 
-    /** 切换模组启用状态（文件名 - 前缀切换） */
+    /** 切换模组启用状态（.jar ↔ .jar.disabled） */
     suspend fun toggleModEnabled(fileName: String, dirName: String): String? = withContext(Dispatchers.IO) {
         val dir = modsDirOf(dirName)
         val file = File(dir, fileName)
         if (!file.exists()) return@withContext null
-        val newName = if (fileName.startsWith(DISABLED_PREFIX)) fileName.substring(1) else "$DISABLED_PREFIX$fileName"
+        val newName = if (fileName.endsWith(MOD_DISABLED_SUFFIX, ignoreCase = true)) {
+            fileName.removeSuffix(MOD_DISABLED_SUFFIX)
+        } else {
+            "$fileName.disabled"
+        }
         return@withContext if (file.renameTo(File(dir, newName))) newName else null
     }
 

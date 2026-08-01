@@ -151,6 +151,7 @@ fun PluginsScreen(vm: McViewModel) {
 
     var activeTab by remember { mutableStateOf(PluginTab.Installed) }
     var pendingDelete by remember { mutableStateOf<PluginManager.InstalledPlugin?>(null) }
+    var pendingModDelete by remember { mutableStateOf<PluginManager.ModEntry?>(null) }
     var detailPlugin by remember { mutableStateOf<PluginManager.InstalledPlugin?>(null) }
 
     // 进入页面或核心切换时自动刷新
@@ -316,7 +317,8 @@ fun PluginsScreen(vm: McViewModel) {
                 }
             }
 
-            // ── 标签切换栏 ──
+            // ── 标签切换栏（仅插件分类显示） ──
+            if (resourceType == ResourceType.Plugin) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -348,6 +350,7 @@ fun PluginsScreen(vm: McViewModel) {
                         )
                     }
                 }
+            }
             }
 
             // ── 内容区（插件 / 模组按资源类型分流） ──
@@ -386,8 +389,9 @@ fun PluginsScreen(vm: McViewModel) {
                     mods = mods,
                     curatedMods = vm.curatedMods,
                     activeCoreExists = activeCore != null,
+                    coreType = coreType,
                     onToggle = { vm.toggleModEnabled(it) },
-                    onDelete = { vm.deleteMod(it) },
+                    onDelete = { pendingModDelete = it },
                     onUpload = { uri -> vm.installModFromUri(uri) },
                     onInstallCurated = { vm.installCuratedMod(it) }
                 )
@@ -447,6 +451,34 @@ fun PluginsScreen(vm: McViewModel) {
                 pendingDelete = null
             },
             onDismiss = { pendingDelete = null }
+        )
+    }
+
+    // 模组删除确认对话框
+    pendingModDelete?.let { mod ->
+        AlertDialog(
+            onDismissRequest = { pendingModDelete = null },
+            title = { Text("确认删除模组", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "即将删除模组：\n${mod.baseName}\n\n此操作不可撤销。",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteMod(mod.fileName)
+                    pendingModDelete = null
+                }) {
+                    Text("删除", color = Coral, fontWeight = FontWeight.SemiBold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingModDelete = null }) {
+                    Text("取消", color = Muted)
+                }
+            }
         )
     }
 
@@ -694,7 +726,7 @@ private fun CuratedTab(
         }
     ) {
         Text(
-            "内置 6 款常用插件，自动从 GitHub Releases 跟随最新版本下载",
+            "内置 8 款常用插件，自动从 GitHub Releases 跟随最新版本下载",
             color = Muted,
             fontSize = 10.sp
         )
@@ -1261,8 +1293,9 @@ private fun ModsTab(
     mods: List<PluginManager.ModEntry>,
     curatedMods: List<PluginManager.CuratedMod>,
     activeCoreExists: Boolean,
+    coreType: ServerCore,
     onToggle: (String) -> Unit,
-    onDelete: (String) -> Unit,
+    onDelete: (PluginManager.ModEntry) -> Unit,
     onUpload: (Uri) -> Unit,
     onInstallCurated: (PluginManager.CuratedMod) -> Unit
 ) {
@@ -1316,7 +1349,7 @@ private fun ModsTab(
                                 fontSize = 11.sp
                             )
                         }
-                        IconButton(onClick = { onDelete(mod.fileName) }) {
+                        IconButton(onClick = { onDelete(mod) }) {
                             Icon(Icons.Outlined.Delete, contentDescription = "删除", tint = Coral, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -1336,47 +1369,55 @@ private fun ModsTab(
         }
     }
 
-    // 精选模组
+    // 精选模组（Fabric 专用；Forge 模组与 Fabric 不通用，提示自行下载）
     McCard(title = "精选模组") {
-        Text(
-            "内置常用 Fabric 模组，自动从 GitHub 跟随最新版本下载",
-            color = Muted,
-            fontSize = 10.sp
-        )
-        Spacer(Modifier.height(10.dp))
-        curatedMods.forEach { mod ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
+        if (coreType != ServerCore.Fabric) {
+            Text(
+                "精选模组目前仅支持 Fabric 核心（当前 ${coreType.displayName} 核心的模组请前往 Modrinth 等平台自行下载）",
+                color = Muted,
+                fontSize = 11.sp
+            )
+        } else {
+            Text(
+                "内置常用 Fabric 模组，自动从 GitHub 跟随最新版本下载",
+                color = Muted,
+                fontSize = 10.sp
+            )
+            Spacer(Modifier.height(10.dp))
+            curatedMods.forEach { mod ->
+                Row(
                     modifier = Modifier
-                        .size(32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Mint.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(mod.avatarText, color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.size(10.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(mod.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    Text(
-                        mod.description,
-                        color = Muted,
-                        fontSize = 10.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                Button(
-                    onClick = { onInstallCurated(mod) },
-                    colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("安装", color = Color.White, fontSize = 11.sp)
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Mint.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(mod.avatarText, color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.size(10.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(mod.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            mod.description,
+                            color = Muted,
+                            fontSize = 10.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Button(
+                        onClick = { onInstallCurated(mod) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("安装", color = Color.White, fontSize = 11.sp)
+                    }
                 }
             }
         }

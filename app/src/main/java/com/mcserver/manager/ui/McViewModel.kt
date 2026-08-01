@@ -621,10 +621,15 @@ class McViewModel(
         }
         viewModelScope.launch {
             try {
-                // asset 文件名带版本号的精选资源（如 ViaVersion），先经 GitHub API 解析最新直链
-                val resolvedUrl = curated.githubAssetPattern?.let { pattern ->
-                    withContext(Dispatchers.IO) { pluginManager.resolveLatestAsset(curated.repo, pattern) }
-                } ?: curated.downloadUrl
+                // asset 文件名带版本号的精选资源（如 ViaVersion），先经 GitHub API 解析最新直链；
+                // 解析失败直接报错，不静默回退到 HTML 页面
+                val resolvedUrl = if (curated.githubAssetPattern != null) {
+                    withContext(Dispatchers.IO) {
+                        pluginManager.resolveLatestAsset(curated.repo, curated.githubAssetPattern)
+                    } ?: throw RuntimeException("无法解析 ${curated.name} 最新版本下载地址")
+                } else {
+                    curated.downloadUrl
+                }
                 pluginManager.installFromUrl(
                     resolvedUrl,
                     curated.targetFileName,
