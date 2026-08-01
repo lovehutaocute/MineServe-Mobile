@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Link
@@ -41,6 +42,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -139,6 +141,7 @@ fun PluginsScreen(vm: McViewModel) {
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
+    val mods by vm.mods.collectAsState()
     val downloadProgress by vm.pluginDownloadProgress.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val curatedUpdates by vm.curatedUpdates.collectAsState()
@@ -174,6 +177,12 @@ fun PluginsScreen(vm: McViewModel) {
     // 核心切换时校正资源类型（默认取第一个可用类型）
     LaunchedEffect(coreType) {
         resourceType = availableTypes.firstOrNull() ?: ResourceType.Plugin
+    }
+    // 进入模组分类时刷新模组列表
+    LaunchedEffect(isBootstrapped, config.activeCoreName, resourceType) {
+        if (isBootstrapped && config.activeCoreName != null && resourceType == ResourceType.Mod) {
+            vm.refreshMods()
+        }
     }
     val pluginsPath = vm.currentPluginsPath()
     val isServerRunning = serverState.isRunning
@@ -373,14 +382,15 @@ fun PluginsScreen(vm: McViewModel) {
                 )
             }
             } else {
-                // 模组分类（阶段三实现完整管理）
-                McCard(title = "模组管理") {
-                    Text(
-                        "当前核心（${coreType.displayName}）支持模组体系。\n模组管理功能建设中...",
-                        color = Muted,
-                        fontSize = 12.sp
-                    )
-                }
+                ModsTab(
+                    mods = mods,
+                    curatedMods = vm.curatedMods,
+                    activeCoreExists = activeCore != null,
+                    onToggle = { vm.toggleModEnabled(it) },
+                    onDelete = { vm.deleteMod(it) },
+                    onUpload = { uri -> vm.installModFromUri(uri) },
+                    onInstallCurated = { vm.installCuratedMod(it) }
+                )
             }
 
             // ── 底部热重载 ──
@@ -1241,5 +1251,134 @@ private fun EmptyHint(text: String) {
         )
         Spacer(Modifier.size(8.dp))
         Text(text, color = Muted, fontSize = 11.sp)
+    }
+}
+
+// ── 模组分类 ──────────────────────────────────────────────────────
+
+@Composable
+private fun ModsTab(
+    mods: List<PluginManager.ModEntry>,
+    curatedMods: List<PluginManager.CuratedMod>,
+    activeCoreExists: Boolean,
+    onToggle: (String) -> Unit,
+    onDelete: (String) -> Unit,
+    onUpload: (Uri) -> Unit,
+    onInstallCurated: (PluginManager.CuratedMod) -> Unit
+) {
+    // 本地上传模组选择器
+    val filePickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(onUpload) }
+
+    // 已安装模组
+    McCard(title = "已安装模组") {
+        if (mods.isEmpty()) {
+            Text(
+                "暂无已安装模组",
+                color = Muted,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(vertical = 8.dp)
+            )
+        } else {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                mods.forEach { mod ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(IndigoSoft)
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Indigo),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(mod.baseName.take(2).uppercase(), color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Spacer(Modifier.size(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(mod.baseName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                "${mod.sizeText} · ${if (mod.isEnabled) "已启用" else "已禁用"}",
+                                color = Muted,
+                                fontSize = 10.sp
+                            )
+                        }
+                        TextButton(onClick = { onToggle(mod.fileName) }) {
+                            Text(
+                                if (mod.isEnabled) "禁用" else "启用",
+                                color = if (mod.isEnabled) Coral else Mint,
+                                fontSize = 11.sp
+                            )
+                        }
+                        IconButton(onClick = { onDelete(mod.fileName) }) {
+                            Icon(Icons.Outlined.Delete, contentDescription = "删除", tint = Coral, modifier = Modifier.size(18.dp))
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedButton(
+            onClick = { filePickerLauncher.launch(arrayOf("application/java-archive", "*/*")) },
+            enabled = activeCoreExists,
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Outlined.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.size(6.dp))
+            Text("上传模组 (.jar)", color = Indigo, fontSize = 12.sp)
+        }
+    }
+
+    // 精选模组
+    McCard(title = "精选模组") {
+        Text(
+            "内置常用 Fabric 模组，自动从 GitHub 跟随最新版本下载",
+            color = Muted,
+            fontSize = 10.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        curatedMods.forEach { mod ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Mint.copy(alpha = 0.15f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(mod.avatarText, color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.size(10.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(mod.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        mod.description,
+                        color = Muted,
+                        fontSize = 10.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Button(
+                    onClick = { onInstallCurated(mod) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text("安装", color = Color.White, fontSize = 11.sp)
+                }
+            }
+        }
     }
 }

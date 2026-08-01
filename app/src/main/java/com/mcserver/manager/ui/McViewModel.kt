@@ -480,6 +480,13 @@ class McViewModel(
     private val _installedPlugins = MutableStateFlow<List<PluginManager.InstalledPlugin>>(emptyList())
     val installedPlugins: StateFlow<List<PluginManager.InstalledPlugin>> = _installedPlugins.asStateFlow()
 
+    /** 真实已安装模组列表 */
+    private val _mods = MutableStateFlow<List<PluginManager.ModEntry>>(emptyList())
+    val mods: StateFlow<List<PluginManager.ModEntry>> = _mods.asStateFlow()
+
+    val curatedMods: List<PluginManager.CuratedMod>
+        get() = pluginManager.curatedMods
+
     /** 当前正在下载的插件 id → 进度 */
     private val _pluginDownloadProgress = MutableStateFlow<Map<String, PluginDownloadProgress>>(emptyMap())
     val pluginDownloadProgress: StateFlow<Map<String, PluginDownloadProgress>> = _pluginDownloadProgress.asStateFlow()
@@ -506,6 +513,96 @@ class McViewModel(
                 _errorFlow.tryEmit("扫描插件目录失败: ${e.message}")
             }
         }
+    }
+
+    // ── 模组管理 ──────────────────────────────────────────────────
+
+    /** 扫描当前核心的 mods 目录 */
+    fun refreshMods() {
+        if (!isBootstrapped.value) return
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                _mods.value = withContext(Dispatchers.IO) { pluginManager.readMods(dirName) }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("扫描模组目录失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 切换模组启用状态 */
+    fun toggleModEnabled(fileName: String) {
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { pluginManager.toggleModEnabled(fileName, dirName) }
+                refreshMods()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("切换模组状态失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 删除模组 */
+    fun deleteMod(fileName: String) {
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { pluginManager.deleteMod(fileName, dirName) }
+                if (ok) _messageFlow.tryEmit("已删除模组: $fileName")
+                refreshMods()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除模组失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 从本地 Uri 上传模组 */
+    fun installModFromUri(uri: Uri) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: return
+        viewModelScope.launch {
+            try {
+                val name = withContext(Dispatchers.IO) { pluginManager.installModFromUri(uri, dirName) }
+                _messageFlow.tryEmit("模组上传完成: $name")
+                refreshMods()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("模组上传失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 从精选库下载安装模组（GitHub 动态解析最新版本） */
+    fun installCuratedMod(mod: PluginManager.CuratedMod) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val url = withContext(Dispatchers.IO) {
+                    pluginManager.resolveLatestAsset(mod.repo, mod.githubAssetPattern)
+                } ?: throw RuntimeException("无法解析最新版本下载地址")
+                withContext(Dispatchers.IO) { pluginManager.installModFromUrl(url, mod.targetFileName, dirName) }
+                _messageFlow.tryEmit("${mod.name} 安装完成")
+                refreshMods()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("${mod.name} 安装失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 当前核心的 mods 目录路径 */
+    fun currentModsPath(): String? {
+        val dirName = activeDirName() ?: return null
+        return pluginManager.currentModsPath(dirName)
     }
 
     /** 从精选库下载安装插件 */

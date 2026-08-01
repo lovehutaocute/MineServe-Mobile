@@ -699,4 +699,135 @@ class PluginManager(
             connection?.disconnect()
         }
     }
+
+    // ── 模组管理（Fabric/Forge 的 mods/ 目录） ─────────────────────
+
+    /** 模组目录：home/servers/{dirName}/mods */
+    fun modsDirOf(dirName: String): File =
+        File(termux.installer.rootDir, "home/servers/$dirName/mods")
+
+    /** 已安装模组条目（简化，不解析 jar 内元信息） */
+    data class ModEntry(
+        val fileName: String,
+        val baseName: String,
+        val sizeText: String,
+        val isEnabled: Boolean
+    )
+
+    /** 读取 mods/ 目录下的模组列表（禁用文件为 - 前缀，沿用插件约定） */
+    fun readMods(dirName: String): List<ModEntry> {
+        val dir = modsDirOf(dirName)
+        if (!dir.exists() || !dir.isDirectory) return emptyList()
+        return dir.listFiles { f -> f.isFile && f.name.endsWith(JAR_EXT, ignoreCase = true) }
+            ?.sortedBy { it.name.lowercase() }
+            ?.map { f ->
+                val isEnabled = !f.name.startsWith(DISABLED_PREFIX)
+                val baseName = if (isEnabled) f.name.removeSuffix(JAR_EXT)
+                               else f.name.removeSuffix(JAR_EXT).removePrefix(DISABLED_PREFIX)
+                ModEntry(f.name, baseName, formatSize(f.length()), isEnabled)
+            } ?: emptyList()
+    }
+
+    /** 切换模组启用状态（文件名 - 前缀切换） */
+    suspend fun toggleModEnabled(fileName: String, dirName: String): String? = withContext(Dispatchers.IO) {
+        val dir = modsDirOf(dirName)
+        val file = File(dir, fileName)
+        if (!file.exists()) return@withContext null
+        val newName = if (fileName.startsWith(DISABLED_PREFIX)) fileName.substring(1) else "$DISABLED_PREFIX$fileName"
+        return@withContext if (file.renameTo(File(dir, newName))) newName else null
+    }
+
+    /** 删除模组文件 */
+    suspend fun deleteMod(fileName: String, dirName: String): Boolean = withContext(Dispatchers.IO) {
+        val dir = modsDirOf(dirName)
+        val file = File(dir, fileName)
+        if (!file.exists()) return@withContext false
+        file.delete() || run { termux.execOnce("rm", "-f", file.absolutePath); !file.exists() }
+    }
+
+    /** 从 URL 下载安装模组到 mods/ 目录 */
+    suspend fun installModFromUrl(
+        url: String,
+        targetFileName: String,
+        dirName: String,
+        onProgress: (Long, Long, Long) -> Unit = { _, _, _ -> }
+    ): File = withContext(Dispatchers.IO) {
+        val dir = modsDirOf(dirName).apply { mkdirs() }
+        val target = File(dir, ensureJarExtension(targetFileName))
+        val backup: File? = if (target.exists()) File(dir, "${target.name}.bak") else null
+        if (backup != null) target.renameTo(backup)
+        try {
+            downloadTo(url, target, onProgress)
+            if (!target.exists() || target.length() < 1024) {
+                throw RuntimeException("下载文件过小或为空（${target.length()} bytes），可能 URL 失效")
+            }
+            backup?.takeIf { it.exists() }?.delete()
+            target
+        } catch (e: Exception) {
+            if (backup?.exists() == true) backup.renameTo(target)
+            throw e
+        }
+    }
+
+    /** 从本地 Uri 上传模组到 mods/ 目录 */
+    suspend fun installModFromUri(uri: Uri, dirName: String, fallbackName: String = "mod.jar"): String =
+        withContext(Dispatchers.IO) {
+            val dir = modsDirOf(dirName).apply { mkdirs() }
+            val safeName = ensureJarExtension(queryFileName(uri) ?: fallbackName)
+            val target = File(dir, safeName)
+            val input = context.contentResolver.openInputStream(uri)
+                ?: throw RuntimeException("无法打开文件 Uri: $uri")
+            input.use { ins ->
+                FileOutputStream(target).use { fos ->
+                    ins.copyTo(fos, bufferSize = 64 * 1024)
+                }
+            }
+            if (target.length() < 1024) {
+                target.delete()
+                throw RuntimeException("文件过小，可能上传失败")
+            }
+            target.name
+        }
+
+    // ── 精选模组（GitHub 动态解析最新版） ─────────────────────────
+
+    data class CuratedMod(
+        val id: String,
+        val name: String,
+        val author: String,
+        val description: String,
+        val avatarText: String,
+        val homepage: String,
+        val targetFileName: String,
+        val repo: String,
+        val githubAssetPattern: String
+    )
+
+    val curatedMods: List<CuratedMod> = listOf(
+        CuratedMod("fabric-api", "Fabric API", "FabricMC",
+            "Fabric 模组基础 API，绝大多数 Fabric 模组的前置依赖",
+            "FA", "https://github.com/FabricMC/fabric", "fabric-api.jar",
+            "FabricMC/fabric", "fabric-api"),
+        CuratedMod("sodium", "Sodium", "CaffeineMC",
+            "高性能渲染优化模组，大幅提升帧率（Fabric）",
+            "SD", "https://github.com/CaffeineMC/sodium", "sodium.jar",
+            "CaffeineMC/sodium", "sodium-fabric"),
+        CuratedMod("lithium", "Lithium", "CaffeineMC",
+            "通用游戏逻辑优化模组，降低服务端/客户端卡顿（Fabric）",
+            "LI", "https://github.com/CaffeineMC/lithium", "lithium.jar",
+            "CaffeineMC/lithium", "lithium-fabric"),
+        CuratedMod("modmenu", "Mod Menu", "TerraformersMC",
+            "模组列表界面，可视化查看/配置已安装模组（Fabric）",
+            "MM", "https://github.com/TerraformersMC/ModMenu", "modmenu.jar",
+            "TerraformersMC/ModMenu", "ModMenu")
+    )
+
+    /** 当前核心的 mods 目录路径 */
+    fun currentModsPath(dirName: String): String = modsDirOf(dirName).absolutePath
+
+    private fun formatSize(bytes: Long): String = when {
+        bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
+        bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
+        else -> "$bytes B"
+    }
 }
