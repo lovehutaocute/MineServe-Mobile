@@ -9,6 +9,7 @@ import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.ui.graphics.vector.ImageVector
 
 enum class McTab(val label: String, val icon: ImageVector) {
@@ -19,6 +20,7 @@ enum class McTab(val label: String, val icon: ImageVector) {
     Files("文件", Icons.Outlined.Folder),
     Network("网络", Icons.Outlined.Cloud),
     Backup("备份", Icons.Outlined.Backup),
+    Config("配置", Icons.Outlined.Tune),
     Settings("设置", Icons.Outlined.Settings)
 }
 

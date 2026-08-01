@@ -160,7 +160,7 @@ private val propertySpecs: List<PropertySpec> = listOf(
 
 
 @Composable
-fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
+fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
     val loaded by vm.serverProperties.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val config by vm.config.collectAsState()
@@ -175,7 +175,8 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
     LaunchedEffect(loaded) { props = loaded }
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // 返回栏（白底覆盖状态栏，配合全屏展示）
+        // 返回栏（白底覆盖状态栏，配合全屏展示）；作为底部导航 tab 时隐藏
+        if (showBackBar) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -189,12 +190,13 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Text("返回设置", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
+        }
         Column(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Server Properties", title = "服务器属性", statusBarPadding = false)
+            HeaderBlock(eyebrow = "Server Properties", title = "服务器属性", statusBarPadding = !showBackBar)
 
             // 当前核心提示：每个命名服务器拥有独立配置
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }

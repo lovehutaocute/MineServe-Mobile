@@ -122,6 +122,7 @@ fun McApp() {
                     McTab.Files -> FileManagerScreen(vm = vm, onOpenMtGuide = { subPage = SubPage.MtGuide })
                     McTab.Network -> NetworkScreen(vm = vm, onBack = {})
                     McTab.Backup -> BackupScreen(vm = vm, onBack = {})
+                    McTab.Config -> PropertiesScreen(vm = vm, onBack = {}, showBackBar = false)
                     McTab.Settings -> SettingsScreen(
                         vm = vm,
                         onNavigate = { subPage = it }
