@@ -148,34 +148,6 @@ class McViewModel(
         _messageFlow.tryEmit("已复制：$address")
     }
 
-    init {
-        loadPlayerHistory()
-        // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
-        viewModelScope.launch(Dispatchers.Default) {
-            repo.termuxRuntime.consoleFlow.collect { line ->
-                synchronized(consoleBuffer) {
-                    if (consoleBuffer.size >= 1000) consoleBuffer.removeFirst()
-                    consoleBuffer.addLast(line)
-                    consoleDirty = true
-                }
-                parseConsoleLine(line)
-            }
-        }
-        // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
-        viewModelScope.launch(Dispatchers.Default) {
-            while (true) {
-                delay(100)
-                if (consoleDirty) {
-                    val snapshot: List<String> = synchronized(consoleBuffer) {
-                        consoleDirty = false
-                        consoleBuffer.toList()
-                    }
-                    _consoleLines.value = snapshot
-                }
-            }
-        }
-    }
-
     companion object {
         // 预编译正则，避免每行重新编译
         private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
@@ -1391,6 +1363,39 @@ class McViewModel(
                 }
             } catch (e: Exception) {
                 _errorFlow.tryEmit("创建目录失败: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * init 块必须放在类体末尾：这里启动的协程（Dispatchers.IO/Default）会在
+     * 构造函数完成前抢先执行，若 init 在类体前部，会读到尚未赋值的字段
+     * （historyMutex/playerManager 等），导致启动时 NullPointerException 崩溃。
+     */
+    init {
+        loadPlayerHistory()
+        // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
+        viewModelScope.launch(Dispatchers.Default) {
+            repo.termuxRuntime.consoleFlow.collect { line ->
+                synchronized(consoleBuffer) {
+                    if (consoleBuffer.size >= 1000) consoleBuffer.removeFirst()
+                    consoleBuffer.addLast(line)
+                    consoleDirty = true
+                }
+                parseConsoleLine(line)
+            }
+        }
+        // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
+        viewModelScope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(100)
+                if (consoleDirty) {
+                    val snapshot: List<String> = synchronized(consoleBuffer) {
+                        consoleDirty = false
+                        consoleBuffer.toList()
+                    }
+                    _consoleLines.value = snapshot
+                }
             }
         }
     }
