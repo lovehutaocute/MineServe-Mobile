@@ -193,6 +193,8 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         ServerCore.Purpur -> "Purpur：Paper 分支，额外提供更多原版特性开关，插件兼容"
                         ServerCore.Fabric -> "Fabric：轻量级模组加载器，支持最新版本快速更新"
                         ServerCore.Forge -> "Forge：老牌模组加载器，生态丰富，适合大型整合包"
+                        ServerCore.NeoForge -> "NeoForge：Forge 继任者，模组生态活跃（下载后自动执行 installer）"
+                        ServerCore.Quilt -> "Quilt：Fabric 分支模组加载器，注重社区驱动（下载后自动执行 installer）"
                         ServerCore.Vanilla -> "Vanilla：Minecraft 官方原版服务端"
                         ServerCore.Velocity -> "Velocity：高性能代理端，可连接多个后端服务器（不支持插件/模组）"
                         ServerCore.BungeeCord -> "BungeeCord：经典代理端，支持子服务器间切换（不支持插件/模组）"

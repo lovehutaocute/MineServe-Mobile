@@ -11,6 +11,8 @@ enum class ServerCore(val displayName: String) {
     Purpur("Purpur"),
     Fabric("Fabric"),
     Forge("Forge"),
+    NeoForge("NeoForge"),
+    Quilt("Quilt"),
     Vanilla("Vanilla"),
     Velocity("Velocity"),
     BungeeCord("BungeeCord");
@@ -19,10 +21,13 @@ enum class ServerCore(val displayName: String) {
     val supportsPlugins: Boolean get() = this == Paper || this == Purpur
 
     /** 是否支持 Fabric/Forge 模组体系 */
-    val supportsMods: Boolean get() = this == Fabric || this == Forge
+    val supportsMods: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
 
     /** 是否支持桥接兼容层（插件↔模组互转，如 CardBoard 等，需用户自行安装） */
-    val supportsBridge: Boolean get() = this == Fabric || this == Forge
+    val supportsBridge: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
+
+    /** 是否需 installer 流程（下载 installer.jar 后需执行安装命令生成启动环境） */
+    val needsInstaller: Boolean get() = this == NeoForge || this == Quilt
 }
 
 /**

@@ -272,7 +272,7 @@ class TermuxRuntime(context: Context) {
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
      * onExit 回调在 MC 进程退出时触发。
      */
-    fun startMc(jarPath: String, maxHeapMb: Int, dirName: String, onExit: (Int) -> Unit): Process {
+    fun startMc(jarPath: String, maxHeapMb: Int, dirName: String, onExit: (Int) -> Unit, launchArgs: String? = null): Process {
         Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m dirName=$dirName")
 
         // 如果已有进程在运行，先停止
@@ -317,7 +317,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m -jar $jarPath nogui"
+            "'$javaPath' -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + " nogui"
 
         Log.i(TAG, "startMc command: $javaCmd")
 

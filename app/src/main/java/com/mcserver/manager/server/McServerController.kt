@@ -135,6 +135,25 @@ class McServerController(
         downloadCoreTo(jarPath, config, dirName, onProgress)
         // 在新核心目录下创建 eula.txt 和 plugins/ 目录
         val serverDir = termux.serverDirFor(dirName)
+        // NeoForge/Quilt：下载的是 installer.jar，执行安装命令生成启动环境（首次需下载依赖）
+        if (config.selectedCore.needsInstaller) {
+            termux.emitLog("[install] 正在执行 ${config.selectedCore.displayName} installer，首次安装需下载依赖，请耐心等待...")
+            when (config.selectedCore) {
+                ServerCore.NeoForge -> {
+                    val code = termux.execOnce("java", "-jar", jarPath, "--installServer", serverDir.absolutePath)
+                    if (code != 0) throw RuntimeException("NeoForge installer 执行失败 (exit=$code)")
+                }
+                ServerCore.Quilt -> {
+                    val code = termux.execOnce(
+                        "java", "-jar", jarPath, "install", "server", config.mcVersion,
+                        "--install-dir=${serverDir.absolutePath}", "--download-server"
+                    )
+                    if (code != 0) throw RuntimeException("Quilt installer 执行失败 (exit=$code)")
+                }
+                else -> {}
+            }
+            termux.emitLog("[install] ${config.selectedCore.displayName} 安装完成")
+        }
         val eula = File(serverDir, "eula.txt")
         if (!eula.exists()) eula.writeText("eula=true\n")
         File(serverDir, "plugins").mkdirs()
@@ -167,6 +186,8 @@ class McServerController(
             ServerCore.Purpur -> resolvePurpurUrl(version)
             ServerCore.Fabric -> resolveFabricUrl(version)
             ServerCore.Forge -> resolveForgeUrl(version)
+            ServerCore.NeoForge -> resolveNeoForgeUrl(version)
+            ServerCore.Quilt -> resolveQuiltUrl(version)
             ServerCore.Vanilla -> resolveVanillaUrl(version)
             ServerCore.Velocity -> resolveVelocityUrl(version)
             ServerCore.BungeeCord -> resolveBungeeUrl()
@@ -319,6 +340,41 @@ class McServerController(
         return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
     }
 
+    // ── NeoForge：maven-metadata 取 release 版本 installer ──
+
+    private fun resolveNeoForgeUrl(version: String): String {
+        val xml = fetchText("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml")
+        val ver = Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
+            ?: throw RuntimeException("NeoForge: no release version")
+        return "https://maven.neoforged.net/releases/net/neoforged/neoforge/$ver/neoforge-$ver-installer.jar"
+    }
+
+    // ── Quilt：meta API 取 loader 版本 installer ──
+
+    private fun resolveQuiltUrl(version: String): String {
+        val resp = fetchJson("https://meta.quiltmc.org/v3/versions/loader/$version")
+        val loader = resp.jsonArray.firstOrNull()?.jsonObject
+            ?.get("loader")?.jsonObject
+            ?.get("version")?.jsonPrimitive?.content
+            ?: throw RuntimeException("Quilt: no loader for MC $version")
+        return "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/$loader/quilt-installer-$loader.jar"
+    }
+
+    /** 读取原始文本（用于 XML 等非 JSON 接口） */
+    private fun fetchText(urlStr: String): String {
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 15_000
+            conn.setRequestProperty("User-Agent", "MCServerManager/1.0 (Android)")
+            val code = conn.responseCode
+            if (code !in 200..299) throw RuntimeException("HTTP $code")
+            return conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
+    }
+
     // ── JSON HTTP 工具 ──────────────────────────────────────────────
 
     private fun fetchJson(urlStr: String): JsonObject = fetchJsonElement(urlStr).jsonObject
@@ -337,6 +393,8 @@ class McServerController(
             ServerCore.Vanilla -> fetchVanillaVersions()
             ServerCore.Fabric -> fetchFabricVersions()
             ServerCore.Forge -> fetchForgeVersions()
+            ServerCore.NeoForge -> fetchNeoForgeVersions()
+            ServerCore.Quilt -> fetchQuiltVersions()
             ServerCore.Velocity -> fetchVelocityVersions()
             ServerCore.BungeeCord -> fetchBungeeVersions()
         }
@@ -360,6 +418,10 @@ class McServerController(
     }
 
     private fun fetchBungeeVersions(): List<String> = listOf("latest")
+
+    private fun fetchNeoForgeVersions(): List<String> = DEFAULT_MC_VERSIONS
+
+    private fun fetchQuiltVersions(): List<String> = DEFAULT_MC_VERSIONS
 
     private fun fetchPaperVersions(): List<String> {
         // PaperMC v3 API：返回 {versions: {major: [subversions]}}，需平铺
@@ -581,6 +643,17 @@ class McServerController(
         // 检查 server.jar 是否存在
         if (!File(jarPath).exists()) {
             throw RuntimeException("server.jar 不存在，请先在「下载」Tab 下载服务端核心")
+        }
+        // NeoForge/Quilt：使用 installer 生成的启动方式（unix_args.txt / quilt-server-launch.jar）
+        val launchArgs = when (config.selectedCore) {
+            ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
+                .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
+                ?.let { "@${it.absolutePath}" }
+            ServerCore.Quilt -> {
+                val launchJar = File(serverDir, "quilt-server-launch.jar")
+                if (launchJar.exists()) "-jar ${launchJar.absolutePath}" else null
+            }
+            else -> null
         }
         termux.startMc(
             jarPath = jarPath,
