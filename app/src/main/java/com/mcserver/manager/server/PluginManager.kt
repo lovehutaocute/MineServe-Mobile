@@ -72,7 +72,8 @@ class PluginManager(
             homepage = "https://luckperms.net",
             downloadUrl = "https://github.com/LuckPerms/LuckPerms/releases/latest/download/LuckPerms-Bukkit.jar",
             targetFileName = "LuckPerms-Bukkit.jar",
-            repo = "LuckPerms/LuckPerms"
+            repo = "LuckPerms/LuckPerms",
+            githubAssetPattern = "LuckPerms-Bukkit"
         ),
         CuratedPlugin(
             id = "essentialsx",
@@ -83,7 +84,8 @@ class PluginManager(
             homepage = "https://essentialsx.net",
             downloadUrl = "https://github.com/EssentialsX/Essentials/releases/latest/download/EssentialsX.jar",
             targetFileName = "EssentialsX.jar",
-            repo = "EssentialsX/Essentials"
+            repo = "EssentialsX/Essentials",
+            githubAssetPattern = "EssentialsX-"
         ),
         CuratedPlugin(
             id = "vault",
@@ -105,7 +107,8 @@ class PluginManager(
             homepage = "https://worldedit.enginehub.org",
             downloadUrl = "https://github.com/EngineHub/WorldEdit/releases/latest/download/worldedit-bukkit.jar",
             targetFileName = "worldedit-bukkit.jar",
-            repo = "EngineHub/WorldEdit"
+            repo = "EngineHub/WorldEdit",
+            githubAssetPattern = "worldedit-bukkit"
         ),
         CuratedPlugin(
             id = "coreprotect",
@@ -116,7 +119,8 @@ class PluginManager(
             homepage = "https://coreprotect.net",
             downloadUrl = "https://github.com/PlayPro/CoreProtect/releases/latest/download/CoreProtect.jar",
             targetFileName = "CoreProtect.jar",
-            repo = "PlayPro/CoreProtect"
+            repo = "PlayPro/CoreProtect",
+            githubAssetPattern = "CoreProtect-"
         ),
         CuratedPlugin(
             id = "protocollib",
@@ -127,7 +131,8 @@ class PluginManager(
             homepage = "https://github.com/dmulloy2/ProtocolLib",
             downloadUrl = "https://github.com/dmulloy2/ProtocolLib/releases/latest/download/ProtocolLib.jar",
             targetFileName = "ProtocolLib.jar",
-            repo = "dmulloy2/ProtocolLib"
+            repo = "dmulloy2/ProtocolLib",
+            githubAssetPattern = "ProtocolLib"
         ),
         CuratedPlugin(
             id = "viaversion",
@@ -581,6 +586,7 @@ class PluginManager(
     /**
      * 解析 GitHub 最新 release 中匹配指定名称模式的 .jar asset 下载直链。
      * 用于 asset 文件名带版本号的仓库（如 ViaVersion-4.x.x.jar，无固定 latest/download 文件名）。
+     * 逐 asset 对象解析（name 在 browser_download_url 之前，按段配对），排除 -sources/-dev/-javadoc 包。
      * @param repo GitHub 仓库全名（owner/repo）
      * @param pattern asset 文件名包含的模式（如 "ViaVersion"）
      * @return 匹配的 browser_download_url；解析失败返回 null
@@ -604,13 +610,23 @@ class PluginManager(
                     .find(body)?.groupValues?.get(1) ?: return null
                 val nameRegex = Regex("\"name\"\\s*:\\s*\"([^\"]+)\"")
                 val urlRegex = Regex("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"")
-                val names = nameRegex.findAll(assetsBody).map { it.groupValues[1] }.toList()
-                val urls = urlRegex.findAll(assetsBody).map { it.groupValues[1] }.toList()
-                // GitHub API 每个 asset 对象内 name 位于 browser_download_url 之前，顺序一一对应
-                names.indices.forEach { i ->
-                    val n = names.getOrNull(i) ?: return@forEach
-                    val u = urls.getOrNull(i) ?: return@forEach
-                    if (n.contains(pattern, ignoreCase = true) && n.endsWith(".jar")) return u
+                val names = nameRegex.findAll(assetsBody)
+                    .map { it.range.first to it.groupValues[1] }.toList()
+                // GitHub API 每个 asset 对象内 name 位于 browser_download_url 之前：
+                // 以 name 位置为界切段，段内取 browser_download_url 保证配对正确
+                names.forEachIndexed { i, (pos, name) ->
+                    val segEnd = if (i + 1 < names.size) names[i + 1].first else assetsBody.length
+                    val segment = assetsBody.substring(pos, segEnd)
+                    val assetUrl = urlRegex.find(segment)?.groupValues?.get(1) ?: return@forEachIndexed
+                    val lower = name.lowercase()
+                    if (lower.contains(pattern.lowercase()) &&
+                        lower.endsWith(".jar") &&
+                        !lower.contains("-sources") &&
+                        !lower.contains("-dev") &&
+                        !lower.contains("-javadoc")
+                    ) {
+                        return assetUrl
+                    }
                 }
                 null
             } finally {
