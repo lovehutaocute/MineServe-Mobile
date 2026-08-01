@@ -5,7 +5,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -13,8 +12,7 @@ import java.net.URL
 
 /**
  * 隧道二进制管理。
- * frpc 优先级：GitHub 最新版下载（缓存） > apt 兜底
- * 说明：旧版 frpc 不识别 autoTLS 等新配置字段，故优先从 GitHub 下载最新版。
+ * frpc 优先级：缓存版 > apt 版 > GitHub 下载（走镜像源）
  */
 class BinaryManager(private val termux: TermuxRuntime) {
 
@@ -24,38 +22,10 @@ class BinaryManager(private val termux: TermuxRuntime) {
     private val arch: String
         get() = if (android.os.Build.SUPPORTED_ABIS.any { it.startsWith("arm64") }) "arm64" else "amd64"
 
-    /** GitHub API 不可达时的回退版本 */
-    private val fallbackFrpVersion = "0.61.2"
-
-    /** 最新 frp 版本（惰性获取：首次经 GitHub API 查询，失败回退固定版本） */
-    private val latestFrpVersion: String by lazy {
-        runBlocking { fetchLatestFrpVersion() } ?: fallbackFrpVersion
-    }
-
-    private fun frpReleaseUrl(version: String): String =
-        "https://github.com/fatedier/frp/releases/download/v$version/frp_${version}_linux_$arch.tar.gz"
-
-    /** 从 GitHub API 获取最新 release tag（如 0.61.2），失败返回 null */
-    private suspend fun fetchLatestFrpVersion(): String? = withContext(Dispatchers.IO) {
-        try {
-            val conn = (URL("https://api.github.com/repos/fatedier/frp/releases/latest").openConnection() as HttpURLConnection).apply {
-                connectTimeout = 6000
-                readTimeout = 6000
-                setRequestProperty("Accept", "application/vnd.github+json")
-                connect()
-            }
-            if (conn.responseCode == 200) {
-                val body = conn.inputStream.bufferedReader().readText()
-                conn.disconnect()
-                Regex("\"tag_name\"\\s*:\\s*\"v?([\\d.]+)\"").find(body)?.groupValues?.get(1)
-            } else {
-                conn.disconnect()
-                null
-            }
-        } catch (e: Exception) {
-            null
-        }
-    }
+    /** frp GitHub release 固定版本（避免 /latest/download/ 404） */
+    private val frpVersion = "0.61.2"
+    private val frpReleaseUrl: String
+        get() = "https://github.com/fatedier/frp/releases/download/v$frpVersion/frp_${frpVersion}_linux_$arch.tar.gz"
 
     /** GitHub 镜像源（依次尝试） */
     private val mirrors = listOf(
@@ -68,48 +38,57 @@ class BinaryManager(private val termux: TermuxRuntime) {
 
     /**
      * 确保 frpc 可用：
-     * 1) 缓存版（GitHub 最新版）存在 → 直接返回
-     * 2) 都没有 → GitHub 下载最新版（走镜像） → 失败回退 apt-get install
+     * 1) 缓存版存在 → 直接返回
+     * 2) apt 版存在 → 直接返回（不再触发下载）
+     * 3) 都没有 → GitHub 下载（走镜像） → 失败回退 apt-get install
      */
     fun ensureFrp(): String? {
-        // 1. 缓存版（GitHub 最新版）
+        val prefix = termux.installer.rootDir.absolutePath
+
+        // 1. GitHub 缓存版
         val cached = File(binDir, "frpc")
         if (cached.exists() && cached.canExecute()) return cached.absolutePath
 
-        // 2. 下载最新版（同步阻塞调用内部使用 runBlocking 等待并行结果）
-        termux.emitLog("[tunnel] frpc 未安装，正在获取最新版并下载...")
-        return runBlocking { downloadLatestFrp() } ?: installViaApt()
+        // 2. apt 版
+        findAptBinary(prefix, "frpc")?.let {
+            termux.emitLog("[tunnel] frpc (apt): $it")
+            return it
+        }
+
+        // 3. 下载（同步阻塞调用内部使用 runBlocking 等待并行结果）
+        termux.emitLog("[tunnel] frpc 未安装，从 GitHub 下载...")
+        return runBlocking { downloadFrp() } ?: installViaApt()
     }
 
-    /** 检查是否已安装 GitHub 缓存版 frpc（apt 旧版不算，确保替换为最新版） */
+    /** 检查 frpc 是否已安装（供一键依赖模块幂等判断） */
     fun isFrpInstalled(): Boolean {
-        return File(binDir, "frpc").canExecute()
+        val prefix = termux.installer.rootDir.absolutePath
+        return File(binDir, "frpc").canExecute() || findAptBinary(prefix, "frpc") != null
     }
 
     /**
-     * 一键依赖安装 frp（幂等：已缓存最新版则跳过）。
+     * 一键依赖安装 frp（幂等：已安装则跳过）。
      * 供 McServerController 调用。
      */
     fun installFrpOnce(): Boolean {
         if (isFrpInstalled()) {
-            termux.emitLog("[tunnel] frpc 最新版已安装，跳过")
+            termux.emitLog("[tunnel] frpc 已安装，跳过")
             return true
         }
-        termux.emitLog("[tunnel] 正在下载最新版 frpc...")
-        return ensureFrp() != null
+        termux.emitLog("[tunnel] 正在通过 apt 安装 frp...")
+        termux.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
+        val code = termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "frp")
+        return code == 0
     }
 
     // ── 内部实现 ──────────────────────────────────────────────
 
-    private suspend fun downloadLatestFrp(): String? {
-        val version = latestFrpVersion
-        termux.emitLog("[tunnel] 最新 frpc 版本: v$version")
-        val url = frpReleaseUrl(version)
+    private suspend fun downloadFrp(): String? {
         // 镜像并行下载，首个成功即返回（避免直连超时时串行等待 ~200s）
         return coroutineScope {
             val results = mirrors.map { mirror ->
-                val u = if (mirror.isEmpty()) url else "$mirror$url"
-                async(Dispatchers.IO) { tryDownloadFrp(u, mirror, version) }
+                val url = if (mirror.isEmpty()) frpReleaseUrl else "$mirror$frpReleaseUrl"
+                async(Dispatchers.IO) { tryDownloadFrp(url, mirror) }
             }
             // 依次等待结果，返回第一个成功的
             for (deferred in results) {
@@ -120,13 +99,13 @@ class BinaryManager(private val termux: TermuxRuntime) {
         }
     }
 
-    private fun tryDownloadFrp(url: String, mirror: String, version: String): String? {
+    private fun tryDownloadFrp(url: String, mirror: String): String? {
         termux.emitLog("[tunnel] 尝试下载 frpc: ${url.take(80)}...")
         try {
             val tgz = File(binDir, "frp-${Integer.toHexString(mirror.hashCode())}.tar.gz")
             if (downloadFile(url, tgz)) {
                 termux.execOnce("tar", "-xzf", tgz.absolutePath, "-C", binDir.absolutePath,
-                    "--strip-components=1", "frp_${version}_linux_$arch/frpc")
+                    "--strip-components=1", "frp_${frpVersion}_linux_$arch/frpc")
                 tgz.delete()
                 val frpc = File(binDir, "frpc")
                 if (frpc.exists()) {
