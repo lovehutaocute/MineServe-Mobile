@@ -365,23 +365,31 @@ fun DebouncedTextField(
 ) {
     var text by remember { mutableStateOf(value) }
     var isFocused by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf(false) }
 
-    // 外部值变化（如加载/重置/回传生效）时同步到本地。
-    // 防抖/失焦/销毁回传后外部值与本地一致，故正常输入过程不会被覆盖。
+    // 外部值同步：仅在非编辑状态时同步到本地。
+    // 关键：防抖写回后外部 value 的回显更新有延迟，若此时用户已继续输入，
+    // 无条件覆盖会把正在输入的内容重置回旧值（快速输入文字丢失/乱序）。
     LaunchedEffect(value) {
-        if (text != value) text = value
+        if (!editing && text != value) text = value
     }
 
     // 输入停顿 300ms 后写回（连续输入只写回最后一次）
     LaunchedEffect(text) {
         if (text == value) return@LaunchedEffect
         delay(300)
-        if (text != value) onValueChange(text)
+        if (text != value) {
+            onValueChange(text)
+            editing = false
+        }
     }
 
     // 失焦时立即写回，避免切换页面丢失最后输入
     LaunchedEffect(isFocused) {
-        if (!isFocused && text != value) onValueChange(text)
+        if (!isFocused && text != value) {
+            onValueChange(text)
+            editing = false
+        }
     }
 
     // 组合移除（切页/销毁）时立即回传未写回内容，避免防抖窗口内输入丢失
@@ -395,6 +403,7 @@ fun DebouncedTextField(
         value = text,
         onValueChange = { newText ->
             text = sanitize?.invoke(newText) ?: newText
+            editing = true
         },
         modifier = modifier.onFocusChanged { isFocused = it.isFocused },
         enabled = enabled,
