@@ -340,24 +340,28 @@ class McServerController(
         return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
     }
 
-    // ── NeoForge：maven-metadata 取 release 版本 installer ──
+    // ── NeoForge：maven-metadata 按所选 MC 版本匹配 NeoForge 版本 installer ──
 
     private fun resolveNeoForgeUrl(version: String): String {
         val xml = fetchText("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml")
-        val ver = Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
-            ?: throw RuntimeException("NeoForge: no release version")
+        // NeoForge 版本号与 MC 版本对应（MC 1.20.4 → NeoForge 20.4.x）：取去点后以 MC 短号开头的最大版本
+        val mcShort = version.removePrefix("1.").replace(".", "") // "1.20.4" → "204"
+        val versions = Regex("<version>([^<]+)</version>").findAll(xml).map { it.groupValues[1] }.toList()
+        val matched = versions.filter { it.replace(".", "").startsWith(mcShort) }
+        val ver = matched.maxOrNull()
+            ?: Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
+            ?: throw RuntimeException("NeoForge: no version for MC $version")
         return "https://maven.neoforged.net/releases/net/neoforged/neoforge/$ver/neoforge-$ver-installer.jar"
     }
 
-    // ── Quilt：meta API 取 loader 版本 installer ──
+    // ── Quilt：meta API 取 installer 版本（quilt-installer 独立版本号，与 loader 不同） ──
 
     private fun resolveQuiltUrl(version: String): String {
-        val resp = fetchJson("https://meta.quiltmc.org/v3/versions/loader/$version")
-        val loader = resp.jsonArray.firstOrNull()?.jsonObject
-            ?.get("loader")?.jsonObject
+        val resp = fetchJson("https://meta.quiltmc.org/v3/versions/installer")
+        val installerVer = resp.jsonArray.firstOrNull()?.jsonObject
             ?.get("version")?.jsonPrimitive?.content
-            ?: throw RuntimeException("Quilt: no loader for MC $version")
-        return "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/$loader/quilt-installer-$loader.jar"
+            ?: throw RuntimeException("Quilt: no installer version")
+        return "https://maven.quiltmc.org/repository/release/org/quiltmc/quilt-installer/$installerVer/quilt-installer-$installerVer.jar"
     }
 
     /** 读取原始文本（用于 XML 等非 JSON 接口） */
@@ -644,14 +648,17 @@ class McServerController(
         if (!File(jarPath).exists()) {
             throw RuntimeException("server.jar 不存在，请先在「下载」Tab 下载服务端核心")
         }
-        // NeoForge/Quilt：使用 installer 生成的启动方式（unix_args.txt / quilt-server-launch.jar）
+        // NeoForge/Quilt：使用 installer 生成的启动方式（unix_args.txt / quilt-server-launch.jar），
+        // 产物缺失时明确报错，避免回退到不可启动的 installer.jar
         val launchArgs = when (config.selectedCore) {
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
                 ?.let { "@${it.absolutePath}" }
+                ?: throw RuntimeException("NeoForge 启动文件缺失，请重新下载安装核心")
             ServerCore.Quilt -> {
                 val launchJar = File(serverDir, "quilt-server-launch.jar")
-                if (launchJar.exists()) "-jar ${launchJar.absolutePath}" else null
+                if (launchJar.exists()) "-jar ${launchJar.absolutePath}"
+                else throw RuntimeException("Quilt 启动文件缺失，请重新下载安装核心")
             }
             else -> null
         }
