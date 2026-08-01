@@ -106,17 +106,29 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
             .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
         Column {
+            // 启动中：isRunning 且尚未完成启动（runningSinceMs == 0）
+            val isStarting = state.isRunning && state.runningSinceMs == 0L
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 状态指示点：运行中亮绿，未运行半透明白
+                // 状态指示点：启动中橙色，运行中亮绿，未运行半透明白
                 Box(
                     modifier = Modifier
                         .size(8.dp)
                         .clip(CircleShape)
-                        .background(if (state.isRunning) MintBright else Color.White.copy(alpha = 0.5f))
+                        .background(
+                            when {
+                                isStarting -> Color(0xFFFFA726)
+                                state.isRunning -> MintBright
+                                else -> Color.White.copy(alpha = 0.5f)
+                            }
+                        )
                 )
                 Spacer(Modifier.size(6.dp))
                 Text(
-                    if (state.isRunning) "服务器运行中 · $coreLabel" else "服务器未启动",
+                    when {
+                        isStarting -> "正在启动服务端 · $coreLabel"
+                        state.isRunning -> "服务器运行中 · $coreLabel"
+                        else -> "服务器未启动"
+                    },
                     color = Color.White.copy(alpha = 0.9f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -143,6 +155,15 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
                         formatUptime(android.os.SystemClock.elapsedRealtime() - state.runningSinceMs)
                     else "--",
                     "运行时长"
+                )
+            }
+            // 启动中提示：适配启动耗时较长的场景
+            if (isStarting) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "服务端启动通常需要 30 秒~数分钟，日志见「MC 终端」...",
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 10.sp
                 )
             }
         }

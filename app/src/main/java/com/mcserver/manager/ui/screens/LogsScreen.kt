@@ -36,6 +36,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -120,6 +121,10 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
 
         // 日志列表
         val listState = rememberLazyListState()
+        // 进入页面时定位到最新日志（底部），而非顶部
+        LaunchedEffect(Unit) {
+            if (lines.isNotEmpty()) listState.scrollToItem(lines.size - 1)
+        }
         Box(
             modifier = Modifier
                 .weight(1f)

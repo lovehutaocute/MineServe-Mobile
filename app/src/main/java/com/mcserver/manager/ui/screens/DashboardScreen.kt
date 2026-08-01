@@ -89,6 +89,9 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val context = androidx.compose.ui.platform.LocalContext.current
     val consoleLines by vm.consoleLines.map { it.takeLast(5) }.collectAsState(initial = emptyList())
     val isInstalling by vm.isInstalling.collectAsState()
+    // 依赖是否已全部装齐（installSteps 全部 Done）
+    val depsInstalled = state.installSteps.isNotEmpty() &&
+        state.installSteps.all { it.status == com.mcserver.manager.data.StepStatus.Done }
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
     val installSpeed by vm.installSpeed.collectAsState()
@@ -165,6 +168,18 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
+
+            // ── MC 终端入口（设备状态卡片下方） ──
+            Button(
+                onClick = { vm.launchMcConsole(); onShowLogs() },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+            ) {
+                Text("▶ 打开 MC 终端", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
             // bootstrap 初始化进度（未完成时显示）
@@ -244,7 +259,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
             }
 
-            // 一键安装依赖
+            // 一键安装依赖（依赖未装齐时在页面显眼位置展示；装齐后移到底部）
+            if (!depsInstalled) {
             McCard(
                 title = "一键安装依赖",
                 trailing = {
@@ -322,6 +338,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     }
                 }
             }
+            }
 
             // 启动哪个服务端（显示已安装的核心列表，支持下拉选择）
             McCard(title = "启动服务端") {
@@ -355,59 +372,57 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         }
                     }
                 } else {
-                    // 核心选择下拉框
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Mint.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
+                    // 核心选择（强化视觉展示，避免用户忽略该选项）
+                    Text("选择服务器核心", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (activeCore != null)
+                            "当前核心：${activeCore.name}（${activeCore.core.displayName} ${activeCore.version}）"
+                        else "尚未选择核心！请点击下方按钮选择后再启动",
+                        color = if (activeCore != null) Mint else Coral,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        Button(
+                            onClick = { showCoreDropdown = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (activeCore != null) IndigoSoft else Indigo,
+                                contentColor = if (activeCore != null) Indigo else Color.White
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("✓", color = Mint, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                if (activeCore != null) "切换服务器核心：${activeCore.name}" else "▼ 选择服务器核心",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
                         }
-                        Box(modifier = Modifier.weight(1f)) {
-                            OutlinedButton(
-                                onClick = { showCoreDropdown = true },
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, Indigo),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
-                                        ?: "请选择要启动的核心",
-                                    color = if (activeCore != null) Mint else Muted,
-                                    fontSize = 12.sp,
-                                    maxLines = 1
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = showCoreDropdown,
-                                onDismissRequest = { showCoreDropdown = false }
-                            ) {
-                                installed.forEach { core ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(core.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                                                Text(
-                                                    "${core.core.displayName} ${core.version}",
-                                                    color = Muted,
-                                                    fontSize = 11.sp
-                                                )
-                                            }
-                                        },
-                                        onClick = {
-                                            vm.setActiveCore(core.name)
-                                            showCoreDropdown = false
-                                            scope.launch { snackbarHostState.showSnackbar("已选用「${core.name}」") }
+                        DropdownMenu(
+                            expanded = showCoreDropdown,
+                            onDismissRequest = { showCoreDropdown = false }
+                        ) {
+                            installed.forEach { core ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Column {
+                                            Text(core.name, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                            Text(
+                                                "${core.core.displayName} ${core.version}",
+                                                color = Muted,
+                                                fontSize = 11.sp
+                                            )
                                         }
-                                    )
-                                }
+                                    },
+                                    onClick = {
+                                        vm.setActiveCore(core.name)
+                                        showCoreDropdown = false
+                                        scope.launch { snackbarHostState.showSnackbar("已选用「${core.name}」") }
+                                    }
+                                )
                             }
                         }
                     }
@@ -508,16 +523,6 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         }
                     }
                 }
-                // MC终端按钮
-                Spacer(Modifier.height(8.dp))
-                androidx.compose.material3.Button(
-                    onClick = { vm.launchMcConsole(); onShowLogs() },
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    androidx.compose.material3.Text("▶ 打开 MC 终端", fontSize = 12.sp)
-                }
             }
 
             // 插件入口（精简）
@@ -526,6 +531,25 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     Text("暂无已安装插件", color = Muted, fontSize = 11.sp)
                 } else {
                     Text("${installedPlugins.size} 个插件已安装", fontSize = 11.sp)
+                }
+            }
+
+            // 依赖已装齐：页面底部放「重新安装依赖」小入口
+            if (depsInstalled) {
+                OutlinedButton(
+                    onClick = { vm.installDependencies() },
+                    enabled = !isInstalling,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                ) {
+                    Text(
+                        if (isInstalling) "重新安装中..." else "重新安装依赖",
+                        color = Indigo,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
                 }
             }
             Spacer(Modifier.height(16.dp))
