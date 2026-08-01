@@ -1,5 +1,7 @@
 package com.mcserver.manager.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -12,7 +14,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,6 +47,7 @@ import com.mcserver.manager.ui.theme.Muted
 @Composable
 fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
     val config by vm.config.collectAsState()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -162,6 +169,37 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 color = Muted,
                 fontSize = 11.sp
             )
+        }
+
+        // 意见反馈
+        McCard(title = "意见反馈") {
+            Text(
+                "遇到问题或有建议？欢迎发送邮件反馈，我们会尽快处理。",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = {
+                    try {
+                        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:167245484@qq.com"))
+                        intent.putExtra(Intent.EXTRA_SUBJECT, "MCServerManager 意见反馈")
+                        context.startActivity(intent)
+                    } catch (e: Exception) {
+                        // 设备无邮件客户端时静默
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "发送邮件反馈（167245484@qq.com）",
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
         }
         Spacer(Modifier.height(16.dp))
     }

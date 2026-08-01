@@ -125,7 +125,9 @@ fun PlayersScreen(vm: McViewModel) {
     var detailPlayer by remember { mutableStateOf<DetailInfo?>(null) }
     var showHistory by remember { mutableStateOf(false) }
 
-    LaunchedEffect(isBootstrapped, config.activeCoreName) {
+    // 进入页面/切换核心/服务器启动状态变化时刷新 OP/白名单/封禁列表
+    // （服务器启动完成后 ops.json 等才会生成，故监听 isRunning）
+    LaunchedEffect(isBootstrapped, config.activeCoreName, serverState.isRunning) {
         if (isBootstrapped && config.activeCoreName != null) {
             vm.refreshPlayers()
         }

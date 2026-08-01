@@ -21,8 +21,8 @@ import kotlinx.serialization.json.Json
  */
 class PlayerManager(private val termux: TermuxRuntime) {
 
-    /** MC 玩家名格式：1-16 位字母/数字/下划线，用于过滤聊天消息等误匹配 */
-    private val playerNameRegex = Regex("[A-Za-z0-9_]{1,16}")
+    /** 进服/离服日志解析：玩家名(1-16位字母数字下划线) + 可选[IP]后缀 + (has) joined/left the game */
+    private val joinLeaveRegex = Regex("([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
 
     @Serializable
     data class OpEntry(val name: String, val uuid: String, val level: Int = 4)
@@ -175,23 +175,16 @@ class PlayerManager(private val termux: TermuxRuntime) {
     }
 
     /**
-     * 从 "xxx joined the game" / "xxx left the game" 日志行中提取玩家名。
-     * 自动剥离日志时间戳/线程前缀（如 "[11:45:34] [Server thread/INFO]: "），
-     * 并按 MC 玩家名格式（1-16 位字母/数字/下划线）校验，过滤聊天消息等误匹配。
-     * @param event 事件关键字，如 "joined the game" / "left the game"
+     * 从进服/离服日志行中提取玩家名。
+     * 支持多种格式：`Steve joined the game`、`Steve has joined the game`、
+     * `Steve[/127.0.0.1:5555] joined the game`（带 IP 后缀）、带日志时间戳前缀等。
+     * 玩家名按 MC 格式（1-16 位字母/数字/下划线）校验，过滤聊天消息等误匹配。
      * @return 玩家名；无法提取或格式非法时返回 null
      */
-    fun extractPlayerName(logLine: String, event: String): String? {
-        val idx = logLine.indexOf(" $event")
-        if (idx < 0) return null
-        val before = logLine.substring(0, idx).trim()
-        if (before.isBlank()) return null
-        // 取最后一个 ": " 之后的内容，剥离日志前缀（形如 "[11:45:34] [Server thread/INFO]: Steve"）
-        val sep = before.lastIndexOf(": ")
-        val name = if (sep >= 0) before.substring(sep + 2).trim() else before.trim()
-        // 玩家名格式校验：聊天消息（如 "<Steve> I joined the game"）与
-        // "Steve has joined the game" 变体提取出的垃圾名会被过滤
-        return name.takeIf { it.isNotEmpty() && playerNameRegex.matches(it) }
+    fun extractPlayerName(logLine: String): String? {
+        // 玩家名可能带 [ip] 后缀，has 为可选变体
+        val m = joinLeaveRegex.find(logLine) ?: return null
+        return m.groupValues[1]
     }
 
     // ── 游戏模式切换 ────────────────────────────────────────────

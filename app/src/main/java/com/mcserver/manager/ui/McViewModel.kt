@@ -253,7 +253,7 @@ class McViewModel(
                     repo.updateServerState {
                         it.copy(onlinePlayers = (it.onlinePlayers + 1).coerceAtLeast(0))
                     }
-                    playerManager.extractPlayerName(line, "joined the game")?.let { name ->
+                    playerManager.extractPlayerName(line)?.let { name ->
                         addOnlinePlayer(name)
                         recordPlayerEvent(name, "进服")
                     }
@@ -262,7 +262,7 @@ class McViewModel(
                     repo.updateServerState {
                         it.copy(onlinePlayers = (it.onlinePlayers - 1).coerceAtLeast(0))
                     }
-                    playerManager.extractPlayerName(line, "left the game")?.let { name ->
+                    playerManager.extractPlayerName(line)?.let { name ->
                         removeOnlinePlayer(name)
                         recordPlayerEvent(name, "离服")
                     }
