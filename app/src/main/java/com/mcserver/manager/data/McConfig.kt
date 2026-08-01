@@ -3,17 +3,20 @@ package com.mcserver.manager.data
 import kotlinx.serialization.Serializable
 
 /**
- * 服务端核心类型：Paper / Fabric / Forge / Vanilla
+ * 服务端核心类型：Paper / Purpur / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
  */
 @Serializable
 enum class ServerCore(val displayName: String) {
     Paper("Paper"),
+    Purpur("Purpur"),
     Fabric("Fabric"),
     Forge("Forge"),
-    Vanilla("Vanilla");
+    Vanilla("Vanilla"),
+    Velocity("Velocity"),
+    BungeeCord("BungeeCord");
 
     /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
-    val supportsPlugins: Boolean get() = this == Paper
+    val supportsPlugins: Boolean get() = this == Paper || this == Purpur
 
     /** 是否支持 Fabric/Forge 模组体系 */
     val supportsMods: Boolean get() = this == Fabric || this == Forge

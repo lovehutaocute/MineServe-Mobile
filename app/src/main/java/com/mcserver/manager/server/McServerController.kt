@@ -164,9 +164,12 @@ class McServerController(
     private fun resolveDownloadUrl(core: ServerCore, version: String): String {
         return when (core) {
             ServerCore.Paper -> resolvePaperUrl(version)
+            ServerCore.Purpur -> resolvePurpurUrl(version)
             ServerCore.Fabric -> resolveFabricUrl(version)
             ServerCore.Forge -> resolveForgeUrl(version)
             ServerCore.Vanilla -> resolveVanillaUrl(version)
+            ServerCore.Velocity -> resolveVelocityUrl(version)
+            ServerCore.BungeeCord -> resolveBungeeUrl()
         }
     }
 
@@ -290,6 +293,32 @@ class McServerController(
         return "https://maven.minecraftforge.net/net/minecraftforge/forge/$version-$forgeVer/forge-$version-$forgeVer-installer.jar"
     }
 
+    // ── Purpur：官方 API 直链（latest build 302 重定向到实际 jar） ──
+
+    private fun resolvePurpurUrl(version: String): String {
+        return "https://api.purpurmc.org/v2/purpur/$version/latest/download"
+    }
+
+    // ── Velocity：PaperMC v3 API（取最新 build 的 application 下载） ──
+
+    private fun resolveVelocityUrl(version: String): String {
+        val buildsUrl = "https://fill.papermc.io/v3/projects/velocity/versions/$version/builds"
+        val builds = fetchJsonElement(buildsUrl).jsonObject["builds"]?.jsonArray
+            ?: throw RuntimeException("Velocity: no builds for version $version")
+        val best = builds.lastOrNull()?.jsonObject
+            ?: throw RuntimeException("Velocity: no build for version $version")
+        return best["downloads"]?.jsonObject
+            ?.get("application")?.jsonObject
+            ?.get("url")?.jsonPrimitive?.content
+            ?: throw RuntimeException("Velocity: no application download for version $version")
+    }
+
+    // ── BungeeCord：md-5 Jenkins 直链（无版本概念，取最新构建） ──
+
+    private fun resolveBungeeUrl(): String {
+        return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
+    }
+
     // ── JSON HTTP 工具 ──────────────────────────────────────────────
 
     private fun fetchJson(urlStr: String): JsonObject = fetchJsonElement(urlStr).jsonObject
@@ -304,11 +333,33 @@ class McServerController(
     suspend fun fetchVersions(core: ServerCore): List<String> = withContext(Dispatchers.IO) {
         when (core) {
             ServerCore.Paper -> fetchPaperVersions()
+            ServerCore.Purpur -> fetchPurpurVersions()
             ServerCore.Vanilla -> fetchVanillaVersions()
             ServerCore.Fabric -> fetchFabricVersions()
             ServerCore.Forge -> fetchForgeVersions()
+            ServerCore.Velocity -> fetchVelocityVersions()
+            ServerCore.BungeeCord -> fetchBungeeVersions()
         }
     }
+
+    private fun fetchPurpurVersions(): List<String> {
+        // Purpur API：{versions: [...]}
+        val resp = fetchJson("https://api.purpurmc.org/v2/purpur")
+        return resp["versions"]?.jsonArray
+            ?.map { it.jsonPrimitive.content }
+            ?.filter { !it.contains("rc") && !it.contains("pre") }
+            ?.sortedDescending() ?: DEFAULT_MC_VERSIONS
+    }
+
+    private fun fetchVelocityVersions(): List<String> {
+        // PaperMC v3：velocity versions 数组
+        val resp = fetchJson("https://fill.papermc.io/v3/projects/velocity")
+        return resp["versions"]?.jsonArray
+            ?.map { it.jsonPrimitive.content }
+            ?.sortedDescending() ?: DEFAULT_MC_VERSIONS
+    }
+
+    private fun fetchBungeeVersions(): List<String> = listOf("latest")
 
     private fun fetchPaperVersions(): List<String> {
         // PaperMC v3 API：返回 {versions: {major: [subversions]}}，需平铺
