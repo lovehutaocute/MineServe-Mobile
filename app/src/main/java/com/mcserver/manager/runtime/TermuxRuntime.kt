@@ -410,6 +410,39 @@ class TermuxRuntime(context: Context) {
     }
 
     /**
+     * 读取 MC 进程当前真实内存占用（RSS，单位 MB）。
+     * Android 的 java.lang.Process 无公开 pid()，改为遍历 /proc 查找
+     * 进程名（comm）为 "java" 的进程，读取其 stat 第 24 字段（rss，单位页）。
+     * 常规权限即可读取（app 自有子进程），兼容性好。
+     * @return MB 值；未找到/读取失败时返回 0
+     */
+    fun mcProcessMemoryMb(): Long {
+        return try {
+            val procDir = java.io.File("/proc")
+            procDir.listFiles()?.forEach { f ->
+                val name = f.name
+                if (name.isEmpty() || !name.all { it.isDigit() }) return@forEach
+                val statFile = java.io.File(f, "stat")
+                if (!statFile.exists()) return@forEach
+                val content = statFile.readText()
+                // /proc/pid/stat 格式：pid (comm) state ...；comm 可能含空格/括号
+                val openParen = content.indexOf('(')
+                val closeParen = content.indexOf(')', openParen + 1)
+                if (openParen <= 0 || closeParen <= openParen) return@forEach
+                val comm = content.substring(openParen + 1, closeParen)
+                if (comm != "java") return@forEach
+                // closeParen 后从 state 开始：state(1) ... rss(24)，索引 23（0-based）
+                val rssPages = content.substring(closeParen + 1)
+                    .trim().split(" ").getOrNull(23)?.toLongOrNull() ?: 0L
+                if (rssPages > 0) return rssPages * 4096 / (1024 * 1024)
+            }
+            0L
+        } catch (e: Exception) {
+            0L
+        }
+    }
+
+    /**
      * 探测 java 可执行文件路径。
      * 优先级：java-25 > java-21 > java-17，覆盖各 MC 版本需求。
      * 1. $PREFIX/bin/java（dpkg post-install 正常情况下存在）

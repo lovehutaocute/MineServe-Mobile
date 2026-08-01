@@ -110,6 +110,77 @@ class McViewModel(
     /** 隧道运行状态，UI 层订阅展示 */
     val tunnelState: StateFlow<TunnelState> = tunnelManager.state
 
+    // ── 设备状态（常规权限可采集，无需 root） ─────────────────────────
+
+    /** 设备级指标：内存/存储/电池 */
+    data class DeviceStats(
+        val totalMemoryMb: Long = 0L,
+        val availMemoryMb: Long = 0L,
+        val totalStorageMb: Long = 0L,
+        val availStorageMb: Long = 0L,
+        val batteryPercent: Int = -1,   // -1 表示未知
+        val isCharging: Boolean = false
+    )
+
+    private val _deviceStats = MutableStateFlow(DeviceStats())
+    val deviceStats: StateFlow<DeviceStats> = _deviceStats.asStateFlow()
+
+    /** 定时采集设备指标（每 3 秒），同时将 MC 进程真实内存写入 usedMemoryMb */
+    private fun startDeviceStatsCollection() {
+        viewModelScope.launch {
+            while (true) {
+                withContext(Dispatchers.IO) { collectDeviceStatsOnce() }
+                delay(3000)
+            }
+        }
+    }
+
+    private fun collectDeviceStatsOnce() {
+        try {
+            val app = McApplication.get()
+            // 设备内存（ActivityManager.MemoryInfo，无需权限）
+            val am = app.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+            val mi = android.app.ActivityManager.MemoryInfo()
+            am.getMemoryInfo(mi)
+            val totalMemMb = mi.totalMem / (1024 * 1024)
+            val availMemMb = mi.availMem / (1024 * 1024)
+
+            // 内部存储（StatFs，无需权限）
+            val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
+            val blockSize = stat.blockSizeLong
+            val totalStorageMb = stat.blockCountLong * blockSize / (1024 * 1024)
+            val availStorageMb = stat.availableBlocksLong * blockSize / (1024 * 1024)
+
+            // 电池电量与充电状态（BatteryManager，无需权限）
+            var batteryPercent = -1
+            var isCharging = false
+            try {
+                val bm = app.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
+                batteryPercent = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                isCharging = bm.isCharging // API 23+，minSdk 26 可用
+            } catch (e: Exception) {
+                // 部分设备/模拟器不支持电池属性，保持 -1
+            }
+
+            _deviceStats.value = DeviceStats(
+                totalMemoryMb = totalMemMb,
+                availMemoryMb = availMemMb,
+                totalStorageMb = totalStorageMb,
+                availStorageMb = availStorageMb,
+                batteryPercent = batteryPercent,
+                isCharging = isCharging
+            )
+
+            // 修复 usedMemoryMb：MC 进程真实 RSS（原字段从未被采集，恒为 0）
+            if (repo.termuxRuntime.isMcRunning()) {
+                val mem = repo.termuxRuntime.mcProcessMemoryMb()
+                if (mem > 0) repo.updateServerState { it.copy(usedMemoryMb = mem) }
+            }
+        } catch (e: Exception) {
+            // 采集失败保留上次值，不影响运行
+        }
+    }
+
     /** 刷新局域网 IP：在 IO 线程遍历网络接口，取第一个非 loopback 的 IPv4 地址 */
     fun refreshLanIp() {
         viewModelScope.launch(Dispatchers.IO) {
@@ -220,7 +291,8 @@ class McViewModel(
                 line.contains("Done (") && line.contains("For help") -> {
                     repo.updateServerState {
                         it.copy(tps = 20.0, healthPercent = 100,
-                            maxMemoryMb = config.value.maxHeapMb.toLong())
+                            maxMemoryMb = config.value.maxHeapMb.toLong(),
+                            runningSinceMs = android.os.SystemClock.elapsedRealtime())
                     }
                 }
             }
@@ -1374,6 +1446,7 @@ class McViewModel(
      */
     init {
         loadPlayerHistory()
+        startDeviceStatsCollection()
         // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
         viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->

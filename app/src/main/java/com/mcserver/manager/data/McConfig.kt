@@ -161,6 +161,8 @@ data class ServerState(
     val usedMemoryMb: Long = 0L,
     val maxMemoryMb: Long = 0L,
     val healthPercent: Int = 0,            // 0-100，综合健康度
+    /** 服务器本次启动完成的时刻（SystemClock.elapsedRealtime 基准），0 表示未启动 */
+    val runningSinceMs: Long = 0L,
     val installSteps: List<StepState> = InstallStep.values().map {
         StepState(it, StepStatus.Wait)
     },
