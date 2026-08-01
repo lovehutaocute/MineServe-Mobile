@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.outlined.ArrowUpward
@@ -36,6 +37,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -91,6 +93,19 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
         }
     }
 
+    // 导出目标（用户点击的文件/文件夹），CreateDocument 回调用
+    var exportTarget by remember { mutableStateOf<File?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        uri?.let { target -> exportTarget?.let { vm.exportPathToUri(it, target) } }
+        exportTarget = null
+    }
+    // 整服务器导出选择器
+    val exportServerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? -> uri?.let { vm.exportServerToUri(it) } }
+
     LaunchedEffect(Unit) {
         vm.errorFlow.collectLatest { msg ->
             snackbarHostState.showSnackbar(msg)
@@ -121,14 +136,30 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
         ) {
             HeaderBlock(eyebrow = "File Manager", title = "文件管理")
 
-            // MT 管理器按钮
-            Button(
-                onClick = onOpenMtGuide,
-                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                shape = RoundedCornerShape(8.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+            // MT 管理器 + 导出服务器
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("📁 MT 管理器管理文件", fontSize = 13.sp)
+                Button(
+                    onClick = onOpenMtGuide,
+                    colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("📁 MT 管理器管理文件", fontSize = 13.sp)
+                }
+                OutlinedButton(
+                    onClick = { exportServerLauncher.launch("服务器导出.zip") },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.size(4.dp))
+                    Text("导出服务器", fontSize = 12.sp, color = Indigo)
+                }
             }
 
             // 路径导航栏
@@ -255,6 +286,10 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                                     vm.loadFiles(File(entry.path))
                                 }
                             },
+                            onExport = {
+                                exportTarget = File(entry.path)
+                                exportLauncher.launch(if (entry.isDirectory) "${entry.name}.zip" else entry.name)
+                            },
                             onDelete = {
                                 showDeleteConfirm = File(entry.path)
                             }
@@ -345,6 +380,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
 private fun FileItemRow(
     entry: McViewModel.FileEntry,
     onClick: () -> Unit,
+    onExport: () -> Unit,
     onDelete: () -> Unit
 ) {
     Row(
@@ -400,6 +436,16 @@ private fun FileItemRow(
                 color = Muted,
                 fontSize = 11.sp,
                 maxLines = 1
+            )
+        }
+
+        // 导出按钮
+        IconButton(onClick = onExport, modifier = Modifier.padding(start = 2.dp)) {
+            Icon(
+                Icons.Outlined.FileDownload,
+                contentDescription = "导出",
+                tint = Indigo,
+                modifier = Modifier.size(18.dp)
             )
         }
 

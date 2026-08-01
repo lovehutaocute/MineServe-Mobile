@@ -1511,6 +1511,48 @@ class McViewModel(
         }
     }
 
+    /** 导出文件/文件夹到用户选择的 Uri（文件夹打包为 zip） */
+    fun exportPathToUri(source: java.io.File, uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val app = McApplication.get()
+                    val output = app.contentResolver.openOutputStream(uri)
+                        ?: throw RuntimeException("无法打开导出目标")
+                    output.use { os ->
+                        if (source.isDirectory) {
+                            // 文件夹打包为 zip
+                            java.util.zip.ZipOutputStream(os).use { zos ->
+                                source.walkTopDown().filter { it.isFile }.forEach { f ->
+                                    val entryName = source.toURI().relativize(f.toURI()).path
+                                    zos.putNextEntry(java.util.zip.ZipEntry(entryName))
+                                    f.inputStream().use { it.copyTo(zos) }
+                                    zos.closeEntry()
+                                }
+                            }
+                        } else {
+                            source.inputStream().use { it.copyTo(os) }
+                        }
+                    }
+                }
+                _messageFlow.tryEmit("导出完成")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("导出失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 导出整个服务器核心目录（打包 zip） */
+    fun exportServerToUri(uri: android.net.Uri) {
+        val dirName = activeDirName() ?: return
+        val dir = java.io.File(fileManagerRoot, dirName)
+        if (!dir.exists()) {
+            _errorFlow.tryEmit("服务器目录不存在")
+            return
+        }
+        exportPathToUri(dir, uri)
+    }
+
     /** 从 Uri 查询文件名 */
     private fun queryFileName(uri: android.net.Uri): String? {
         return try {
