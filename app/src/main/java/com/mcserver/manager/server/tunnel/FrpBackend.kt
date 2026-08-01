@@ -27,16 +27,35 @@ class FrpBackend(
     }
 
     override fun buildArgs(config: McConfig, binary: String): List<String> {
-        val toml = config.frpConfigText.trim()
-        if (toml.isBlank()) {
+        val rawToml = config.frpConfigText.trim()
+        if (rawToml.isBlank()) {
             throw IllegalArgumentException("请粘贴完整的 frpc.toml 配置文本或导入配置文件")
         }
+
+        // 自动移除 autoTLS 字段（旧版 frpc 不识别该字段会导致启动失败）
+        val toml = sanitizeFrpConfig(rawToml)
 
         val configFile = File(tunnelDir, "frpc.toml")
         configFile.writeText(toml)
         log("frpc 配置已写入 (${toml.length} 字符)")
 
         return listOf("-c", configFile.absolutePath)
+    }
+
+    /**
+     * 自动删除配置中的 autoTLS 字段：按行过滤，删除键名为 autoTLS 的配置行
+     * （支持 `autoTLS = true` 及前导空格/大小写变体）。
+     * 旧版 frpc 不识别该字段会启动报错，删除后保持兼容。
+     */
+    private fun sanitizeFrpConfig(toml: String): String {
+        val lines = toml.lines()
+        val kept = lines.filterNot { line ->
+            line.trim().substringBefore('=').trim().equals("autoTLS", ignoreCase = true)
+        }
+        if (kept.size != lines.size) {
+            log("已自动移除 autoTLS 字段（旧版 frpc 不兼容）")
+        }
+        return kept.joinToString("\n")
     }
 
     override fun parsePublicUrl(line: String): String? = null
