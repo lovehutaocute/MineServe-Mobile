@@ -55,7 +55,9 @@ class PluginManager(
         val downloadUrl: String,
         val targetFileName: String,
         /** GitHub 仓库全名（owner/repo），用于更新检测 API */
-        val repo: String
+        val repo: String,
+        /** asset 文件名包含模式；非空时下载前用 GitHub API 动态解析最新 asset 直链（如 ViaVersion） */
+        val githubAssetPattern: String? = null
     )
 
     val curatedPlugins: List<CuratedPlugin> = listOf(
@@ -124,6 +126,30 @@ class PluginManager(
             downloadUrl = "https://github.com/dmulloy2/ProtocolLib/releases/latest/download/ProtocolLib.jar",
             targetFileName = "ProtocolLib.jar",
             repo = "dmulloy2/ProtocolLib"
+        ),
+        CuratedPlugin(
+            id = "viaversion",
+            name = "ViaVersion",
+            author = "ViaVersion Team",
+            description = "跨版本协议支持，让低版本客户端连接高版本服务器",
+            avatarText = "VV",
+            homepage = "https://github.com/ViaVersion/ViaVersion",
+            downloadUrl = "https://github.com/ViaVersion/ViaVersion/releases/latest",
+            targetFileName = "ViaVersion.jar",
+            repo = "ViaVersion/ViaVersion",
+            githubAssetPattern = "ViaVersion"
+        ),
+        CuratedPlugin(
+            id = "viabackwards",
+            name = "ViaBackwards",
+            author = "ViaVersion Team",
+            description = "反向协议支持，让高版本客户端连接低版本服务器（需配合 ViaVersion）",
+            avatarText = "VB",
+            homepage = "https://github.com/ViaVersion/ViaBackwards",
+            downloadUrl = "https://github.com/ViaVersion/ViaBackwards/releases/latest",
+            targetFileName = "ViaBackwards.jar",
+            repo = "ViaVersion/ViaBackwards",
+            githubAssetPattern = "ViaBackwards"
         )
     )
 
@@ -547,6 +573,49 @@ class PluginManager(
             return tag to releaseUrl
         } finally {
             conn.disconnect()
+        }
+    }
+
+    /**
+     * 解析 GitHub 最新 release 中匹配指定名称模式的 .jar asset 下载直链。
+     * 用于 asset 文件名带版本号的仓库（如 ViaVersion-4.x.x.jar，无固定 latest/download 文件名）。
+     * @param repo GitHub 仓库全名（owner/repo）
+     * @param pattern asset 文件名包含的模式（如 "ViaVersion"）
+     * @return 匹配的 browser_download_url；解析失败返回 null
+     */
+    fun resolveLatestAsset(repo: String, pattern: String): String? {
+        return try {
+            val url = URL("https://api.github.com/repos/$repo/releases/latest")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                instanceFollowRedirects = true
+                connectTimeout = 15_000
+                readTimeout = 15_000
+                setRequestProperty("User-Agent", "McServerManager/1.0 (Android)")
+                setRequestProperty("Accept", "application/vnd.github+json")
+            }
+            try {
+                val code = conn.responseCode
+                if (code !in 200..299) return null
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                // 提取 assets 数组内容（简单正则解析，避免引入完整 JSON 库）
+                val assetsBody = Regex("\"assets\"\\s*:\\s*\\[(.*?)\\]", RegexOption.DOT_MATCHES_ALL)
+                    .find(body)?.groupValues?.get(1) ?: return null
+                val nameRegex = Regex("\"name\"\\s*:\\s*\"([^\"]+)\"")
+                val urlRegex = Regex("\"browser_download_url\"\\s*:\\s*\"([^\"]+)\"")
+                val names = nameRegex.findAll(assetsBody).map { it.groupValues[1] }.toList()
+                val urls = urlRegex.findAll(assetsBody).map { it.groupValues[1] }.toList()
+                // GitHub API 每个 asset 对象内 name 位于 browser_download_url 之前，顺序一一对应
+                names.indices.forEach { i ->
+                    val n = names.getOrNull(i) ?: return@forEach
+                    val u = urls.getOrNull(i) ?: return@forEach
+                    if (n.contains(pattern) && n.endsWith(".jar")) return u
+                }
+                null
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            null
         }
     }
 

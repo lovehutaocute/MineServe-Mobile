@@ -524,8 +524,12 @@ class McViewModel(
         }
         viewModelScope.launch {
             try {
+                // asset 文件名带版本号的精选资源（如 ViaVersion），先经 GitHub API 解析最新直链
+                val resolvedUrl = curated.githubAssetPattern?.let { pattern ->
+                    withContext(Dispatchers.IO) { pluginManager.resolveLatestAsset(curated.repo, pattern) }
+                } ?: curated.downloadUrl
                 pluginManager.installFromUrl(
-                    curated.downloadUrl,
+                    resolvedUrl,
                     curated.targetFileName,
                     dirName
                 ) { downloaded, total, speed ->

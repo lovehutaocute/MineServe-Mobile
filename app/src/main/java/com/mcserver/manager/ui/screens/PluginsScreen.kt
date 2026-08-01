@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Extension
@@ -85,6 +86,37 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private enum class PluginTab(val label: String) { Installed("已安装"), Curated("精选推荐"), Upload("本地上传") }
+
+/** 插件资源站点（点击跳转官网） */
+private data class PluginSite(val name: String, val desc: String, val url: String)
+
+private val pluginSites = listOf(
+    PluginSite(
+        "SpigotMC Resources",
+        "老牌大型插件资源平台，绝大多数 Bukkit/Spigot 插件首发站点，含免费与付费资源（全英文、国内访问较慢）",
+        "https://www.spigotmc.org/resources/"
+    ),
+    PluginSite(
+        "Hangar（Paper 官方）",
+        "Paper 官方搭建平台，面向 Paper / Velocity / Waterfall，界面简洁、筛选完善",
+        "https://hangar.papermc.io/"
+    ),
+    PluginSite(
+        "Modrinth",
+        "现代化开源资源平台，收录插件/模组/数据包，下载快，可按游戏版本与加载器筛选",
+        "https://modrinth.com/plugins"
+    ),
+    PluginSite(
+        "BuiltByBit（原 MC-Market）",
+        "商业付费插件聚集地，也提供免费资源与成套服务端配置方案",
+        "https://builtbybit.com"
+    ),
+    PluginSite(
+        "CurseForge Bukkit 分区",
+        "老牌资源站点，插件总数略少于 SpigotMC Resources",
+        "https://www.curseforge.com/minecraft/bukkit-plugins"
+    )
+)
 private enum class InstalledFilter(val label: String) { All("全部"), Enabled("启用"), Disabled("禁用"), Curated("精选"), Local("本地") }
 
 /**
@@ -303,6 +335,14 @@ fun PluginsScreen(vm: McViewModel) {
                     )
                 }
             }
+
+            // 底部配置提示
+            Text(
+                "插件相关配置请前往对应配置文件夹内修改配置文件。",
+                color = Muted,
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 20.dp)
+            )
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -589,6 +629,47 @@ private fun CuratedTab(
             Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(4.dp))
             Text("强制重新检测（清空缓存）", color = Indigo, fontSize = 11.sp)
+        }
+    }
+
+    // ── 插件资源站点 ──
+    val context = LocalContext.current
+    McCard(title = "插件资源站点") {
+        Text(
+            "优质插件/模组下载平台，点击跳转官网",
+            color = Muted,
+            fontSize = 10.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        pluginSites.forEach { site ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(site.url)))
+                        } catch (e: Exception) { /* 无浏览器时忽略 */ }
+                    }
+                    .padding(vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(site.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        site.desc,
+                        color = Muted,
+                        fontSize = 10.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Icon(
+                    Icons.AutoMirrored.Outlined.OpenInNew,
+                    contentDescription = "打开",
+                    tint = Indigo,
+                    modifier = Modifier.size(14.dp)
+                )
+            }
         }
     }
 }
