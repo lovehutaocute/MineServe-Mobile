@@ -92,15 +92,15 @@ class PlayerManager(private val termux: TermuxRuntime) {
     }
 
     /**
-     * 添加 OP 并设置等级（原版仅支持 op 命令默认等级 4，
-     * 降低等级需先 deop 再 op，此处封装为单次调用）
-     * @param level 1-4，4 为最高权限
+     * 添加 OP。
+     * 发送 `op $name`（不带 level 参数）：MC 的 op 命令带等级参数是 1.20.2+
+     * 才支持的，旧版会报 Usage 错误导致添加失败；与手动控制台命令保持一致。
+     * @param level 兼容参数（仅新版服务器支持指定等级，旧版默认 4 级）
+     * @return true 表示已发送
      */
     fun opPlayerWithLevel(name: String, level: Int): Boolean {
-        val l = level.coerceIn(1, 4)
-        // 先取消再添加以确保等级生效
-        sendCmd("deop $name")
-        return sendCmd("op $name $l")
+        // 不发送 deop：先撤后加在旧版上会导致"撤销成功、添加失败"的副作用
+        return sendCmd("op $name")
     }
 
     /** 取消 OP */

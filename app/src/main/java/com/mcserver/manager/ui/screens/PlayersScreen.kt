@@ -567,6 +567,11 @@ private fun OpsTab(
                 }
             }
         }
+        Text(
+            "注：op 命令带等级参数需 MC 1.20.2+ 才支持，旧版服务器统一为默认 4 级",
+            color = Muted,
+            fontSize = 9.sp
+        )
         Spacer(Modifier.height(8.dp))
         if (!isRunning) {
             Text("服务器未运行，无法添加 OP", color = Coral, fontSize = 10.sp)
