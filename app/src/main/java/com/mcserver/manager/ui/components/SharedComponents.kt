@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcserver.manager.data.ServerState
@@ -46,7 +47,6 @@ import com.mcserver.manager.ui.theme.CoralSoft
 import com.mcserver.manager.ui.theme.FieldGray
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.IndigoDark
-import com.mcserver.manager.ui.theme.IndigoRingBg
 import com.mcserver.manager.ui.theme.IndigoSoft
 import com.mcserver.manager.ui.theme.Line
 import com.mcserver.manager.ui.theme.Mint
@@ -91,45 +91,59 @@ fun HeaderBlock(
 }
 
 /**
- * Hero 卡片：参考界面 gradient indigo + 环形进度 + 3 项统计
+ * Hero 卡片：渐变背景 + 状态行 + 紧凑指标行（TPS / 在线 / 进程内存 / 运行时长）
  */
 @Composable
 fun HeroBlock(state: ServerState, coreLabel: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 16.dp)
-            .clip(RoundedCornerShape(20.dp))
+            .padding(horizontal = 20.dp, vertical = 10.dp)
+            .clip(RoundedCornerShape(16.dp))
             .background(
                 Brush.linearGradient(colors = listOf(Indigo, IndigoDark))
             )
-            .padding(20.dp)
+            .padding(horizontal = 14.dp, vertical = 12.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // 环形进度：服务器未运行时显示 0%
-            RingProgress(percent = if (state.isRunning) state.healthPercent else 0)
-            Spacer(Modifier.size(18.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    if (state.isRunning) "服务器健康度 · $coreLabel" else "服务器未启动",
-                    color = Color.White.copy(alpha = 0.85f),
-                    fontSize = 13.sp
+        Column {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 状态指示点：运行中亮绿，未运行半透明白
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (state.isRunning) MintBright else Color.White.copy(alpha = 0.5f))
                 )
-                Spacer(Modifier.height(8.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                    HeroStat(
-                        if (state.isRunning) String.format("%.1f", state.tps) else "--",
-                        "TPS"
-                    )
-                    HeroStat(
-                        if (state.isRunning) "${state.onlinePlayers}/${state.maxPlayers}" else "--/--",
-                        "在线"
-                    )
-                    HeroStat(
-                        if (state.isRunning) formatMemory(state.usedMemoryMb) else "--",
-                        "内存"
-                    )
-                }
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    if (state.isRunning) "服务器运行中 · $coreLabel" else "服务器未启动",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                HeroStat(
+                    if (state.isRunning) String.format("%.1f", state.tps) else "--",
+                    "TPS"
+                )
+                HeroStat(
+                    if (state.isRunning) "${state.onlinePlayers}/${state.maxPlayers}" else "--/--",
+                    "在线"
+                )
+                HeroStat(
+                    if (state.isRunning && state.usedMemoryMb > 0) formatMemory(state.usedMemoryMb) else "--",
+                    "内存"
+                )
+                HeroStat(
+                    if (state.isRunning && state.runningSinceMs > 0)
+                        formatUptime(android.os.SystemClock.elapsedRealtime() - state.runningSinceMs)
+                    else "--",
+                    "运行时长"
+                )
             }
         }
     }
@@ -141,48 +155,27 @@ private fun HeroStat(value: String, label: String) {
         Text(
             value,
             color = Color.White,
-            fontSize = 15.sp,
+            fontSize = 13.sp,
             fontWeight = FontWeight.Bold
         )
         Text(
             label,
             color = Color.White.copy(alpha = 0.75f),
-            fontSize = 10.sp
+            fontSize = 9.sp
         )
     }
 }
 
-@Composable
-private fun RingProgress(percent: Int) {
-    Box(
-        modifier = Modifier
-            .size(74.dp)
-            .clip(CircleShape)
-            .background(
-                Brush.sweepGradient(
-                    colors = listOf(
-                        MintBright,
-                        MintBright,
-                        Color.White.copy(alpha = 0.18f)
-                    )
-                )
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size(60.dp)
-                .clip(CircleShape)
-                .background(IndigoRingBg),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                "$percent%",
-                color = Color.White,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+/** 运行时长格式化：秒/分钟/小时 */
+private fun formatUptime(ms: Long): String {
+    val totalSec = ms / 1000
+    val h = totalSec / 3600
+    val m = (totalSec % 3600) / 60
+    return when {
+        h >= 100 -> "${h}h"
+        h > 0 -> "${h}h${m}m"
+        m > 0 -> "${m}分钟"
+        else -> "${totalSec}秒"
     }
 }
 

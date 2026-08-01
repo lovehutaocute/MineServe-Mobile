@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcserver.manager.data.InstalledCore
@@ -79,6 +80,7 @@ import kotlinx.coroutines.launch
 fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp: () -> Unit) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
+    val deviceStats by vm.deviceStats.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()
@@ -132,6 +134,38 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
             HeroBlock(state = state, coreLabel = coreLabel)
+
+            // ── 设备状态卡片（常规权限可采集） ──
+            McCard(title = "设备状态") {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    DeviceStatCell(
+                        label = "设备内存",
+                        value = if (deviceStats.totalMemoryMb > 0)
+                            "${formatDeviceMb(deviceStats.availMemoryMb)} / ${formatDeviceMb(deviceStats.totalMemoryMb)}"
+                        else "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "存储",
+                        value = if (deviceStats.totalStorageMb > 0)
+                            "${formatDeviceMb(deviceStats.availStorageMb)} / ${formatDeviceMb(deviceStats.totalStorageMb)}"
+                        else "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "电池",
+                        value = when {
+                            deviceStats.batteryPercent < 0 -> "--"
+                            deviceStats.isCharging -> "${deviceStats.batteryPercent}% 充电中"
+                            else -> "${deviceStats.batteryPercent}%"
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
 
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
@@ -605,3 +639,24 @@ private fun formatSpeedShort(bytesPerSec: Long): String {
         else -> "$bytesPerSec B/s"
     }
 }
+
+// ── 设备状态卡片辅助组件 ────────────────────────────────────────────
+
+@Composable
+private fun DeviceStatCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier = modifier) {
+        Text(label, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(2.dp))
+        Text(
+            value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/** MB 数值格式化：超过 1GB 显示 G */
+private fun formatDeviceMb(mb: Long): String =
+    if (mb >= 1024) String.format("%.1fG", mb / 1024.0) else "${mb}M"
