@@ -46,6 +46,7 @@ import com.mcserver.manager.ui.McViewModel
 import com.mcserver.manager.ui.theme.Coral
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.Muted
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @Composable
@@ -57,6 +58,9 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     var isSnapshotting by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
+    // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
+    LaunchedEffect(Unit) { vm.errorFlow.collectLatest { snackbarHostState.showSnackbar(it) } }
+    LaunchedEffect(Unit) { vm.messageFlow.collectLatest { snackbarHostState.showSnackbar(it) } }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

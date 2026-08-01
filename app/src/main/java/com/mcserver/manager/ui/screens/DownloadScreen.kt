@@ -197,6 +197,22 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     color = Muted,
                     fontSize = 11.sp
                 )
+                // 当前核心插件/模组支持彩色提示
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text(
+                        if (config.selectedCore.supportsPlugins) "✓ 支持插件" else "✗ 不支持插件",
+                        color = if (config.selectedCore.supportsPlugins) Mint else Coral,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (config.selectedCore.supportsMods) "✓ 支持模组" else "✗ 不支持模组",
+                        color = if (config.selectedCore.supportsMods) Mint else Coral,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
 
             // 选择游戏版本
