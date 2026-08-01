@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -68,12 +69,13 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
 
     Column(modifier = Modifier.fillMaxSize()) {
-        // 顶部带返回按钮的 Header
+        // 顶部带返回按钮的 Header（白底覆盖状态栏，配合全屏展示）
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .background(Color.White)
-                .padding(horizontal = 12.dp, vertical = 14.dp),
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {

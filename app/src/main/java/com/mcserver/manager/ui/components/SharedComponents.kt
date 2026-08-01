@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -54,32 +55,36 @@ import com.mcserver.manager.ui.theme.MintSoft
 import com.mcserver.manager.ui.theme.Muted
 
 /**
- * 顶部 Header：参考界面 eyebrow + h1
+ * 顶部 Header：参考界面 eyebrow + h1。
+ * 默认以白色背景覆盖状态栏区域（配合全屏），内容避开状态栏文字；
+ * 若该页面顶部已有返回栏承接状态栏避让，可传 statusBarPadding = false。
  */
 @Composable
 fun HeaderBlock(
     eyebrow: String,
     title: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    statusBarPadding: Boolean = true
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 20.dp, vertical = 22.dp)
+            .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp)
     ) {
         Text(
             text = eyebrow,
             color = Muted,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.6.sp
         )
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(3.dp))
         Text(
             text = title,
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 21.sp,
+            fontSize = 19.sp,
             fontWeight = FontWeight.Bold
         )
     }

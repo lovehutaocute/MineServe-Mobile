@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -42,6 +43,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
@@ -114,9 +116,13 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
-        // 返回栏
+        // 返回栏（白底覆盖状态栏，配合全屏展示）
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -124,7 +130,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Text("返回设置", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
-        HeaderBlock(eyebrow = "Networking", title = "端口与内网穿透")
+        HeaderBlock(eyebrow = "Networking", title = "端口与内网穿透", statusBarPadding = false)
 
         // ── 服务器连接信息（局域网） ──────────────────────────
         McCard(title = "本地连接地址") {

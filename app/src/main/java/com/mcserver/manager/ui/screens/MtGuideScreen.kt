@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -46,9 +48,13 @@ fun MtGuideScreen(onBack: () -> Unit) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // 返回栏
+        // 返回栏（白底覆盖状态栏，配合全屏展示）
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -57,7 +63,7 @@ fun MtGuideScreen(onBack: () -> Unit) {
             Text("返回", fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
 
-        HeaderBlock(eyebrow = "Tools", title = "MT 管理器管理文件")
+        HeaderBlock(eyebrow = "Tools", title = "MT 管理器管理文件", statusBarPadding = false)
 
         McCard(title = "下载 MT 管理器") {
             Text("MT 管理器是一款强大的 Android 文件管理工具，支持免 Root 浏览应用私有数据目录。", color = Muted, fontSize = 12.sp)

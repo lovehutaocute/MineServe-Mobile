@@ -1,5 +1,6 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,6 +21,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -62,8 +65,13 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
     LaunchedEffect(loaded) { props = loaded }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        // 返回栏（白底覆盖状态栏，配合全屏展示）
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
@@ -76,7 +84,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit) {
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Server Properties", title = "服务器属性")
+            HeaderBlock(eyebrow = "Server Properties", title = "服务器属性", statusBarPadding = false)
 
             // ── 基本设置 ──
             McCard(title = "基本设置") {

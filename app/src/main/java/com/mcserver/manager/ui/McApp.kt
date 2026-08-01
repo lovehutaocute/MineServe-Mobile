@@ -3,8 +3,10 @@ package com.mcserver.manager.ui
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -64,6 +66,9 @@ fun McApp() {
     }
 
     Scaffold(
+        // 全屏展示：内容延伸到状态栏，顶部状态栏区域由各页面首个组件（HeaderBlock/返回栏）
+        // 以白色背景覆盖，不再显示系统状态栏灰色条
+        contentWindowInsets = WindowInsets(0.dp),
         bottomBar = {
             NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
                 McTab.values().forEach { t ->
