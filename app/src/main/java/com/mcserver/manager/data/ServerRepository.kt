@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.consumeAsFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import com.mcserver.manager.runtime.TermuxRuntime
@@ -65,8 +66,9 @@ class ServerRepository(
     private val _serverState = MutableStateFlow(ServerState())
     val serverState: StateFlow<ServerState> = _serverState.asStateFlow()
 
+    /** 原子更新服务器状态（CAS），避免多线程并发读改写丢失更新 */
     fun updateServerState(transform: (ServerState) -> ServerState) {
-        _serverState.value = transform(_serverState.value)
+        _serverState.update { transform(it) }
     }
 
     /** 由 ForegroundService 调用：标记安装步骤进度 */

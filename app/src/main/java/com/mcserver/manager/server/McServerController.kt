@@ -561,7 +561,7 @@ class McServerController(
                                 Thread.sleep(3000)
                                 kotlinx.coroutines.runBlocking {
                                     launchMc(config, dirName, jarPath)
-                                    repo.updateServerState { it.copy(isRunning = true) }
+                                    repo.updateServerState { it.copy(isRunning = true, runningSinceMs = 0L) }
                                 }
                             } catch (e: Exception) {
                                 Log.e(TAG, "崩溃重启失败: ${e.message}", e)
@@ -573,12 +573,12 @@ class McServerController(
                 }
             }
         )
-        repo.updateServerState { it.copy(isRunning = true) }
+        repo.updateServerState { it.copy(isRunning = true, runningSinceMs = 0L) }
     }
 
     suspend fun stop() = withContext(Dispatchers.IO) {
         termux.stopMc()
-        repo.updateServerState { it.copy(isRunning = false) }
+        repo.updateServerState { it.copy(isRunning = false, runningSinceMs = 0L) }
     }
 
 

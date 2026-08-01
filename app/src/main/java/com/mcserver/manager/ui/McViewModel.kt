@@ -162,7 +162,7 @@ class McViewModel(
                 // 部分设备/模拟器不支持电池属性，保持 -1
             }
 
-            _deviceStats.value = DeviceStats(
+            val newStats = DeviceStats(
                 totalMemoryMb = totalMemMb,
                 availMemoryMb = availMemMb,
                 totalStorageMb = totalStorageMb,
@@ -170,6 +170,8 @@ class McViewModel(
                 batteryPercent = batteryPercent,
                 isCharging = isCharging
             )
+            // 值未变化时不推送，避免每 3 秒触发 UI 重组
+            if (_deviceStats.value != newStats) _deviceStats.value = newStats
 
             // 修复 usedMemoryMb：MC 进程真实 RSS（原字段从未被采集，恒为 0）
             if (repo.termuxRuntime.isMcRunning()) {

@@ -168,7 +168,7 @@ private fun HeroStat(value: String, label: String) {
 
 /** 运行时长格式化：秒/分钟/小时 */
 private fun formatUptime(ms: Long): String {
-    val totalSec = ms / 1000
+    val totalSec = (ms.coerceAtLeast(0L)) / 1000
     val h = totalSec / 3600
     val m = (totalSec % 3600) / 60
     return when {

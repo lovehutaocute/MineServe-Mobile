@@ -412,13 +412,15 @@ class TermuxRuntime(context: Context) {
     /**
      * 读取 MC 进程当前真实内存占用（RSS，单位 MB）。
      * Android 的 java.lang.Process 无公开 pid()，改为遍历 /proc 查找
-     * 进程名（comm）为 "java" 的进程，读取其 stat 第 24 字段（rss，单位页）。
+     * java 进程，优先匹配 cmdline 含 ".jar" 的 MC 服务端进程，否则取第一个
+     * java 进程兜底；读取其 stat 中 rss 字段（剥离 comm 后 0-based 索引 21）。
      * 常规权限即可读取（app 自有子进程），兼容性好。
      * @return MB 值；未找到/读取失败时返回 0
      */
     fun mcProcessMemoryMb(): Long {
         return try {
             val procDir = java.io.File("/proc")
+            var fallbackRss = 0L
             procDir.listFiles()?.forEach { f ->
                 val name = f.name
                 if (name.isEmpty() || !name.all { it.isDigit() }) return@forEach
@@ -431,12 +433,17 @@ class TermuxRuntime(context: Context) {
                 if (openParen <= 0 || closeParen <= openParen) return@forEach
                 val comm = content.substring(openParen + 1, closeParen)
                 if (comm != "java") return@forEach
-                // closeParen 后从 state 开始：state(1) ... rss(24)，索引 23（0-based）
+                // closeParen 后从 state 开始：state(1) ... vsize(23) rss(24)，rss 0-based 索引 21
                 val rssPages = content.substring(closeParen + 1)
-                    .trim().split(" ").getOrNull(23)?.toLongOrNull() ?: 0L
-                if (rssPages > 0) return rssPages * 4096 / (1024 * 1024)
+                    .trim().split(Regex("\\s+")).getOrNull(21)?.toLongOrNull() ?: 0L
+                if (rssPages <= 0) return@forEach
+                // 优先匹配 MC 服务端进程（cmdline 含 .jar），否则记录首个 java 进程兜底
+                val cmdlineFile = java.io.File(f, "cmdline")
+                val isMcJar = cmdlineFile.exists() && cmdlineFile.readText().contains(".jar")
+                if (isMcJar) return rssPages * 4096 / (1024 * 1024)
+                if (fallbackRss == 0L) fallbackRss = rssPages * 4096 / (1024 * 1024)
             }
-            0L
+            fallbackRss
         } catch (e: Exception) {
             0L
         }
