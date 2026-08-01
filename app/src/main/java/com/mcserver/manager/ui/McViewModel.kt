@@ -250,19 +250,20 @@ class McViewModel(
             // 快速前缀检查：只有包含关键子串的行才进一步处理
             when {
                 line.contains("joined the game") -> {
-                    repo.updateServerState {
-                        it.copy(onlinePlayers = (it.onlinePlayers + 1).coerceAtLeast(0))
-                    }
+                    // 仅当提取到真实玩家名（日志前缀 + 合法名字）时才计数与记录，避免聊天消息误报
                     playerManager.extractPlayerName(line)?.let { name ->
+                        repo.updateServerState {
+                            it.copy(onlinePlayers = (it.onlinePlayers + 1).coerceAtLeast(0))
+                        }
                         addOnlinePlayer(name)
                         recordPlayerEvent(name, "进服")
                     }
                 }
                 line.contains("left the game") -> {
-                    repo.updateServerState {
-                        it.copy(onlinePlayers = (it.onlinePlayers - 1).coerceAtLeast(0))
-                    }
                     playerManager.extractPlayerName(line)?.let { name ->
+                        repo.updateServerState {
+                            it.copy(onlinePlayers = (it.onlinePlayers - 1).coerceAtLeast(0))
+                        }
                         removeOnlinePlayer(name)
                         recordPlayerEvent(name, "离服")
                     }

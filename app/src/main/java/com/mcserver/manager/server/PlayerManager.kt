@@ -21,8 +21,9 @@ import kotlinx.serialization.json.Json
  */
 class PlayerManager(private val termux: TermuxRuntime) {
 
-    /** 进服/离服日志解析：玩家名(1-16位字母数字下划线) + 可选[IP]后缀 + (has) joined/left the game */
-    private val joinLeaveRegex = Regex("([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
+    /** 进服/离服日志解析：日志前缀(]: 结尾) + 玩家名(1-16位字母数字下划线) + 可选[IP]后缀 + (has) joined/left the game。
+     * 以 ": " 锚定日志前缀结尾，过滤聊天消息（如 "<Steve> I joined the game"）误提取。 */
+    private val joinLeaveRegex = Regex(":\\s*([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
 
     @Serializable
     data class OpEntry(val name: String, val uuid: String, val level: Int = 4)

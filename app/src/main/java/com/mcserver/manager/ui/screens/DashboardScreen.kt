@@ -98,7 +98,6 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    var isStarting by remember { mutableStateOf(false) }
     var isStopping by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
@@ -436,17 +435,13 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Button(
-                        onClick = {
-                            isStarting = true
-                            vm.startServer()
-                            scope.launch { isStarting = false }
-                        },
-                        enabled = !isStarting && !state.isRunning && isBootstrapped,
+                        onClick = { vm.startServer() },
+                        enabled = !state.isRunning && isBootstrapped,
                         colors = ButtonDefaults.buttonColors(containerColor = Mint),
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f)
                     ) {
-                        if (isStarting) {
+                        if (state.isRunning && state.runningSinceMs == 0L) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(18.dp),
                                 color = Color.White,
@@ -455,7 +450,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             Spacer(Modifier.size(6.dp))
                         }
                         Text(
-                            if (isStarting) "启动中..." else "启动",
+                            if (state.isRunning && state.runningSinceMs == 0L) "启动中..." else "启动",
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold
                         )

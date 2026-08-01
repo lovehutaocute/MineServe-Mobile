@@ -390,7 +390,8 @@ private fun FileItemRow(
                         "【$ann】",
                         color = Muted,
                         fontSize = 10.sp,
-                        maxLines = 1
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
             }
