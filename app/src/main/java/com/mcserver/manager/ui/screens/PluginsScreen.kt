@@ -71,6 +71,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mcserver.manager.data.ServerCore
 import com.mcserver.manager.server.PluginManager
 import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
@@ -86,6 +87,9 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 private enum class PluginTab(val label: String) { Installed("已安装"), Curated("精选推荐"), Upload("本地上传") }
+
+/** 资源类型：插件 / 模组（按核心兼容性屏蔽） */
+private enum class ResourceType(val label: String) { Plugin("插件"), Mod("模组") }
 
 /** 插件资源站点（点击跳转官网） */
 private data class PluginSite(val name: String, val desc: String, val url: String)
@@ -160,6 +164,17 @@ fun PluginsScreen(vm: McViewModel) {
     }
 
     val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+    val coreType = activeCore?.core ?: config.selectedCore
+    // 按核心兼容性计算可用资源类型（不支持的分类自动屏蔽）
+    val availableTypes = buildList {
+        if (coreType.supportsPlugins) add(ResourceType.Plugin)
+        if (coreType.supportsMods) add(ResourceType.Mod)
+    }
+    var resourceType by remember { mutableStateOf(ResourceType.Plugin) }
+    // 核心切换时校正资源类型（默认取第一个可用类型）
+    LaunchedEffect(coreType) {
+        resourceType = availableTypes.firstOrNull() ?: ResourceType.Plugin
+    }
     val pluginsPath = vm.currentPluginsPath()
     val isServerRunning = serverState.isRunning
 
@@ -235,6 +250,60 @@ fun PluginsScreen(vm: McViewModel) {
                             fontSize = 11.sp
                         )
                     }
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            if (coreType.supportsPlugins) "✓ 支持插件" else "✗ 不支持插件",
+                            color = if (coreType.supportsPlugins) Mint else Coral,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (coreType.supportsMods) "✓ 支持模组" else "✗ 不支持模组",
+                            color = if (coreType.supportsMods) Mint else Coral,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+
+            // ── 资源类型切换（按核心兼容性屏蔽不支持的分类） ──
+            if (availableTypes.isEmpty()) {
+                Text(
+                    "当前核心（${coreType.displayName}）不支持插件与模组",
+                    color = Coral,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp)
+                )
+            } else {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 4.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(IndigoSoft)
+                        .padding(4.dp)
+                ) {
+                    availableTypes.forEach { t ->
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (resourceType == t) Indigo else Color.Transparent)
+                                .clickable { resourceType = t }
+                                .padding(vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                t.label,
+                                color = if (resourceType == t) Color.White else Muted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                    }
                 }
             }
 
@@ -272,7 +341,8 @@ fun PluginsScreen(vm: McViewModel) {
                 }
             }
 
-            // ── 内容区（按标签切换） ──
+            // ── 内容区（插件 / 模组按资源类型分流） ──
+            if (resourceType == ResourceType.Plugin) {
             when (activeTab) {
                 PluginTab.Installed -> InstalledTab(
                     installed = installedPlugins,
@@ -287,6 +357,7 @@ fun PluginsScreen(vm: McViewModel) {
                     downloadProgress = downloadProgress,
                     curatedUpdates = curatedUpdates,
                     isCheckingUpdates = isCheckingUpdates,
+                    coreType = coreType,
                     isCuratedInstalled = { vm.isCuratedPluginInstalled(it) },
                     onInstall = { vm.installCuratedPlugin(it) },
                     onCheckUpdates = { vm.checkCuratedUpdates() },
@@ -300,6 +371,16 @@ fun PluginsScreen(vm: McViewModel) {
                     onInstallFromUrl = { url, name -> vm.installPluginFromUrl(url, name) },
                     onGotoInstalled = { activeTab = PluginTab.Installed }
                 )
+            }
+            } else {
+                // 模组分类（阶段三实现完整管理）
+                McCard(title = "模组管理") {
+                    Text(
+                        "当前核心（${coreType.displayName}）支持模组体系。\n模组管理功能建设中...",
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
             // ── 底部热重载 ──
@@ -572,6 +653,7 @@ private fun CuratedTab(
     downloadProgress: Map<String, McViewModel.PluginDownloadProgress>,
     curatedUpdates: Map<String, PluginManager.CuratedUpdateInfo>,
     isCheckingUpdates: Boolean,
+    coreType: ServerCore,
     isCuratedInstalled: (PluginManager.CuratedPlugin) -> Boolean,
     onInstall: (PluginManager.CuratedPlugin) -> Unit,
     onCheckUpdates: () -> Unit,
@@ -606,6 +688,22 @@ private fun CuratedTab(
             color = Muted,
             fontSize = 10.sp
         )
+        // 当前核心兼容性彩色提示（醒目展示支持/不支持内容）
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                if (coreType.supportsPlugins) "✓ 本核心支持插件" else "✗ 本核心不支持插件",
+                color = if (coreType.supportsPlugins) Mint else Coral,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                if (coreType.supportsMods) "✓ 本核心支持模组" else "✗ 本核心不支持模组",
+                color = if (coreType.supportsMods) Mint else Coral,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
         Spacer(Modifier.height(10.dp))
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             curatedList.forEach { curated ->

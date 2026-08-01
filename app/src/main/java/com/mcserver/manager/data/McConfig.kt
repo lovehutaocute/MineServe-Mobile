@@ -10,7 +10,16 @@ enum class ServerCore(val displayName: String) {
     Paper("Paper"),
     Fabric("Fabric"),
     Forge("Forge"),
-    Vanilla("Vanilla")
+    Vanilla("Vanilla");
+
+    /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
+    val supportsPlugins: Boolean get() = this == Paper
+
+    /** 是否支持 Fabric/Forge 模组体系 */
+    val supportsMods: Boolean get() = this == Fabric || this == Forge
+
+    /** 是否支持桥接兼容层（插件↔模组互转，如 CardBoard 等，需用户自行安装） */
+    val supportsBridge: Boolean get() = this == Fabric || this == Forge
 }
 
 /**

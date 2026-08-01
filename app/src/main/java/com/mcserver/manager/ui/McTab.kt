@@ -15,7 +15,7 @@ enum class McTab(val label: String, val icon: ImageVector) {
     Dashboard("概览", Icons.Outlined.Dashboard),
     Download("下载", Icons.Outlined.Download),
     Players("玩家", Icons.Outlined.People),
-    Plugins("插件", Icons.Outlined.Extension),
+    Plugins("插件与模组", Icons.Outlined.Extension),
     Files("文件", Icons.Outlined.Folder),
     Network("网络", Icons.Outlined.Cloud),
     Backup("备份", Icons.Outlined.Backup),
