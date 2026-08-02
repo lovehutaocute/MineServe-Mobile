@@ -1,127 +1,996 @@
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">JavaMC GO</string>
-    <string name="tab_dashboard">Dashboard</string>
-    <string name="tab_download">Download</string>
-    <string name="tab_players">Players</string>
-    <string name="tab_plugins">Plugins &amp; Mods</string>
-    <string name="tab_files">Files</string>
-    <string name="tab_network">Network</string>
-    <string name="tab_backup">Backup</string>
-    <string name="tab_config">Config</string>
-    <string name="tab_settings">Settings</string>
-    <string name="s1000">Other parameters (new server version)</string>
-    <string name="s1001">Some properties take effect after restarting the server. Continue?</string>
-    <string name="s1002">Continue</string>
-    <string name="s1006">Max heap (MB)</string>
-    <string name="s1009">Termux Download Mirror</string>
-    <string name="s1012">APT Mirror</string>
-    <string name="s1019">Open Keep-Alive Settings</string>
-    <string name="s274">Server not running, cannot toggle whitelist</string>
-    <string name="s318">Online</string>
-    <string name="s326">Pack world directory to zip, save to home/snapshots/</string>
-    <string name="s328">Save</string>
-    <string name="s331">Create Backup</string>
-    <string name="s334">No backups yet</string>
-    <string name="s339">Delete</string>
-    <string name="s350">Open MC Console</string>
-    <string name="s355">Retry</string>
-    <string name="s371">Select Server Core</string>
-    <string name="s382">Stop</string>
-    <string name="s387">LAN</string>
-    <string name="s389">Public Tunnel</string>
-    <string name="s391">No plugins installed</string>
-    <string name="s395">Server Launch Settings</string>
-    <string name="s396">Auto-restart on crash</string>
-    <string name="s399">Delete Runtime Environment</string>
-    <string name="s401">Confirm Delete</string>
-    <string name="s402">Cancel</string>
-    <string name="s404">Back</string>
-    <string name="s455">Select</string>
-    <string name="s472">Fetching version list from official API...</string>
-    <string name="s473">No versions available, use custom version below</string>
-    <string name="s474">Custom version</string>
-    <string name="s475">e.g. 1.20.4</string>
-    <string name="s477">OK</string>
-    <string name="s483">Core name (to distinguish cores)</string>
-    <string name="s484">e.g. survival-1.20.4</string>
-    <string name="s486">Start Download</string>
-    <string name="s487">Download log:</string>
-    <string name="s489">Manage Files with MT Manager</string>
-    <string name="s491">Export Server</string>
-    <string name="s492">MT Manager Tutorial Video</string>
-    <string name="s496">Parent</string>
-    <string name="s497">Upload</string>
-    <string name="s498">New Folder</string>
-    <string name="s499">Create</string>
-    <string name="s506">Folder name</string>
-    <string name="s507">Create</string>
-    <string name="s541">Back to Settings</string>
-    <string name="s546">Start Service</string>
-    <string name="s547">Stop Service</string>
-    <string name="s557">Console Log</string>
-    <string name="s562">Send command to console (e.g. /say hello)</string>
-    <string name="s566">MT Manager is a powerful Android file manager supporting root-free access to app private data.</string>
-    <string name="s567">Download MT Manager</string>
-    <string name="s581">Hint</string>
-    <string name="s588">Local address</string>
-    <string name="s590">LAN IP</string>
-    <string name="s592">Port</string>
-    <string name="s593">LAN Connection Address</string>
-    <string name="s596">Minecraft server listen port, default 25565</string>
-    <string name="s598">Tunnel type</string>
-    <string name="s599">frpc.toml config</string>
-    <string name="s600">Paste full frpc.toml content...</string>
-    <string name="s602">bore server address</string>
-    <string name="s603">e.g. your-vps.com:7835</string>
-    <string name="s615">Start Tunnel</string>
-    <string name="s619">No tunnel logs</string>
-    <string name="s620">Close</string>
-    <string name="s677">Player Join/Leave History</string>
-    <string name="s678">No history yet</string>
-    <string name="s686">Refresh Online List</string>
-    <string name="s688">Kick</string>
-    <string name="s692">Search OP player name...</string>
-    <string name="s696">Add OP</string>
-    <string name="s697">Player name</string>
-    <string name="s699">Server not running, cannot add OP</string>
-    <string name="s705">Search whitelist player...</string>
-    <string name="s708">Add to Whitelist</string>
-    <string name="s709">Add</string>
-    <string name="s711">Search banned player...</string>
-    <string name="s716">Ban Player</string>
-    <string name="s717">Ban reason (optional)</string>
-    <string name="s718">Server not running, cannot ban</string>
-    <string name="s720">Player Details</string>
-    <string name="s726">Server not running, commands unavailable</string>
-    <string name="s727">Quick Actions</string>
-    <string name="s728">Ban</string>
-    <string name="s729">Remove OP</string>
-    <string name="s73">Done</string>
-    <string name="s730">Game Mode</string>
-    <string name="s731">Only online players can switch; offline players must join first</string>
-    <string name="s732">Remove from Whitelist</string>
-    <string name="s733">Unban</string>
-    <string name="s768">Confirm Delete Mod</string>
-    <string name="s772">Search plugin name...</string>
-    <string name="s783">Force Recheck (clear cache)</string>
-    <string name="s789">Update to Latest</string>
-    <string name="s790">Installed (latest)</string>
-    <string name="s791">Download and Install</string>
-    <string name="s795">Tap to select .jar file</string>
-    <string name="s796">Supports .jar from any source</string>
-    <string name="s797">or</string>
-    <string name="s798">Custom URL Download</string>
-    <string name="s800">Download URL</string>
-    <string name="s801">Save file name (with or without .jar)</string>
-    <string name="s802">View Installed List</string>
-    <string name="s803">Delete Plugin</string>
-    <string name="s804">Delete the following plugin?</string>
-    <string name="s807">Also delete plugin data directory</string>
-    <string name="s810">Plugin Details</string>
-    <string name="s830">Upload Mod (.jar)</string>
-    <string name="s833">Search mod, e.g. sodium</string>
-    <string name="s834">Search</string>
-    <string name="s835">Loader filter (multi-select, empty = all)</string>
-    <string name="s837">Install</string>
+    <string name="app_name" formatted="false">JavaMC GO</string>
+    <string name="tab_dashboard" formatted="false">Dashboard</string>
+    <string name="tab_download" formatted="false">Download</string>
+    <string name="tab_players" formatted="false">Players</string>
+    <string name="tab_plugins" formatted="false">Plugins &amp; Mods</string>
+    <string name="tab_files" formatted="false">Files</string>
+    <string name="tab_network" formatted="false">Network</string>
+    <string name="tab_backup" formatted="false">Backup</string>
+    <string name="tab_config" formatted="false">Config</string>
+    <string name="tab_settings" formatted="false">Settings</string>
+    <string name="s1000" formatted="false">Other parameters (new server version)</string>
+    <string name="s1001" formatted="false">Some properties take effect after restarting the server. Continue?</string>
+    <string name="s1002" formatted="false">Continue</string>
+    <string name="s1006" formatted="false">Max heap (MB)</string>
+    <string name="s1009" formatted="false">Termux Download Mirror</string>
+    <string name="s1012" formatted="false">APT Mirror</string>
+    <string name="s1019" formatted="false">Open Keep-Alive Settings</string>
+    <string name="s274" formatted="false">Server not running, cannot toggle whitelist</string>
+    <string name="s318" formatted="false">Online</string>
+    <string name="s326" formatted="false">Pack world directory to zip, save to home/snapshots/</string>
+    <string name="s328" formatted="false">Save</string>
+    <string name="s331" formatted="false">Create Backup</string>
+    <string name="s334" formatted="false">No backups yet</string>
+    <string name="s339" formatted="false">Delete</string>
+    <string name="s350" formatted="false">Open MC Console</string>
+    <string name="s355" formatted="false">Retry</string>
+    <string name="s371" formatted="false">Select Server Core</string>
+    <string name="s382" formatted="false">Stop</string>
+    <string name="s387" formatted="false">LAN</string>
+    <string name="s389" formatted="false">Public Tunnel</string>
+    <string name="s391" formatted="false">No plugins installed</string>
+    <string name="s395" formatted="false">Server Launch Settings</string>
+    <string name="s396" formatted="false">Auto-restart on crash</string>
+    <string name="s399" formatted="false">Delete Runtime Environment</string>
+    <string name="s401" formatted="false">Confirm Delete</string>
+    <string name="s402" formatted="false">Cancel</string>
+    <string name="s404" formatted="false">Back</string>
+    <string name="s455" formatted="false">Select</string>
+    <string name="s472" formatted="false">Fetching version list from official API...</string>
+    <string name="s473" formatted="false">No versions available, use custom version below</string>
+    <string name="s474" formatted="false">Custom version</string>
+    <string name="s475" formatted="false">e.g. 1.20.4</string>
+    <string name="s477" formatted="false">OK</string>
+    <string name="s483" formatted="false">Core name (to distinguish cores)</string>
+    <string name="s484" formatted="false">e.g. survival-1.20.4</string>
+    <string name="s486" formatted="false">Start Download</string>
+    <string name="s487" formatted="false">Download log:</string>
+    <string name="s489" formatted="false">Manage Files with MT Manager</string>
+    <string name="s491" formatted="false">Export Server</string>
+    <string name="s492" formatted="false">MT Manager Tutorial Video</string>
+    <string name="s496" formatted="false">Parent</string>
+    <string name="s497" formatted="false">Upload</string>
+    <string name="s498" formatted="false">New Folder</string>
+    <string name="s499" formatted="false">Create</string>
+    <string name="s506" formatted="false">Folder name</string>
+    <string name="s507" formatted="false">Create</string>
+    <string name="s541" formatted="false">Back to Settings</string>
+    <string name="s546" formatted="false">Start Service</string>
+    <string name="s547" formatted="false">Stop Service</string>
+    <string name="s557" formatted="false">Console Log</string>
+    <string name="s562" formatted="false">Send command to console (e.g. /say hello)</string>
+    <string name="s566" formatted="false">MT Manager is a powerful Android file manager supporting root-free access to app private data.</string>
+    <string name="s567" formatted="false">Download MT Manager</string>
+    <string name="s581" formatted="false">Hint</string>
+    <string name="s588" formatted="false">Local address</string>
+    <string name="s590" formatted="false">LAN IP</string>
+    <string name="s592" formatted="false">Port</string>
+    <string name="s593" formatted="false">LAN Connection Address</string>
+    <string name="s596" formatted="false">Minecraft server listen port, default 25565</string>
+    <string name="s598" formatted="false">Tunnel type</string>
+    <string name="s599" formatted="false">frpc.toml config</string>
+    <string name="s600" formatted="false">Paste full frpc.toml content...</string>
+    <string name="s602" formatted="false">bore server address</string>
+    <string name="s603" formatted="false">e.g. your-vps.com:7835</string>
+    <string name="s615" formatted="false">Start Tunnel</string>
+    <string name="s619" formatted="false">No tunnel logs</string>
+    <string name="s620" formatted="false">Close</string>
+    <string name="s677" formatted="false">Player Join/Leave History</string>
+    <string name="s678" formatted="false">No history yet</string>
+    <string name="s686" formatted="false">Refresh Online List</string>
+    <string name="s688" formatted="false">Kick</string>
+    <string name="s692" formatted="false">Search OP player name...</string>
+    <string name="s696" formatted="false">Add OP</string>
+    <string name="s697" formatted="false">Player name</string>
+    <string name="s699" formatted="false">Server not running, cannot add OP</string>
+    <string name="s705" formatted="false">Search whitelist player...</string>
+    <string name="s708" formatted="false">Add to Whitelist</string>
+    <string name="s709" formatted="false">Add</string>
+    <string name="s711" formatted="false">Search banned player...</string>
+    <string name="s716" formatted="false">Ban Player</string>
+    <string name="s717" formatted="false">Ban reason (optional)</string>
+    <string name="s718" formatted="false">Server not running, cannot ban</string>
+    <string name="s720" formatted="false">Player Details</string>
+    <string name="s726" formatted="false">Server not running, commands unavailable</string>
+    <string name="s727" formatted="false">Quick Actions</string>
+    <string name="s728" formatted="false">Ban</string>
+    <string name="s729" formatted="false">Remove OP</string>
+    <string name="s73" formatted="false">Done</string>
+    <string name="s730" formatted="false">Game Mode</string>
+    <string name="s731" formatted="false">Only online players can switch; offline players must join first</string>
+    <string name="s732" formatted="false">Remove from Whitelist</string>
+    <string name="s733" formatted="false">Unban</string>
+    <string name="s768" formatted="false">Confirm Delete Mod</string>
+    <string name="s772" formatted="false">Search plugin name...</string>
+    <string name="s783" formatted="false">Force Recheck (clear cache)</string>
+    <string name="s789" formatted="false">Update to Latest</string>
+    <string name="s790" formatted="false">Installed (latest)</string>
+    <string name="s791" formatted="false">Download and Install</string>
+    <string name="s795" formatted="false">Tap to select .jar file</string>
+    <string name="s796" formatted="false">Supports .jar from any source</string>
+    <string name="s797" formatted="false">or</string>
+    <string name="s798" formatted="false">Custom URL Download</string>
+    <string name="s800" formatted="false">Download URL</string>
+    <string name="s801" formatted="false">Save file name (with or without .jar)</string>
+    <string name="s802" formatted="false">View Installed List</string>
+    <string name="s803" formatted="false">Delete Plugin</string>
+    <string name="s804" formatted="false">Delete the following plugin?</string>
+    <string name="s807" formatted="false">Also delete plugin data directory</string>
+    <string name="s810" formatted="false">Plugin Details</string>
+    <string name="s830" formatted="false">Upload Mod (.jar)</string>
+    <string name="s833" formatted="false">Search mod, e.g. sodium</string>
+    <string name="s834" formatted="false">Search</string>
+    <string name="s835" formatted="false">Loader filter (multi-select, empty = all)</string>
+    <string name="s837" formatted="false">Install</string>
 
+    <string name="s1" formatted="false">Boot auto-start: launching foreground keep-alive service</string>
+    <string name="s2" formatted="false">Boot auto-start failed: ${e.message}</string>
+    <string name="s7" formatted="false">Unknown error</string>
+    <string name="s8" formatted="false">Init failed, please check network and retry</string>
+    <string name="s9" formatted="false">Self-hosted server, full features, custom ports</string>
+    <string name="s10" formatted="false">Self-hosted server, minimal protocol, runs entirely on phone</string>
+    <string name="s11" formatted="false">Auto (mirror first)</string>
+    <string name="s12" formatted="false">GitHub direct</string>
+    <string name="s13" formatted="false">Tsinghua Mirror (TUNA)</string>
+    <string name="s14" formatted="false">Aliyun Mirror</string>
+    <string name="s15" formatted="false">USTC Mirror</string>
+    <string name="s16" formatted="false">Nanjing University Mirror</string>
+    <string name="s17" formatted="false">Termux Official</string>
+    <string name="s18" formatted="false">JDK 17 Runtime</string>
+    <string name="s19" formatted="false">Wget Download Tool</string>
+    <string name="s20" formatted="false">Frp Tunneling</string>
+    <string name="s21" formatted="false">Rclone Remote Mount</string>
+    <string name="s22" formatted="false">PRoot Compatibility Layer</string>
+    <string name="s23" formatted="false">Performance optimized, compatible with most plugins</string>
+    <string name="s24" formatted="false">Deleting Termux runtime environment...</string>
+    <string name="s25" formatted="false">Termux runtime environment deleted</string>
+    <string name="s26" formatted="false">Termux environment ready</string>
+    <string name="s27" formatted="false">Applying supplementary config (missing from old init)...</string>
+    <string name="s28" formatted="false">Downloading Termux runtime environment</string>
+    <string name="s29" formatted="false">Cached rootfs corrupted, re-downloading</string>
+    <string name="s30" formatted="false">Cached rootfs exists, skipping download</string>
+    <string name="s31" formatted="false">Cleaning up last failed extraction...</string>
+    <string name="s32" formatted="false">Extracting...</string>
+    <string name="s33" formatted="false">Extraction complete</string>
+    <string name="s34" formatted="false">Error: bin/bash not found! Extraction failed</string>
+    <string name="s36" formatted="false">bin/ directory not found</string>
+    <string name="s38" formatted="false">bin/bash not found after extraction</string>
+    <string name="s41" formatted="false">invalid!</string>
+    <string name="s42" formatted="false">Initializing config...</string>
+    <string name="s43" formatted="false">Termux environment initialized</string>
+    <string name="s44" formatted="false">Init failed: ${e.message}</string>
+    <string name="s47" formatted="false">Processing symlinks (SYMLINKS.txt)...</string>
+    <string name="s50" formatted="false">Warning: SYMLINKS.txt missing!</string>
+    <string name="s51" formatted="false">Downloading Termux runtime (~30MB)...</string>
+    <string name="s52" formatted="false">Mirror${idx}</string>
+    <string name="s54" formatted="false">Verifying file integrity...</string>
+    <string name="s55" formatted="false">SHA256 verification failed</string>
+    <string name="s56" formatted="false">Verification passed</string>
+    <string name="s58" formatted="false">All mirrors failed: ${lastError?.message}</string>
+    <string name="s64" formatted="false">Merging Android system CA certificates...</string>
+    <string name="s70" formatted="false">Downloading Linux filesystem</string>
+    <string name="s71" formatted="false">Extracting filesystem</string>
+    <string name="s72" formatted="false">Initializing config</string>
+    <string name="s74" formatted="false">[bootstrap] Environment ready, skipping dependency install</string>
+    <string name="s75" formatted="false">[bootstrap] Installing dependencies (JDK-25/wget)...</string>
+    <string name="s81" formatted="false">[startMc] Error: java not found, openjdk may not be installed. Delete Termux env and re-init</string>
+    <string name="s83" formatted="false">[startMc] Error: java not found, check openjdk-17 installation</string>
+    <string name="s84" formatted="false">createSnapshot: world directory not found</string>
+    <string name="s89" formatted="false">MCServerManager crash report</string>
+    <string name="s92" formatted="false">Process state: abnormal exit</string>
+    <string name="s93" formatted="false">--- Recent log (last 200 lines) ---</string>
+    <string name="s95" formatted="false">(latest.log not found)</string>
+    <string name="s96" formatted="false">--- MC native crash report ---</string>
+    <string name="s99" formatted="false">(No MC native crash report)</string>
+    <string name="s100" formatted="false">Termux environment not initialized, please wait</string>
+    <string name="s101" formatted="false">[install] Running ${config.selectedCore.displayName} installer, first install downloads dependencies, please wait...</string>
+    <string name="s102" formatted="false">NeoForge installer failed (exit=$code)</string>
+    <string name="s103" formatted="false">Quilt installer failed (exit=$code)</string>
+    <string name="s104" formatted="false">[install] ${config.selectedCore.displayName} installed</string>
+    <string name="s105" formatted="false">[download] Downloading ${config.selectedCore.displayName} ${config.mcVersion}</string>
+    <string name="s106" formatted="false">[download] Save path: $jarPath</string>
+    <string name="s109" formatted="false">Downloaded file too small ($fileSize bytes), download may have failed</string>
+    <string name="s110" formatted="false">[download] Download complete: ${fileSize / 1024 / 1024}MB</string>
+    <string name="s113" formatted="false">Download failed (retried 3 times): ${lastError?.message}</string>
+    <string name="s114" formatted="false">Dependency install failed, install dependencies first before starting server</string>
+    <string name="s115" formatted="false">No server core selected, download or select one in the Download tab first</string>
+    <string name="s116" formatted="false">Core ${activeCore.name} server.jar not found, please re-download</string>
+    <string name="s117" formatted="false">server.jar not found, download a server core in the Download tab first</string>
+    <string name="s118" formatted="false">Environment not initialized, please wait</string>
+    <string name="s119" formatted="false">Delete the entire Termux runtime environment?</string>
+    <string name="s120" formatted="false">This will delete all servers, worlds and data. Operation cannot be undone!</string>
+    <string name="s121" formatted="false">Delete</string>
+    <string name="s122" formatted="false">Delete failed: ${e.message}</string>
+    <string name="s123" formatted="false">Add dependency install steps</string>
+    <string name="s124" formatted="false">Environment initializing</string>
+    <string name="s125" formatted="false">Installing...</string>
+    <string name="s126" formatted="false">Start install</string>
+    <string name="s127" formatted="false">Delete Termux runtime environment</string>
+    <string name="s128" formatted="false">Copy server address</string>
+    <string name="s129" formatted="false">Address copied: $address</string>
+    <string name="s130" formatted="false">Delete runtime environment button</string>
+    <string name="s131" formatted="false">Server is running, restarting required for config changes</string>
+    <string name="s132" formatted="false">Restart Server</string>
+    <string name="s133" formatted="false">Restarting server...</string>
+    <string name="s134" formatted="false">Restart</string>
+    <string name="s135" formatted="false">Confirm restart server</string>
+    <string name="s136" formatted="false">Server restart will interrupt all players. Continue?</string>
+    <string name="s137" formatted="false">Start</string>
+    <string name="s138" formatted="false">Startup...</string>
+    <string name="s139" formatted="false">Stop server</string>
+    <string name="s140" formatted="false">Stop</string>
+    <string name="s141" formatted="false">Confirm stop server</string>
+    <string name="s142" formatted="false">Stopping will disconnect all players. Continue?</string>
+    <string name="s143" formatted="false">Status: running</string>
+    <string name="s144" formatted="false">Status: stopped</string>
+    <string name="s145" formatted="false">First launch downloads runtime files, please be patient</string>
+    <string name="s146" formatted="false">Remove all servers, worlds and backups</string>
+    <string name="s147" formatted="false">Delete all server data (including all cores and worlds)?</string>
+    <string name="s148" formatted="false">Reset all data</string>
+    <string name="s149" formatted="false">Reset data</string>
+    <string name="s150" formatted="false">All data has been reset</string>
+    <string name="s151" formatted="false">Data reset failed: ${e.message}</string>
+    <string name="s152" formatted="false">Install plugins after server starts</string>
+    <string name="s153" formatted="false">Search player name...</string>
+    <string name="s154" formatted="false">Server not running</string>
+    <string name="s155" formatted="false">Server offline, online list unavailable</string>
+    <string name="s156" formatted="false">Whitelist enabled</string>
+    <string name="s157" formatted="false">Whitelist disabled</string>
+    <string name="s158" formatted="false">Ban list</string>
+    <string name="s159" formatted="false">Add OP</string>
+    <string name="s160" formatted="false">Remove OP</string>
+    <string name="s161" formatted="false">Player name</string>
+    <string name="s162" formatted="false">OP level</string>
+    <string name="s163" formatted="false">Server not running, cannot add OP</string>
+    <string name="s164" formatted="false">OP added</string>
+    <string name="s165" formatted="false">OP removed</string>
+    <string name="s166" formatted="false">Server not running, cannot manage whitelist</string>
+    <string name="s167" formatted="false">Add to whitelist</string>
+    <string name="s168" formatted="false">Remove from whitelist</string>
+    <string name="s169" formatted="false">Server not running, cannot manage bans</string>
+    <string name="s170" formatted="false">Ban player</string>
+    <string name="s171" formatted="false">Ban reason</string>
+    <string name="s172" formatted="false">Ban duration</string>
+    <string name="s173" formatted="false">Temp ban</string>
+    <string name="s174" formatted="false">Ban added</string>
+    <string name="s175" formatted="false">Ban removed</string>
+    <string name="s176" formatted="false">Server not running, cannot kick</string>
+    <string name="s177" formatted="false">Kick player</string>
+    <string name="s178" formatted="false">Kick</string>
+    <string name="s179" formatted="false">Game mode</string>
+    <string name="s180" formatted="false">Switch game mode</string>
+    <string name="s181" formatted="false">OP</string>
+    <string name="s182" formatted="false">Whitelist</string>
+    <string name="s183" formatted="false">Ban</string>
+    <string name="s184" formatted="false">Player history</string>
+    <string name="s185" formatted="false">Join/leave history</string>
+    <string name="s186" formatted="false">Copy</string>
+    <string name="s187" formatted="false">Share</string>
+    <string name="s188" formatted="false">Edit</string>
+    <string name="s189" formatted="false">Save</string>
+    <string name="s190" formatted="false">Confirm</string>
+    <string name="s191" formatted="false">Cancel</string>
+    <string name="s192" formatted="false">Yes</string>
+    <string name="s193" formatted="false">No</string>
+    <string name="s194" formatted="false">OK</string>
+    <string name="s195" formatted="false">Close</string>
+    <string name="s196" formatted="false">Refresh</string>
+    <string name="s197" formatted="false">Loading...</string>
+    <string name="s198" formatted="false">No data</string>
+    <string name="s199" formatted="false">Empty</string>
+    <string name="s200" formatted="false">All</string>
+    <string name="s201" formatted="false">Enabled</string>
+    <string name="s202" formatted="false">Disabled</string>
+    <string name="s203" formatted="false">Local</string>
+    <string name="s204" formatted="false">Search</string>
+    <string name="s205" formatted="false">Clear</string>
+    <string name="s206" formatted="false">Open</string>
+    <string name="s207" formatted="false">Export</string>
+    <string name="s208" formatted="false">Import</string>
+    <string name="s209" formatted="false">Upload</string>
+    <string name="s210" formatted="false">Download</string>
+    <string name="s211" formatted="false">Install</string>
+    <string name="s212" formatted="false">Uninstall</string>
+    <string name="s213" formatted="false">Settings</string>
+    <string name="s214" formatted="false">Advanced</string>
+    <string name="s215" formatted="false">Basic</string>
+    <string name="s216" formatted="false">Server control</string>
+    <string name="s217" formatted="false">Player management</string>
+    <string name="s218" formatted="false">Plugin management</string>
+    <string name="s219" formatted="false">Mod management</string>
+    <string name="s220" formatted="false">File management</string>
+    <string name="s221" formatted="false">Network settings</string>
+    <string name="s222" formatted="false">Backup and restore</string>
+    <string name="s223" formatted="false">Keep alive</string>
+    <string name="s224" formatted="false">Device status</string>
+    <string name="s225" formatted="false">Network monitor</string>
+    <string name="s226" formatted="false">Console</string>
+    <string name="s227" formatted="false">Logs</string>
+    <string name="s228" formatted="false">Crash reports</string>
+    <string name="s229" formatted="false">About</string>
+    <string name="s230" formatted="false">Feedback</string>
+    <string name="s231" formatted="false">Help</string>
+    <string name="s232" formatted="false">Guide</string>
+    <string name="s233" formatted="false">Documentation</string>
+    <string name="s234" formatted="false">Update</string>
+    <string name="s235" formatted="false">Version</string>
+    <string name="s236" formatted="false">Author</string>
+    <string name="s237" formatted="false">License</string>
+    <string name="s238" formatted="false">Source code</string>
+    <string name="s239" formatted="false">Toggle failed: file not found</string>
+    <string name="s240" formatted="false">Toggle failed: ${e.message}</string>
+    <string name="s241" formatted="false">Check complete: $updateCount plugins have updates</string>
+    <string name="s242" formatted="false">Check complete: all curated plugins are up to date</string>
+    <string name="s243" formatted="false">Update check failed: ${e.message}</string>
+    <string name="s244" formatted="false">URL and file name cannot be empty</string>
+    <string name="s245" formatted="false">Download task already in progress, please wait</string>
+    <string name="s246" formatted="false">$customFileName downloaded and installed</string>
+    <string name="s247" formatted="false">Custom URL download failed: ${e.message}</string>
+    <string name="s248" formatted="false">Failed to load snapshot list: ${e.message}</string>
+    <string name="s249" formatted="false">No server core selected</string>
+    <string name="s250" formatted="false">Restoring snapshot, server will stop...</string>
+    <string name="s251" formatted="false">Snapshot restored, please restart the server</string>
+    <string name="s252" formatted="false">Snapshot restore failed</string>
+    <string name="s253" formatted="false">Restore snapshot failed: ${e.message}</string>
+    <string name="s254" formatted="false">Snapshot file not found</string>
+    <string name="s255" formatted="false">Cannot open export target</string>
+    <string name="s256" formatted="false">Snapshot exported: $snapshotName</string>
+    <string name="s257" formatted="false">Export failed: ${e.message}</string>
+    <string name="s258" formatted="false">Snapshot deleted: $name</string>
+    <string name="s259" formatted="false">Delete snapshot failed: file not found</string>
+    <string name="s260" formatted="false">Delete snapshot failed: ${e.message}</string>
+    <string name="s261" formatted="false">Failed to read server.properties: ${e.message}</string>
+    <string name="s262" formatted="false">server.properties saved</string>
+    <string name="s263" formatted="false">server.properties save failed</string>
+    <string name="s264" formatted="false">Save server.properties failed: ${e.message}</string>
+    <string name="s265" formatted="false">Failed to refresh player data: ${e.message}</string>
+    <string name="s266" formatted="false">Server not running, cannot send commands</string>
+    <string name="s267" formatted="false">OP added for $name</string>
+    <string name="s268" formatted="false">OP set for $name (level $level)</string>
+    <string name="s269" formatted="false">OP removed for $name</string>
+    <string name="s270" formatted="false">$name added to whitelist</string>
+    <string name="s271" formatted="false">$name removed from whitelist</string>
+    <string name="s272" formatted="false">Whitelist enabled</string>
+    <string name="s273" formatted="false">Whitelist disabled</string>
+    <string name="s275" formatted="false">$name kicked</string>
+    <string name="s276" formatted="false">$name permanently banned</string>
+    <string name="s277" formatted="false">$name banned temporarily ($duration)</string>
+    <string name="s278" formatted="false">$name unbanned</string>
+    <string name="s279" formatted="false">Online player list requested, result will show in logs</string>
+    <string name="s280" formatted="false">Server not running</string>
+    <string name="s281" formatted="false">Survival</string>
+    <string name="s282" formatted="false">Creative</string>
+    <string name="s283" formatted="false">Adventure</string>
+    <string name="s284" formatted="false">Spectator</string>
+    <string name="s285" formatted="false">$name set to $modeName mode</string>
+    <string name="s286" formatted="false">Gave $name $amount XP</string>
+    <string name="s287" formatted="false">Failed to load crash reports: ${e.message}</string>
+    <string name="s288" formatted="false">Failed to read crash report: file not found</string>
+    <string name="s289" formatted="false">Failed to read crash report: ${e.message}</string>
+    <string name="s290" formatted="false">Crash report deleted: $fileName</string>
+    <string name="s291" formatted="false">Delete crash report failed: ${e.message}</string>
+    <string name="s292" formatted="false">Cleared $count crash reports</string>
+    <string name="s293" formatted="false">Clear crash reports failed: ${e.message}</string>
+    <string name="s294" formatted="false">Failed to fetch version list: ${e.message}</string>
+    <string name="s295" formatted="false">Please enter a core name</string>
+    <string name="s296" formatted="false">Server core \"${customName.trim()}\" downloaded</string>
+    <string name="s297" formatted="false">Server core download failed: ${e.message}</string>
+    <string name="s298" formatted="false">Core $name not found</string>
+    <string name="s299" formatted="false">Failed to delete core folder: ${dir.absolutePath}</string>
+    <string name="s300" formatted="false">Core \"$name\" deleted</string>
+    <string name="s301" formatted="false">Delete core failed: ${e.message}</string>
+    <string name="s302" formatted="false">Failed to read directory: ${e.message}</string>
+    <string name="s303" formatted="false">MC console ready, type help for available commands</string>
+    <string name="s304" formatted="false">Deleted: ${file.name}</string>
+    <string name="s305" formatted="false">Delete failed: ${file.name}</string>
+    <string name="s306" formatted="false">Cannot open file</string>
+    <string name="s307" formatted="false">File uploaded</string>
+    <string name="s308" formatted="false">Upload failed: ${e.message}</string>
+    <string name="s309" formatted="false">Export complete</string>
+    <string name="s310" formatted="false">Server directory not found</string>
+    <string name="s311" formatted="false">Directory created: $name</string>
+    <string name="s312" formatted="false">Failed to create directory (may already exist)</string>
+    <string name="s313" formatted="false">Failed to create directory: ${e.message}</string>
+    <string name="s314" formatted="false">Failed to start keep-alive service: ${e.message}</string>
+    <string name="s315" formatted="false">Starting server · $coreLabel</string>
+    <string name="s316" formatted="false">Server running · $coreLabel</string>
+    <string name="s317" formatted="false">Server not started</string>
+    <string name="s319" formatted="false">Memory</string>
+    <string name="s320" formatted="false">Uptime</string>
+    <string name="s321" formatted="false">Server startup usually takes 30s to a few minutes, see MC console for logs...</string>
+    <string name="s322" formatted="false">${m}min</string>
+    <string name="s323" formatted="false">${totalSec}s</string>
+    <string name="s324" formatted="false">Backup and Restore</string>
+    <string name="s325" formatted="false">Create Backup</string>
+    <string name="s327" formatted="false">save-all sent</string>
+    <string name="s329" formatted="false">Created: $path</string>
+    <string name="s330" formatted="false">Creation failed</string>
+    <string name="s332" formatted="false">Backup list (${snapshots.size})</string>
+    <string name="s333" formatted="false">Refresh</string>
+    <string name="s335" formatted="false">Export</string>
+    <string name="s336" formatted="false">Restore started</string>
+    <string name="s337" formatted="false">Restore</string>
+    <string name="s338" formatted="false">Deleted ${snap.name}</string>
+    <string name="s340" formatted="false">Cloud Control Panel</string>
+    <string name="s341" formatted="false">Device Status</string>
+    <string name="s342" formatted="false">Device Memory</string>
+    <string name="s343" formatted="false">Storage</string>
+    <string name="s344" formatted="false">Battery</string>
+    <string name="s345" formatted="false">${deviceStats.batteryPercent}% charging</string>
+    <string name="s346" formatted="false">Total Downloaded</string>
+    <string name="s347" formatted="false">Total Uploaded</string>
+    <string name="s348" formatted="false">Download Speed</string>
+    <string name="s349" formatted="false">Upload Speed</string>
+    <string name="s351" formatted="false">Initialize Runtime Environment</string>
+    <string name="s352" formatted="false">Downloading and extracting Termux environment (${state.currentProgress}%)</string>
+    <string name="s353" formatted="false">Download Termux runtime (~50MB)</string>
+    <string name="s354" formatted="false">Init failed</string>
+    <string name="s356" formatted="false">Downloading and extracting Termux runtime, please wait...</string>
+    <string name="s357" formatted="false">One-click Install Dependencies</string>
+    <string name="s358" formatted="false">View Logs</string>
+    <string name="s359" formatted="false">Downloading JDK / wget / frp via apt</string>
+    <string name="s360" formatted="false">Install openjdk / wget / frp etc. via apt</string>
+    <string name="s361" formatted="false">Done</string>
+    <string name="s362" formatted="false">In progress</string>
+    <string name="s363" formatted="false">Pending</string>
+    <string name="s364" formatted="false">Initializing environment...</string>
+    <string name="s365" formatted="false">Installing...</string>
+    <string name="s366" formatted="false">Start Install</string>
+    <string name="s367" formatted="false">Delete Termux Runtime Environment</string>
+    <string name="s368" formatted="false">Environment ready</string>
+    <string name="s369" formatted="false">Installed</string>
+    <string name="s370" formatted="false">Install</string>
+    <string name="s372" formatted="false">Current core: ${activeCore.name} (${activeCore.core.displayName} ${activeCore.version})</string>
+    <string name="s373" formatted="false">No core selected! Please choose one below before starting</string>
+    <string name="s374" formatted="false">Switch server core: ${activeCore.name}</string>
+    <string name="s375" formatted="false">Select server core</string>
+    <string name="s376" formatted="false">Core list</string>
+    <string name="s377" formatted="false">Search core...</string>
+    <string name="s378" formatted="false">Core version</string>
+    <string name="s379" formatted="false">Custom core name</string>
+    <string name="s380" formatted="false">Core description</string>
+    <string name="s381" formatted="false">Recommended</string>
+    <string name="s383" formatted="false">Stop server</string>
+    <string name="s384" formatted="false">Restart server</string>
+    <string name="s385" formatted="false">Server control</string>
+    <string name="s386" formatted="false">Server address</string>
+    <string name="s388" formatted="false">Local address</string>
+    <string name="s390" formatted="false">Copy address</string>
+    <string name="s392" formatted="false">Installed plugin list</string>
+    <string name="s393" formatted="false">Upload plugin</string>
+    <string name="s394" formatted="false">Curated plugins</string>
+    <string name="s397" formatted="false">Auto-restart on crash (server)</string>
+    <string name="s398" formatted="false">Save config</string>
+    <string name="s400" formatted="false">Delete runtime environment (dangerous)</string>
+    <string name="s403" formatted="false">Delete server core</string>
+    <string name="s405" formatted="false">Player Management</string>
+    <string name="s406" formatted="false">Online players</string>
+    <string name="s407" formatted="false">OP list</string>
+    <string name="s408" formatted="false">Whitelist</string>
+    <string name="s409" formatted="false">Banned players</string>
+    <string name="s410" formatted="false">Player details</string>
+    <string name="s411" formatted="false">Kick</string>
+    <string name="s412" formatted="false">Ban</string>
+    <string name="s413" formatted="false">Temp ban</string>
+    <string name="s414" formatted="false">Unban</string>
+    <string name="s415" formatted="false">Add OP</string>
+    <string name="s416" formatted="false">Remove OP</string>
+    <string name="s417" formatted="false">Whitelist add</string>
+    <string name="s418" formatted="false">Whitelist remove</string>
+    <string name="s419" formatted="false">Server not running, cannot operate</string>
+    <string name="s420" formatted="false">Game mode</string>
+    <string name="s421" formatted="false">Survival</string>
+    <string name="s422" formatted="false">Creative</string>
+    <string name="s423" formatted="false">Adventure</string>
+    <string name="s424" formatted="false">Spectator</string>
+    <string name="s425" formatted="false">Join history</string>
+    <string name="s426" formatted="false">Leave history</string>
+    <string name="s427" formatted="false">History cleared</string>
+    <string name="s428" formatted="false">Clear history</string>
+    <string name="s429" formatted="false">History</string>
+    <string name="s430" formatted="false">Plugin</string>
+    <string name="s431" formatted="false">Mod</string>
+    <string name="s432" formatted="false">Plugins</string>
+    <string name="s433" formatted="false">Mods</string>
+    <string name="s434" formatted="false">Installed</string>
+    <string name="s435" formatted="false">Upload</string>
+    <string name="s436" formatted="false">Curated</string>
+    <string name="s437" formatted="false">Search</string>
+    <string name="s438" formatted="false">Download</string>
+    <string name="s439" formatted="false">Install</string>
+    <string name="s440" formatted="false">Uninstall</string>
+    <string name="s441" formatted="false">Enable</string>
+    <string name="s442" formatted="false">Disable</string>
+    <string name="s443" formatted="false">Delete</string>
+    <string name="s444" formatted="false">Details</string>
+    <string name="s445" formatted="false">Refresh</string>
+    <string name="s446" formatted="false">Force recheck</string>
+    <string name="s447" formatted="false">Update available</string>
+    <string name="s448" formatted="false">Up to date</string>
+    <string name="s449" formatted="false">Checking updates...</string>
+    <string name="s450" formatted="false">No updates</string>
+    <string name="s451" formatted="false">Update</string>
+    <string name="s452" formatted="false">Check</string>
+    <string name="s453" formatted="false">Version</string>
+    <string name="s454" formatted="false">Author</string>
+    <string name="s456" formatted="false">Install from URL</string>
+    <string name="s457" formatted="false">Local upload</string>
+    <string name="s458" formatted="false">Custom download</string>
+    <string name="s459" formatted="false">Server jar</string>
+    <string name="s460" formatted="false">Server version</string>
+    <string name="s461" formatted="false">Core type</string>
+    <string name="s462" formatted="false">Download URL</string>
+    <string name="s463" formatted="false">File name</string>
+    <string name="s464" formatted="false">Download progress</string>
+    <string name="s465" formatted="false">Paused</string>
+    <string name="s466" formatted="false">Cancelled</string>
+    <string name="s467" formatted="false">Downloading...</string>
+    <string name="s468" formatted="false">Completed</string>
+    <string name="s469" formatted="false">Failed</string>
+    <string name="s470" formatted="false">Waiting</string>
+    <string name="s471" formatted="false">Speed: ${speedMB}MB/s</string>
+    <string name="s476" formatted="false">Version list</string>
+    <string name="s478" formatted="false">Select core</string>
+    <string name="s479" formatted="false">Download and install</string>
+    <string name="s480" formatted="false">Installed cores</string>
+    <string name="s481" formatted="false">No cores installed</string>
+    <string name="s482" formatted="false">Install core</string>
+    <string name="s485" formatted="false">Downloading...</string>
+    <string name="s488" formatted="false">Download finished</string>
+    <string name="s490" formatted="false">Open MT guide</string>
+    <string name="s493" formatted="false">Server files</string>
+    <string name="s494" formatted="false">Current path</string>
+    <string name="s495" formatted="false">Path</string>
+    <string name="s500" formatted="false">File name</string>
+    <string name="s501" formatted="false">Size</string>
+    <string name="s502" formatted="false">Modified</string>
+    <string name="s503" formatted="false">Folder</string>
+    <string name="s504" formatted="false">File</string>
+    <string name="s505" formatted="false">New folder</string>
+    <string name="s508" formatted="false">Name</string>
+    <string name="s509" formatted="false">Type</string>
+    <string name="s510" formatted="false">Export selected</string>
+    <string name="s511" formatted="false">Export folder</string>
+    <string name="s512" formatted="false">Export server</string>
+    <string name="s513" formatted="false">Zip file</string>
+    <string name="s514" formatted="false">Import</string>
+    <string name="s515" formatted="false">Import file</string>
+    <string name="s516" formatted="false">Import folder</string>
+    <string name="s517" formatted="false">From SAF</string>
+    <string name="s518" formatted="false">From URL</string>
+    <string name="s519" formatted="false">Server directory</string>
+    <string name="s520" formatted="false">World folder</string>
+    <string name="s521" formatted="false">Nether folder</string>
+    <string name="s522" formatted="false">End folder</string>
+    <string name="s523" formatted="false">Server properties</string>
+    <string name="s524" formatted="false">Main world save folder</string>
+    <string name="s525" formatted="false">Nether save folder</string>
+    <string name="s526" formatted="false">End save folder</string>
+    <string name="s527" formatted="false">Server log folder</string>
+    <string name="s528" formatted="false">Plugin folder</string>
+    <string name="s529" formatted="false">Config folder</string>
+    <string name="s530" formatted="false">Version folder</string>
+    <string name="s531" formatted="false">Libraries folder</string>
+    <string name="s532" formatted="false">Crash reports folder</string>
+    <string name="s533" formatted="false">Cache folder</string>
+    <string name="s534" formatted="false">Generated folder</string>
+    <string name="s535" formatted="false">Datapacks folder</string>
+    <string name="s536" formatted="false">Main world save</string>
+    <string name="s537" formatted="false">Nether save</string>
+    <string name="s538" formatted="false">End save</string>
+    <string name="s539" formatted="false">Datapacks folder</string>
+    <string name="s540" formatted="false">World backup folder</string>
+    <string name="s542" formatted="false">Keep Alive</string>
+    <string name="s543" formatted="false">Service Status</string>
+    <string name="s544" formatted="false">Keep-alive service running</string>
+    <string name="s545" formatted="false">Keep-alive service not running</string>
+    <string name="s548" formatted="false">Keep-Alive Switches</string>
+    <string name="s549" formatted="false">Boot Auto-start</string>
+    <string name="s550" formatted="false">Auto-start background service on device boot, no manual app launch needed (grant auto-start permission)</string>
+    <string name="s551" formatted="false">Periodic Keep-alive</string>
+    <string name="s552" formatted="false">Check service liveness every 15 min and restart if killed (WorkManager)</string>
+    <string name="s553" formatted="false">Auto-restart MC server process on abnormal exit (off by default to save battery)</string>
+    <string name="s554" formatted="false">Notes</string>
+    <string name="s555" formatted="false">Android strictly limits background processes; keep-alive effectiveness varies by system version and vendor policy.\n</string>
+    <string name="s556" formatted="false">Persistent foreground notification significantly reduces kill rate; do not restrict this app\'s background in system settings.</string>
+    <string name="s558" formatted="false">Copied ${lines.size} lines of log</string>
+    <string name="s559" formatted="false">No log to copy</string>
+    <string name="s560" formatted="false">Copy Log</string>
+    <string name="s561" formatted="false">No log output yet. Start the MC server to see the live console stream here</string>
+    <string name="s563" formatted="false">Send</string>
+    <string name="s564" formatted="false">Manage Files with MT Manager</string>
+    <string name="s565" formatted="false">Download MT Manager</string>
+    <string name="s568" formatted="false">Tutorial</string>
+    <string name="s569" formatted="false">Install MT Manager</string>
+    <string name="s570" formatted="false">Download and install MT Manager from the official site (accept the user agreement on first open).</string>
+    <string name="s571" formatted="false">Open Sidebar</string>
+    <string name="s572" formatted="false">Enter MT Manager, swipe right to open the sidebar, or tap the menu icon in the top-left.</string>
+    <string name="s573" formatted="false">Add Local Storage</string>
+    <string name="s574" formatted="false">Find \"Add Local Storage\" in the sidebar and tap it.</string>
+    <string name="s575" formatted="false">Select This App</string>
+    <string name="s576" formatted="false">In the list, find and check \"MCServerManager\", then tap OK.</string>
+    <string name="s577" formatted="false">Start Managing Files</string>
+    <string name="s578" formatted="false">Back to MT Manager, the app entry appears in the sidebar; tap to browse files.</string>
+    <string name="s579" formatted="false">Find Server Files</string>
+    <string name="s580" formatted="false">Go to data to files to home to home to servers to see all Minecraft server files (plugins, config, worlds, etc.).</string>
+    <string name="s582" formatted="false">Config changes require a server restart to take effect. Do not delete the world folder or saves will be lost.</string>
+    <string name="s583" formatted="false">How It Works</string>
+    <string name="s584" formatted="false">This app bundles a custom DocumentsProvider (MTDataFilesProvider) exposing file operations on the data dir. MT Manager connects via the standard Android file access interface, reading/writing this app\'s private data directly in MT Manager - no root required.</string>
+    <string name="s585" formatted="false">Port and Tunneling</string>
+    <string name="s586" formatted="false">Local Connection Address</string>
+    <string name="s587" formatted="false">Server running</string>
+    <string name="s589" formatted="false">Use this address when testing with an MC client on the same phone</string>
+    <string name="s591" formatted="false">Refresh IP</string>
+    <string name="s594" formatted="false">Paste this in Minecraft Java \"Multiplayer\" to \"Direct Connect\" to join (LAN only)</string>
+    <string name="s595" formatted="false">Local Port</string>
+    <string name="s597" formatted="false">Tunnel Config</string>
+    <string name="s601" formatted="false">Paste the full frpc.toml config text, or import from file manager</string>
+    <string name="s604" formatted="false">bore is a lightweight tunnel running entirely on the phone, no extra download needed. Run bore server on your VPS.</string>
+    <string name="s605" formatted="false">Tunnel Status</string>
+    <string name="s606" formatted="false">Running</string>
+    <string name="s607" formatted="false">Stopped (${tunnelState.errorMessage.ifBlank {</string>
+    <string name="s608" formatted="false">Stopped</string>
+    <string name="s609" formatted="false">Not started</string>
+    <string name="s610" formatted="false">Public Address</string>
+    <string name="s611" formatted="false">Tunnel disconnected, last address</string>
+    <string name="s612" formatted="false">Copy Public Address</string>
+    <string name="s613" formatted="false">Share this address with players; paste in Minecraft \"Direct Connect\" to join</string>
+    <string name="s614" formatted="false">Restart tunnel to get a new address</string>
+    <string name="s616" formatted="false">Tunnel Logs</string>
+    <string name="s617" formatted="false">View all logs (${tunnelLogs.size})</string>
+    <string name="s618" formatted="false">Tunnel logs (${tunnelLogs.size})</string>
+    <string name="s621" formatted="false">Operation Guide</string>
+    <string name="s622" formatted="false">Tap${if (expanded)</string>
+    <string name="s623" formatted="false">Expand</string>
+    <string name="s624" formatted="false">frp Tutorial (Self-hosted)</string>
+    <string name="s625" formatted="false">Don\'t want to self-host? The \"Free FRP Platforms\" card below offers OpenFrp / ChmlFrp / StarryFrp / SakuraFrp: register, fill the node address/port/Token into frpc.toml above, tap \"Start Tunnel\".</string>
+    <string name="s626" formatted="false">What is frp?</string>
+    <string name="s627" formatted="false">Simply a \"tunnel\": your phone connects to a server with a public IP via frp; others visit that server to reach your phone.</string>
+    <string name="s628" formatted="false">You Need a Cloud Server</string>
+    <string name="s629" formatted="false">Rent a cheap cloud server from Aliyun, Tencent Cloud or Oracle Cloud (free ARM instances exist). Key requirement: a public IP.</string>
+    <string name="s630" formatted="false">Install frp Server on the Server</string>
+    <string name="s631" formatted="false">Login to the server, search fatedier/frp on GitHub, download the matching version, extract and edit frps.toml: bindPort = 7000, set auth.method and token</string>
+    <string name="s632" formatted="false">Set any password</string>
+    <string name="s633" formatted="false">Fill Config on the Phone</string>
+    <string name="s634" formatted="false">Fill the server public IP into \"frp server address\" above, port 7000, Token as set (must match server exactly).</string>
+    <string name="s635" formatted="false">Tap Start</string>
+    <string name="s636" formatted="false">Tap \"Start Tunnel\"; the app auto-installs the frp client and connects. First time installs via apt, wait a moment.</string>
+    <string name="s637" formatted="false">Tell Friends How to Connect</string>
+    <string name="s638" formatted="false">After starting, tell friends the server public IP and port (default 25565); enter IP:25565 in Minecraft \"Multiplayer\" to \"Direct Connect\".</string>
+    <string name="s639" formatted="false">Open Ports</string>
+    <string name="s640" formatted="false">Allow ports 7000 (frp) and 25565 (MC) in the firewall, or connections will fail. Set a Token to prevent abuse.</string>
+    <string name="s641" formatted="false">bore Tutorial (Runs on Phone)</string>
+    <string name="s642" formatted="false">What is bore?</string>
+    <string name="s643" formatted="false">bore is a minimal TCP tunnel tool with only 3 message types. Phone side is pure Kotlin, no download, instant start.</string>
+    <string name="s644" formatted="false">Like frp, you need a VPS with a public IP. Search ekzhang/bore on GitHub, download the binary, run on the server: ./bore server</string>
+    <string name="s645" formatted="false">Fill Server Address</string>
+    <string name="s646" formatted="false">Fill the server IP and port (default 7835) above, e.g. your-vps.com:7835.</string>
+    <string name="s647" formatted="false">Tap \"Start Tunnel\"; the app connects to the bore server directly from phone network. No Termux, no download, starts in seconds.</string>
+    <string name="s648" formatted="false">Share the Address</string>
+    <string name="s649" formatted="false">The status card shows the public address (serverIP:port); copy and send to friends for MC Direct Connect.</string>
+    <string name="s650" formatted="false">Pros and Limits</string>
+    <string name="s651" formatted="false">Pros: ultra-lightweight (~300 lines), instant start. Limit: TCP only, self-hosted server required.</string>
+    <string name="s652" formatted="false">StarryFrp</string>
+    <string name="s653" formatted="false">SakuraFrp</string>
+    <string name="s654" formatted="false">Free FRP Platforms</string>
+    <string name="s655" formatted="false">Don\'t want to self-host? Register on these free frp platforms and fill the node address/port/Token into frpc.toml above.</string>
+    <string name="s656" formatted="false">Open Official Site</string>
+    <string name="s657" formatted="false">Online Players</string>
+    <string name="s658" formatted="false">OP List</string>
+    <string name="s659" formatted="false">Whitelist</string>
+    <string name="s660" formatted="false">Ban List</string>
+    <string name="s661" formatted="false">Permanent</string>
+    <string name="s662" formatted="false">30 minutes</string>
+    <string name="s663" formatted="false">1 hour</string>
+    <string name="s664" formatted="false">6 hours</string>
+    <string name="s665" formatted="false">1 day</string>
+    <string name="s666" formatted="false">7 days</string>
+    <string name="s667" formatted="false">30 days</string>
+    <string name="s668" formatted="false">Search...</string>
+    <string name="s669" formatted="false">No results</string>
+    <string name="s670" formatted="false">Add</string>
+    <string name="s671" formatted="false">Remove</string>
+    <string name="s672" formatted="false">Ban Player</string>
+    <string name="s673" formatted="false">Unban</string>
+    <string name="s674" formatted="false">Kick Player</string>
+    <string name="s675" formatted="false">Whitelist Player</string>
+    <string name="s676" formatted="false">Player Actions</string>
+    <string name="s679" formatted="false">Copy player name</string>
+    <string name="s680" formatted="false">Copied: $name</string>
+    <string name="s681" formatted="false">No online players</string>
+    <string name="s682" formatted="false">Server not running, no online players</string>
+    <string name="s683" formatted="false">Refresh online list</string>
+    <string name="s684" formatted="false">Online player count</string>
+    <string name="s685" formatted="false">Players online</string>
+    <string name="s687" formatted="false">Kick player</string>
+    <string name="s689" formatted="false">OP player</string>
+    <string name="s690" formatted="false">Ban player</string>
+    <string name="s691" formatted="false">Whitelist player</string>
+    <string name="s693" formatted="false">Search OP name...</string>
+    <string name="s694" formatted="false">Search whitelist...</string>
+    <string name="s695" formatted="false">Search ban...</string>
+    <string name="s698" formatted="false">OP level (1-4)</string>
+    <string name="s700" formatted="false">Add OP player</string>
+    <string name="s701" formatted="false">Whitelist add player</string>
+    <string name="s702" formatted="false">Ban player</string>
+    <string name="s703" formatted="false">Temp ban player</string>
+    <string name="s704" formatted="false">Ban duration</string>
+    <string name="s706" formatted="false">Whitelist enable</string>
+    <string name="s707" formatted="false">Whitelist disable</string>
+    <string name="s710" formatted="false">Whitelist add</string>
+    <string name="s712" formatted="false">Ban reason</string>
+    <string name="s713" formatted="false">Ban time</string>
+    <string name="s714" formatted="false">Ban expires</string>
+    <string name="s715" formatted="false">Ban active</string>
+    <string name="s719" formatted="false">Player Info</string>
+    <string name="s721" formatted="false">UUID</string>
+    <string name="s722" formatted="false">Name</string>
+    <string name="s723" formatted="false">Status</string>
+    <string name="s724" formatted="false">Online</string>
+    <string name="s725" formatted="false">Offline</string>
+    <string name="s734" formatted="false">Delete ban</string>
+    <string name="s735" formatted="false">Delete whitelist</string>
+    <string name="s736" formatted="false">Delete OP</string>
+    <string name="s737" formatted="false">Confirm</string>
+    <string name="s738" formatted="false">Are you sure?</string>
+    <string name="s739" formatted="false">Confirm delete</string>
+    <string name="s740" formatted="false">Delete this player from list?</string>
+    <string name="s741" formatted="false">Yes, delete</string>
+    <string name="s742" formatted="false">No, keep</string>
+    <string name="s743" formatted="false">Confirm ban</string>
+    <string name="s744" formatted="false">Ban this player?</string>
+    <string name="s745" formatted="false">Confirm kick</string>
+    <string name="s746" formatted="false">Kick this player?</string>
+    <string name="s747" formatted="false">Confirm op</string>
+    <string name="s748" formatted="false">Set this player as OP?</string>
+    <string name="s749" formatted="false">Confirm unban</string>
+    <string name="s750" formatted="false">Unban this player?</string>
+    <string name="s751" formatted="false">Temp ban duration</string>
+    <string name="s752" formatted="false">hours</string>
+    <string name="s753" formatted="false">days</string>
+    <string name="s754" formatted="false">minutes</string>
+    <string name="s755" formatted="false">seconds</string>
+    <string name="s756" formatted="false">Input amount</string>
+    <string name="s757" formatted="false">XP amount</string>
+    <string name="s758" formatted="false">Give XP</string>
+    <string name="s759" formatted="false">Give</string>
+    <string name="s760" formatted="false">Set game mode</string>
+    <string name="s761" formatted="false">Mode</string>
+    <string name="s762" formatted="false">Switch</string>
+    <string name="s763" formatted="false">Console commands</string>
+    <string name="s764" formatted="false">Send</string>
+    <string name="s765" formatted="false">Command</string>
+    <string name="s766" formatted="false">Execute</string>
+    <string name="s767" formatted="false">Result</string>
+    <string name="s769" formatted="false">Mod name</string>
+    <string name="s770" formatted="false">Mod size</string>
+    <string name="s771" formatted="false">Mod enabled</string>
+    <string name="s773" formatted="false">Plugin enabled</string>
+    <string name="s774" formatted="false">Plugin size</string>
+    <string name="s775" formatted="false">Plugin version</string>
+    <string name="s776" formatted="false">Plugin author</string>
+    <string name="s777" formatted="false">Plugin description</string>
+    <string name="s778" formatted="false">Plugin main class</string>
+    <string name="s784" formatted="false">Update available</string>
+    <string name="s785" formatted="false">Author: ${curated.author}</string>
+    <string name="s786" formatted="false">Latest:</string>
+    <string name="s787" formatted="false">  -  Current:</string>
+    <string name="s788" formatted="false">Downloading, please wait...</string>
+    <string name="s792" formatted="false">Local Plugin Upload</string>
+    <string name="s793" formatted="false">Supports Bukkit / Spigot / Paper server plugins (.jar)</string>
+    <string name="s794" formatted="false">Uploaded plugins are copied to the current core\'s plugins/ directory; reload or restart to take effect</string>
+    <string name="s799" formatted="false">Paste the direct download URL of the .jar (e.g. direct links from SpigotMC, Modrinth)</string>
+    <string name="s805" formatted="false">Size: ${plugin.sizeText}  -  Modified: ${plugin.lastModifiedText}</string>
+    <string name="s806" formatted="false">Deletion cannot be undone; disable instead if you want to keep it.</string>
+    <string name="s808" formatted="false">Will delete config and data under plugins/${plugin.meta.name}/</string>
+    <string name="s809" formatted="false">Will delete config and data under the plugin\'s same-name directory</string>
+    <string name="s811" formatted="false">File name</string>
+    <string name="s812" formatted="false">Display name</string>
+    <string name="s813" formatted="false">Plugin name</string>
+    <string name="s814" formatted="false">Version</string>
+    <string name="s815" formatted="false">Main class</string>
+    <string name="s816" formatted="false">Author</string>
+    <string name="s817" formatted="false">API version</string>
+    <string name="s818" formatted="false">Description</string>
+    <string name="s819" formatted="false">Dependencies</string>
+    <string name="s820" formatted="false">Soft dependencies</string>
+    <string name="s821" formatted="false">Could not parse plugin.yml metadata (non-standard plugin or incompatible format)</string>
+    <string name="s822" formatted="false">File size</string>
+    <string name="s823" formatted="false">Modified</string>
+    <string name="s824" formatted="false">Status</string>
+    <string name="s825" formatted="false">By downloads</string>
+    <string name="s826" formatted="false">By relevance</string>
+    <string name="s827" formatted="false">By newest</string>
+    <string name="s828" formatted="false">Installed Mods</string>
+    <string name="s829" formatted="false">No mods installed</string>
+    <string name="s831" formatted="false">Mod Acquisition (Modrinth)</string>
+    <string name="s832" formatted="false">Search and one-click install mods from the Modrinth open platform</string>
+    <string name="s836" formatted="false">This mod does not match the current core (${coreType.displayName})</string>
+    <string name="s838" formatted="false">%.1fM downloads</string>
+    <string name="s839" formatted="false">%.1fK downloads</string>
+    <string name="s840" formatted="false">$d downloads</string>
+    <string name="s841" formatted="false">Basic Config</string>
+    <string name="s842" formatted="false">Advanced Config</string>
+    <string name="s843" formatted="false">Difficulty</string>
+    <string name="s844" formatted="false">Monster strength and hunger mechanics</string>
+    <string name="s845" formatted="false">Peaceful</string>
+    <string name="s846" formatted="false">Easy</string>
+    <string name="s847" formatted="false">Normal</string>
+    <string name="s848" formatted="false">Hard</string>
+    <string name="s849" formatted="false">Default mode for new players</string>
+    <string name="s850" formatted="false">Allow players to attack each other</string>
+    <string name="s851" formatted="false">Online Mode</string>
+    <string name="s852" formatted="false">Enable requires premium verification; disable allows offline clients</string>
+    <string name="s853" formatted="false">Enforce Whitelist</string>
+    <string name="s854" formatted="false">When whitelist is on, OPs are also restricted</string>
+    <string name="s855" formatted="false">Max Players</string>
+    <string name="s856" formatted="false">Maximum concurrent players</string>
+    <string name="s857" formatted="false">Server Port</string>
+    <string name="s858" formatted="false">Minecraft server listen port</string>
+    <string name="s859" formatted="false">Server IP</string>
+    <string name="s860" formatted="false">Leave empty to listen on all interfaces</string>
+    <string name="s861" formatted="false">MOTD</string>
+    <string name="s862" formatted="false">Banner shown in the server list</string>
+    <string name="s863" formatted="false">View Distance</string>
+    <string name="s864" formatted="false">Chunk distance clients can see (3-32)</string>
+    <string name="s865" formatted="false">Simulation Distance</string>
+    <string name="s866" formatted="false">Chunk distance the server simulates (3-32)</string>
+    <string name="s867" formatted="false">Max World Size</string>
+    <string name="s868" formatted="false">World border radius (blocks)</string>
+    <string name="s869" formatted="false">Spawn Protection</string>
+    <string name="s870" formatted="false">Unbreakable radius around spawn (0-16)</string>
+    <string name="s871" formatted="false">Hardcore</string>
+    <string name="s872" formatted="false">Permanent ban on player death</string>
+    <string name="s873" formatted="false">Command Blocks</string>
+    <string name="s874" formatted="false">Enable command blocks</string>
+    <string name="s875" formatted="false">Allow Flight</string>
+    <string name="s876" formatted="false">Allow flight in survival (anti-kick)</string>
+    <string name="s877" formatted="false">Allow Nether</string>
+    <string name="s878" formatted="false">Generate nether portals and the nether dimension</string>
+    <string name="s879" formatted="false">Spawn Animals</string>
+    <string name="s880" formatted="false">Spawn animal entities</string>
+    <string name="s881" formatted="false">Spawn Monsters</string>
+    <string name="s882" formatted="false">Spawn hostile mob entities</string>
+    <string name="s883" formatted="false">Spawn NPCs</string>
+    <string name="s884" formatted="false">Spawn villager and other NPC entities</string>
+    <string name="s885" formatted="false">Generate Structures</string>
+    <string name="s886" formatted="false">Generate villages/temples etc.</string>
+    <string name="s887" formatted="false">World Name</string>
+    <string name="s888" formatted="false">World folder name</string>
+    <string name="s889" formatted="false">World Seed</string>
+    <string name="s890" formatted="false">Leave empty for random</string>
+    <string name="s891" formatted="false">World Type</string>
+    <string name="s892" formatted="false">Terrain generation type</string>
+    <string name="s893" formatted="false">Superflat</string>
+    <string name="s894" formatted="false">Large Biomes</string>
+    <string name="s895" formatted="false">Amplified</string>
+    <string name="s896" formatted="false">Single Biome</string>
+    <string name="s897" formatted="false">Force Game Mode</string>
+    <string name="s898" formatted="false">Apply default mode on player rejoin</string>
+    <string name="s899" formatted="false">Max Tick Time</string>
+    <string name="s900" formatted="false">Crash protection if the server lags beyond this many ms</string>
+    <string name="s901" formatted="false">Server List Status</string>
+    <string name="s902" formatted="false">Show online status in the multiplayer list</string>
+    <string name="s903" formatted="false">Hide Online Players</string>
+    <string name="s904" formatted="false">Hide online players in the server list</string>
+    <string name="s905" formatted="false">OP Permission Level</string>
+    <string name="s906" formatted="false">OP command permission level (1-4)</string>
+    <string name="s907" formatted="false">Function Permission Level</string>
+    <string name="s908" formatted="false">Datapack function permission level (1-4)</string>
+    <string name="s909" formatted="false">Rate Limit</string>
+    <string name="s910" formatted="false">0 means unlimited</string>
+    <string name="s911" formatted="false">Force Resource Pack</string>
+    <string name="s912" formatted="false">Players refusing the resource pack are kicked</string>
+    <string name="s913" formatted="false">Resource Pack URL</string>
+    <string name="s914" formatted="false">Resource pack URL prompted on join</string>
+    <string name="s915" formatted="false">Player Idle Timeout</string>
+    <string name="s916" formatted="false">Kick idle players after this many minutes, 0 disables</string>
+    <string name="s917" formatted="false">Network Compression Threshold</string>
+    <string name="s918" formatted="false">Compress network packets above this many bytes, -1 disables</string>
+    <string name="s919" formatted="false">Chained Neighbor Updates</string>
+    <string name="s920" formatted="false">Limit high-frequency redstone updates to prevent performance issues</string>
+    <string name="s921" formatted="false">Accept Transfers</string>
+    <string name="s922" formatted="false">Accept players transferred from other servers</string>
+    <string name="s923" formatted="false">Broadcast Console to OPs</string>
+    <string name="s924" formatted="false">Broadcast console commands to online OPs</string>
+    <string name="s925" formatted="false">Broadcast RCON to OPs</string>
+    <string name="s926" formatted="false">Broadcast RCON commands to online OPs</string>
+    <string name="s927" formatted="false">Bug Report Link</string>
+    <string name="s928" formatted="false">Link shown on crash report page</string>
+    <string name="s929" formatted="false">Chat Spam Threshold</string>
+    <string name="s930" formatted="false">Chat message interval threshold (seconds)</string>
+    <string name="s931" formatted="false">Command Spam Threshold</string>
+    <string name="s932" formatted="false">Command send interval threshold (seconds)</string>
+    <string name="s933" formatted="false">Debug Mode</string>
+    <string name="s934" formatted="false">Output verbose debug logs</string>
+    <string name="s935" formatted="false">Code of Conduct</string>
+    <string name="s936" formatted="false">Enable Microsoft code of conduct feature</string>
+    <string name="s937" formatted="false">JMX Monitoring</string>
+    <string name="s938" formatted="false">Enable JMX remote monitoring</string>
+    <string name="s939" formatted="false">Enable Query</string>
+    <string name="s940" formatted="false">GameSpy4 Query protocol</string>
+    <string name="s941" formatted="false">Enable RCON</string>
+    <string name="s942" formatted="false">Remote control protocol</string>
+    <string name="s943" formatted="false">Entity Broadcast Range</string>
+    <string name="s944" formatted="false">Entity sync distance percentage (10-1000)</string>
+    <string name="s945" formatted="false">Generator Settings</string>
+    <string name="s946" formatted="false">Custom terrain generation JSON</string>
+    <string name="s947" formatted="false">Initial Disabled Packs</string>
+    <string name="s948" formatted="false">Packs disabled at startup</string>
+    <string name="s949" formatted="false">Initial Enabled Packs</string>
+    <string name="s950" formatted="false">Packs enabled at startup</string>
+    <string name="s951" formatted="false">Log Player IPs</string>
+    <string name="s952" formatted="false">Log player IP addresses</string>
+    <string name="s953" formatted="false">Management Server Origins</string>
+    <string name="s954" formatted="false">Allowed origins for the management server</string>
+    <string name="s955" formatted="false">Enable Management Server</string>
+    <string name="s956" formatted="false">Enable management server (new JMX interface)</string>
+    <string name="s957" formatted="false">Management Server Host</string>
+    <string name="s958" formatted="false">Management server listen address</string>
+    <string name="s959" formatted="false">Management Server Port</string>
+    <string name="s960" formatted="false">0 means auto-assign</string>
+    <string name="s961" formatted="false">Management Server Secret</string>
+    <string name="s962" formatted="false">Management server auth secret</string>
+    <string name="s963" formatted="false">Management Server TLS</string>
+    <string name="s964" formatted="false">Enable TLS encrypted connections</string>
+    <string name="s965" formatted="false">Management Server Keystore</string>
+    <string name="s966" formatted="false">TLS keystore path</string>
+    <string name="s967" formatted="false">Keystore Password</string>
+    <string name="s968" formatted="false">TLS keystore password</string>
+    <string name="s969" formatted="false">Pause When Empty</string>
+    <string name="s970" formatted="false">Pause after no players for this many seconds, -1 disables</string>
+    <string name="s971" formatted="false">Prevent Proxy Connections</string>
+    <string name="s972" formatted="false">Block players connecting via proxy/VPN</string>
+    <string name="s973" formatted="false">Query Port</string>
+    <string name="s974" formatted="false">GameSpy4 query port</string>
+    <string name="s975" formatted="false">RCON Password</string>
+    <string name="s976" formatted="false">Remote control password, empty disables</string>
+    <string name="s977" formatted="false">RCON Port</string>
+    <string name="s978" formatted="false">Remote control port</string>
+    <string name="s979" formatted="false">Region File Compression</string>
+    <string name="s980" formatted="false">Chunk region file compression algorithm</string>
+    <string name="s981" formatted="false">Resource Pack ID</string>
+    <string name="s982" formatted="false">Resource pack UUID</string>
+    <string name="s983" formatted="false">Resource Pack Prompt</string>
+    <string name="s984" formatted="false">Prompt text shown on resource pack refusal</string>
+    <string name="s985" formatted="false">Resource Pack SHA1</string>
+    <string name="s986" formatted="false">Resource pack checksum</string>
+    <string name="s987" formatted="false">Status Heartbeat Interval</string>
+    <string name="s988" formatted="false">Status heartbeat send interval (seconds)</string>
+    <string name="s989" formatted="false">Sync Chunk Writes</string>
+    <string name="s990" formatted="false">Write chunk data synchronously</string>
+    <string name="s991" formatted="false">Text Filtering Config</string>
+    <string name="s992" formatted="false">Chat text filtering configuration</string>
+    <string name="s993" formatted="false">Text Filtering Version</string>
+    <string name="s994" formatted="false">Text filtering protocol version</string>
+    <string name="s995" formatted="false">Use Native Transport</string>
+    <string name="s996" formatted="false">Use Linux native network transport</string>
+    <string name="s997" formatted="false">JVM Memory Limit</string>
+    <string name="s998" formatted="false">Allocate -Xmx for the MC process, recommended no more than 60% of device RAM.</string>
+    <string name="s999" formatted="false">Changes take effect after restarting the server (-Xmx is a JVM startup argument)</string>
+    <string name="s1003" formatted="false">Save and restart</string>
+    <string name="s1004" formatted="false">Save only</string>
+    <string name="s1005" formatted="false">Server config</string>
+    <string name="s1007" formatted="false">Download mirror</string>
+    <string name="s1008" formatted="false">Download source</string>
+    <string name="s1010" formatted="false">App download mirror</string>
+    <string name="s1011" formatted="false">APT source</string>
+    <string name="s1013" formatted="false">APT source config</string>
+    <string name="s1014" formatted="false">APK mirror</string>
+    <string name="s1015" formatted="false">Init download mirror</string>
+    <string name="s1016" formatted="false">Use system proxy</string>
+    <string name="s1017" formatted="false">Proxy address</string>
+    <string name="s1018" formatted="false">Keep-alive entry</string>
+    <string name="s1020" formatted="false">Shortcuts</string>
+    <string name="s1021" formatted="false">Download Help</string>
+    <string name="s1022" formatted="false">Download slow? See solutions</string>
+    <string name="s1023" formatted="false">About</string>
+    <string name="s1024" formatted="false">MC Cloud Control Panel v1.0.0</string>
+    <string name="s1025" formatted="false">Built on Termux open-source components, proot-distro runs without root.</string>
+    <string name="s1026" formatted="false">Feedback</string>
+    <string name="s1027" formatted="false">Issues or suggestions? Email us and we will respond promptly.</string>
+    <string name="s1028" formatted="false">MCServerManager Feedback</string>
+    <string name="s1029" formatted="false">Send feedback email (167245484@qq.com)</string>
 </resources>
