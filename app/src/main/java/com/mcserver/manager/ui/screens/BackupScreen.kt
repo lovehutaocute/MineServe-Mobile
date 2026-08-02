@@ -87,10 +87,10 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
         Column(
             modifier = Modifier.fillMaxSize().padding(paddingValues).verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Backup & Restore", title = "备份与还原")
+            HeaderBlock(eyebrow = "Backup & Restore", title = stringResource(R.string.s324))
 
             // 快照操作
-            McCard(title = "创建备份") {
+            McCard(title = stringResource(R.string.s325)) {
                 Text(stringResource(R.string.s326), color = Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

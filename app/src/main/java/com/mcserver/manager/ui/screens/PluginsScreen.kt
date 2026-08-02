@@ -216,11 +216,11 @@ fun PluginsScreen(vm: McViewModel) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Plugin Manager", title = "插件管理")
+            HeaderBlock(eyebrow = "Plugin Manager", title = stringResource(R.string.s750))
 
             // ── 当前核心状态卡片 ──
             McCard(
-                title = "当前服务端核心",
+                title = stringResource(R.string.s751),
                 trailing = {
                     Text(
                         "刷新",
@@ -407,7 +407,7 @@ fun PluginsScreen(vm: McViewModel) {
             }
 
             // ── 底部热重载 ──
-            McCard(title = "插件热重载") {
+            McCard(title = stringResource(R.string.s759)) {
                 Text(
                     if (isServerRunning)
                         "服务器运行中，可发送 reload 指令重新加载所有插件"
@@ -450,7 +450,7 @@ fun PluginsScreen(vm: McViewModel) {
 
             // ── 插件资源站点 ──
             Spacer(Modifier.height(10.dp))
-            McCard(title = "插件资源站点") {
+            McCard(title = stringResource(R.string.s765)) {
                 Text(
                     "优质插件/模组下载平台，点击跳转官网",
                     color = Muted,
@@ -555,7 +555,7 @@ private fun InstalledTab(
     var searchQuery by remember { mutableStateOf("") }
     var activeFilter by remember { mutableStateOf(InstalledFilter.All) }
 
-    McCard(title = "已安装插件") {
+    McCard(title = stringResource(R.string.s390)) {
         if (!activeCoreExists) {
             EmptyHint("请先在「概览」页选择服务端核心")
             return@McCard
@@ -751,7 +751,7 @@ private fun CuratedTab(
     onForceRecheck: () -> Unit
 ) {
     McCard(
-        title = "精选插件推荐",
+        title = stringResource(R.string.s775),
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isCheckingUpdates) {
@@ -823,7 +823,7 @@ private fun CuratedTab(
 
     // ── 插件资源站点 ──
     val context = LocalContext.current
-    McCard(title = "插件资源站点") {
+    McCard(title = stringResource(R.string.s765)) {
         Text(
             "优质插件/模组下载平台，点击跳转官网",
             color = Muted,
@@ -1043,7 +1043,7 @@ private fun UploadTab(
     var customUrl by remember { mutableStateOf("") }
     var customName by remember { mutableStateOf("") }
 
-    McCard(title = "本地上传插件") {
+    McCard(title = stringResource(R.string.s792)) {
         if (!activeCoreExists) {
             EmptyHint("请先在「概览」页选择服务端核心")
             return@McCard
@@ -1362,7 +1362,7 @@ private fun ModsTab(
     ) { uri -> uri?.let(onUpload) }
 
     // 已安装模组
-    McCard(title = "已安装模组") {
+    McCard(title = stringResource(R.string.s828)) {
         if (mods.isEmpty()) {
             Text(
                 "暂无已安装模组",
@@ -1430,7 +1430,7 @@ private fun ModsTab(
     // ── Modrinth 模组获取 ──
     var sortMenuOpen by remember { mutableStateOf(false) }
     @OptIn(ExperimentalLayoutApi::class)
-    McCard(title = "模组获取（Modrinth）") {
+    McCard(title = stringResource(R.string.s831)) {
         Text(
             "从 Modrinth 开放平台搜索并一键安装模组",
             color = Muted,

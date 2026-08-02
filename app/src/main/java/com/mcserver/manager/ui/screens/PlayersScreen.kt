@@ -166,7 +166,7 @@ fun PlayersScreen(vm: McViewModel) {
             ) {
                 HeaderBlock(
                     eyebrow = "Player Management",
-                    title = "玩家管理",
+                    title = stringResource(R.string.s672),
                     modifier = Modifier.weight(1f)
                 )
                 // 页面右上角：玩家进服/离服历史记录入口
@@ -377,7 +377,7 @@ private fun ServerStatusBanner(
     onRefresh: () -> Unit
 ) {
     McCard(
-        title = "服务器状态",
+        title = stringResource(R.string.s679),
         trailing = {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
@@ -435,7 +435,7 @@ private fun OnlineTab(
     onKick: (String) -> Unit,
     onSetGameMode: (String, Int) -> Unit
 ) {
-    McCard(title = "在线玩家") {
+    McCard(title = stringResource(R.string.s657)) {
         if (!isRunning) {
             StatusRow(color = Coral, text = "服务器未运行，无在线玩家")
         } else if (players.isEmpty()) {
@@ -535,7 +535,7 @@ private fun OpsTab(
     var selectedLevel by remember { mutableStateOf(OpLevel.L4) }
     var levelMenuOpen by remember { mutableStateOf(false) }
 
-    McCard(title = "OP 管理") {
+    McCard(title = stringResource(R.string.s690)) {
         Text(
             "OP 拥有管理员权限，等级越高可用命令越多。建议仅给信任的玩家。",
             color = Muted,
@@ -646,7 +646,7 @@ private fun WhitelistTab(
     var search by remember { mutableStateOf("") }
     var newName by remember { mutableStateOf("") }
 
-    McCard(title = "白名单") {
+    McCard(title = stringResource(R.string.s659)) {
         // 白名单开关
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -756,7 +756,7 @@ private fun BannedTab(
     var selectedDuration by remember { mutableStateOf(BanDuration.FOREVER) }
     var durationMenuOpen by remember { mutableStateOf(false) }
 
-    McCard(title = "封禁列表") {
+    McCard(title = stringResource(R.string.s660)) {
         if (banned.isEmpty()) {
             EmptyHint("暂无封禁玩家")
         } else {

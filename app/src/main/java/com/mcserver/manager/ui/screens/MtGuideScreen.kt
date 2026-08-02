@@ -66,9 +66,9 @@ fun MtGuideScreen(onBack: () -> Unit) {
             Text(stringResource(R.string.s404), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
 
-        HeaderBlock(eyebrow = "Tools", title = "MT 管理器管理文件", statusBarPadding = false)
+        HeaderBlock(eyebrow = "Tools", title = stringResource(R.string.s564), statusBarPadding = false)
 
-        McCard(title = "下载 MT 管理器") {
+        McCard(title = stringResource(R.string.s565)) {
             Text(stringResource(R.string.s566), color = Muted, fontSize = 12.sp)
             Spacer(Modifier.height(10.dp))
             Button(
@@ -83,7 +83,7 @@ fun MtGuideScreen(onBack: () -> Unit) {
             }
         }
 
-        McCard(title = "使用教程") {
+        McCard(title = stringResource(R.string.s568)) {
             GuideStep("1", "安装 MT 管理器", "从官网下载并安装 MT 管理器（首次打开需同意用户协议）。")
             GuideStep("2", "打开侧拉栏", "进入 MT 管理器主界面，向右侧滑动打开侧拉栏，或点击左上角菜单图标。")
             GuideStep("3", "添加本地存储", "在侧拉栏中找到「添加本地存储」选项并点击。")
@@ -93,7 +93,7 @@ fun MtGuideScreen(onBack: () -> Unit) {
             GuideStep("7", "提示", "修改服务器配置文件后需要重启服务器才能生效。不要删除 world 文件夹，否则存档会丢失。")
         }
 
-        McCard(title = "原理说明") {
+        McCard(title = stringResource(R.string.s583)) {
             Text(
                 "本应用内置了定制的 DocumentsProvider（MTDataFilesProvider），对外提供 data 目录的文件操作接口。MT 管理器通过 Android 系统标准的文件访问接口连接此 Provider，从而实现在 MT 管理器中直接读写本应用的私有数据——全程无需 Root 权限。",
                 color = Muted, fontSize = 12.sp

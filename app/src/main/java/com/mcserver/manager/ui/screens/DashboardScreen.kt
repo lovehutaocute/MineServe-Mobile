@@ -140,34 +140,34 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Local Server", title = "云控面板")
+            HeaderBlock(eyebrow = "Local Server", title = stringResource(R.string.s340))
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
             HeroBlock(state = state, coreLabel = coreLabel)
 
             // ── 设备状态卡片（常规权限可采集） ──
-            McCard(title = "设备状态") {
+            McCard(title = stringResource(R.string.s341)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     DeviceStatCell(
-                        label = "设备内存",
+                        label = stringResource(R.string.s342),
                         value = if (deviceStats.totalMemoryMb > 0)
                             "${formatDeviceMb(deviceStats.availMemoryMb)} / ${formatDeviceMb(deviceStats.totalMemoryMb)}"
                         else "--",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = "存储",
+                        label = stringResource(R.string.s343),
                         value = if (deviceStats.totalStorageMb > 0)
                             "${formatDeviceMb(deviceStats.availStorageMb)} / ${formatDeviceMb(deviceStats.totalStorageMb)}"
                         else "--",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = "电池",
+                        label = stringResource(R.string.s344),
                         value = when {
                             deviceStats.batteryPercent < 0 -> "--"
                             deviceStats.isCharging -> "${deviceStats.batteryPercent}% 充电中"
@@ -183,22 +183,22 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     DeviceStatCell(
-                        label = "总下载",
+                        label = stringResource(R.string.s346),
                         value = if (deviceStats.totalRxBytes > 0) formatNetBytes(deviceStats.totalRxBytes) else "--",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = "总上传",
+                        label = stringResource(R.string.s347),
                         value = if (deviceStats.totalTxBytes > 0) formatNetBytes(deviceStats.totalTxBytes) else "--",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = "下载速度",
+                        label = stringResource(R.string.s348),
                         value = if (deviceStats.rxSpeedBps > 0) "${formatNetBytes(deviceStats.rxSpeedBps)}/s" else "--",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = "上传速度",
+                        label = stringResource(R.string.s349),
                         value = if (deviceStats.txSpeedBps > 0) "${formatNetBytes(deviceStats.txSpeedBps)}/s" else "--",
                         modifier = Modifier.weight(1f)
                     )
@@ -219,7 +219,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
 
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
-                McCard(title = "初始化运行环境") {
+                McCard(title = stringResource(R.string.s351)) {
                     // 下载提示行（卡片内顶部）
                     DownloadHintHeader(
                         isBusy = true,
@@ -297,7 +297,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             // 一键安装依赖（依赖未装齐时在页面显眼位置展示；装齐后移到底部）
             if (!depsInstalled) {
             McCard(
-                title = "一键安装依赖",
+                title = stringResource(R.string.s357),
                 trailing = {
                     Text(
                         "查看日志",
@@ -376,7 +376,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // 启动哪个服务端（显示已安装的核心列表，支持下拉选择）
-            McCard(title = "启动服务端") {
+            McCard(title = stringResource(R.string.s368)) {
                 val installed = config.installedCores
                 val activeCore = installed.find { it.name == config.activeCoreName }
                 if (installed.isEmpty()) {
@@ -466,7 +466,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
 
             // 启停控制
             McCard(
-                title = "服务控制",
+                title = stringResource(R.string.s377),
                 trailing = {
                     IconButton(onClick = { showStartSettings = true }) {
                         Icon(Icons.Outlined.Settings, "启动设置", tint = Indigo, modifier = Modifier.size(18.dp))
@@ -540,7 +540,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // ── 服务器地址 ──
-            McCard(title = "服务器地址") {
+            McCard(title = stringResource(R.string.s386)) {
                 // 局域网
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -574,7 +574,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // 插件入口（精简）
-            McCard(title = "已安装插件") {
+            McCard(title = stringResource(R.string.s390)) {
                 if (installedPlugins.isEmpty()) {
                     Text(stringResource(R.string.s391), color = Muted, fontSize = 11.sp)
                 } else {

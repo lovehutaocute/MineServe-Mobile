@@ -133,10 +133,10 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
-        HeaderBlock(eyebrow = "Networking", title = "端口与内网穿透", statusBarPadding = false)
+        HeaderBlock(eyebrow = "Networking", title = stringResource(R.string.s585), statusBarPadding = false)
 
         // ── 服务器连接信息（局域网） ──────────────────────────
-        McCard(title = "本地连接地址") {
+        McCard(title = stringResource(R.string.s586)) {
             // 运行状态指示灯
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -242,7 +242,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         TunnelLogPreview(consoleLines)
 
         // ── 本地端口配置 ──────────────────────────────────────
-        McCard(title = "本地端口") {
+        McCard(title = stringResource(R.string.s595)) {
             Text(stringResource(R.string.s596), color = Muted, fontSize = 11.sp)
             Spacer(Modifier.height(8.dp))
             DebouncedTextField(
@@ -256,7 +256,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         }
 
         // ── 内网穿透配置 ──────────────────────────────────────
-        McCard(title = "内网穿透配置") {
+        McCard(title = stringResource(R.string.s597)) {
             // 穿透类型选择器
             Text(stringResource(R.string.s598), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
@@ -357,7 +357,7 @@ private fun TunnelStatusCard(
     onStop: () -> Unit,
     onCopyUrl: () -> Unit
 ) {
-    McCard(title = "内网穿透状态") {
+    McCard(title = stringResource(R.string.s605)) {
         // 状态指示灯 + 状态文本
         Row(verticalAlignment = Alignment.CenterVertically) {
             val (dotColor, statusText, statusColor) = when (tunnelState.status) {
@@ -478,7 +478,7 @@ private fun TunnelLogPreview(consoleLines: List<String>) {
 
     var showFullLog by remember { mutableStateOf(false) }
 
-    McCard(title = "隧道日志") {
+    McCard(title = stringResource(R.string.s616)) {
         // 最近 8 条预览
         tunnelLogs.takeLast(8).forEach { line ->
             Text(
@@ -552,7 +552,7 @@ private fun TunnelLogPreview(consoleLines: List<String>) {
 private fun GuideSection(tunnelType: TunnelType) {
     var expanded by remember { mutableStateOf(true) }
 
-    McCard(title = "操作指南") {
+    McCard(title = stringResource(R.string.s621)) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -585,7 +585,7 @@ private fun GuideSection(tunnelType: TunnelType) {
 
 @Composable
 private fun FrpGuide() {
-    GuideBlock(title = "frp 使用教程（自建服务器）") {
+    GuideBlock(title = stringResource(R.string.s624)) {
         Text(
             "💡 不想自建服务器？页面下方「免费 FRP 平台」卡片提供 OpenFrp / ChmlFrp / StarryFrp / SakuraFrp 等免费 frp 服务：注册账号后，把平台分配的节点地址、端口与 Token 填入上方 frpc.toml 配置，点「启动穿透」即可。",
             color = Coral, fontSize = 11.sp, lineHeight = 15.sp
@@ -603,7 +603,7 @@ private fun FrpGuide() {
 
 @Composable
 private fun BoreGuide() {
-    GuideBlock(title = "bore 使用教程（纯手机端运行）") {
+    GuideBlock(title = stringResource(R.string.s641)) {
         GuideStep("1", "bore 是啥？", "bore 是一个极简的 TCP 隧道工具，协议超级简单只有 3 种消息。手机端直接用纯 Kotlin 实现，无需下载任何程序，秒启动。")
         GuideStep("2", "你需要一台云服务器", "跟 frp 一样，需要一台有公网 IP 的 VPS。去 GitHub 搜 ekzhang/bore，下载 bore 二进制，在服务器上运行：./bore server")
         GuideStep("3", "填服务端地址", "把服务器的 IP 和端口（默认 7835）填到上面的输入框，格式如 your-vps.com:7835。")
@@ -661,7 +661,7 @@ private val freeFrpPlatforms = listOf(
 
 @Composable
 private fun FreeFrpPlatformsCard(context: Context) {
-    McCard(title = "免费 FRP 平台") {
+    McCard(title = stringResource(R.string.s654)) {
         Text(
             "不想自建服务器？以下免费 frp 平台注册后即可使用：把平台提供的节点地址、端口与 Token 填入上方 frpc.toml 配置即可启动。",
             color = Muted, fontSize = 10.sp, lineHeight = 14.sp

@@ -58,10 +58,10 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        HeaderBlock(eyebrow = "Settings", title = "设置")
+        HeaderBlock(eyebrow = "Settings", title = stringResource(R.string.s186))
 
         // JVM 内存上限
-        McCard(title = "JVM 内存上限") {
+        McCard(title = stringResource(R.string.s1003)) {
             Text(
                 "为 MC 进程分配 -Xmx，建议不超过设备可用 RAM 的 60%。",
                 color = Muted,
@@ -85,7 +85,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         }
 
         // 下载源设置（Termux bootstrap rootfs 下载源）
-        McCard(title = "下载源设置") {
+        McCard(title = stringResource(R.string.s1007)) {
             Text(
                 "Termux 运行环境下载源（约 50MB），影响初始化速度",
                 color = Muted,
@@ -106,7 +106,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         }
 
         // APT 镜像设置（JDK/wget/frp 等依赖包下载源）
-        McCard(title = "APT 软件源") {
+        McCard(title = stringResource(R.string.s1010)) {
             Text(
                 "影响 apt 安装依赖（JDK/wget/frp/proot）的下载速度",
                 color = Muted,
@@ -127,31 +127,31 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         }
 
         // 保活与恢复
-        McCard(title = "保活与恢复") {
+        McCard(title = stringResource(R.string.s1013)) {
             SettingToggle(
-                title = "崩溃自动重启",
-                subtitle = "MC 进程异常退出时自动重启（默认关闭省电）",
+                title = stringResource(R.string.s396),
+                subtitle = stringResource(R.string.s397),
                 checked = config.autoRestartOnCrash,
                 onChange = { vm.setAutoRestart(it) }
             )
             Spacer(Modifier.height(8.dp))
             SettingToggle(
-                title = "保持 Wi-Fi 连接",
-                subtitle = "屏幕熄灭时防止 Wi-Fi 进入低功耗",
+                title = stringResource(R.string.s1014),
+                subtitle = stringResource(R.string.s1015),
                 checked = config.keepWifiLock,
                 onChange = { vm.setKeepWifiLock(it) }
             )
             Spacer(Modifier.height(8.dp))
             SettingToggle(
-                title = "保持 CPU 唤醒",
-                subtitle = "防止 CPU 休眠导致 TPS 掉电",
+                title = stringResource(R.string.s1016),
+                subtitle = stringResource(R.string.s1017),
                 checked = config.keepCpuWakelock,
                 onChange = { vm.setKeepCpuWakelock(it) }
             )
         }
 
         // 后台保活（大尺寸独立入口）
-        McCard(title = "后台保活") {
+        McCard(title = stringResource(R.string.s542)) {
             Text(
                 "开机自启 / 后台周期保活 / 崩溃自动重启",
                 color = Muted,
@@ -171,16 +171,16 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         }
 
         // 快捷入口（子页面跳转）
-        McCard(title = "快捷入口") {
+        McCard(title = stringResource(R.string.s1020)) {
             SettingEntry(
-                title = "下载帮助",
-                subtitle = "下载慢？查看解决方案",
+                title = stringResource(R.string.s1021),
+                subtitle = stringResource(R.string.s1022),
                 onClick = { onNavigate(SubPage.DownloadHelp) }
             )
         }
 
         // 关于
-        McCard(title = "关于") {
+        McCard(title = stringResource(R.string.s1023)) {
             Text(
                 "MC 云控面板 · v1.0.0",
                 color = Muted,
@@ -195,7 +195,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         }
 
         // 意见反馈
-        McCard(title = "意见反馈") {
+        McCard(title = stringResource(R.string.s1026)) {
             Text(
                 "遇到问题或有建议？欢迎发送邮件反馈，我们会尽快处理。",
                 color = Muted,

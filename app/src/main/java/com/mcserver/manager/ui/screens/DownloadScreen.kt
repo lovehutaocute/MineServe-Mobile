@@ -108,10 +108,10 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Core Download", title = "服务端核心下载")
+            HeaderBlock(eyebrow = "Core Download", title = stringResource(R.string.s450))
 
             // 当前下载状态
-            McCard(title = "已安装核心列表") {
+            McCard(title = stringResource(R.string.s451)) {
                 val installed = config.installedCores
                 if (installed.isEmpty()) {
                     Text(
@@ -179,7 +179,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             }
 
             // 选择核心类型
-            McCard(title = "1. 选择核心类型") {
+            McCard(title = stringResource(R.string.s457)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ServerCore.values().forEach { core ->
                         SegPill(
@@ -224,7 +224,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             }
 
             // 选择游戏版本
-            McCard(title = "2. 选择游戏版本") {
+            McCard(title = stringResource(R.string.s471)) {
                 if (isLoadingVersions) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -292,7 +292,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             }
 
             // 下载服务端
-            McCard(title = "3. 下载服务端核心") {
+            McCard(title = stringResource(R.string.s479)) {
                 // 下载提示行（卡片内顶部，含实时速度）
                 Row(
                     modifier = Modifier.fillMaxWidth(),

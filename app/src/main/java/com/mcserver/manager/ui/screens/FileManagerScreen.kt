@@ -140,7 +140,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            HeaderBlock(eyebrow = "File Manager", title = "文件管理")
+            HeaderBlock(eyebrow = "File Manager", title = stringResource(R.string.s488))
 
             // MT 管理器 + 导出服务器
             Row(
@@ -186,7 +186,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
             }
 
             // 路径导航栏
-            McCard(title = "当前路径") {
+            McCard(title = stringResource(R.string.s493)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     val rootPath = vm.fileManagerRoot.absolutePath
                     val relPath = if (currentPath.startsWith(rootPath)) {
@@ -288,7 +288,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
 
             // 文件列表
             if (files.isEmpty()) {
-                McCard(title = "文件列表") {
+                McCard(title = stringResource(R.string.s500)) {
                     Text(
                         if (currentPath.isEmpty()) "正在加载..." else "目录为空",
                         color = Muted,

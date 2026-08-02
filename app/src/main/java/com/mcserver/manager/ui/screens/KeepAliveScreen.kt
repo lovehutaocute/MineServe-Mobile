@@ -89,10 +89,10 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Keep Alive", title = "后台保活", statusBarPadding = false)
+            HeaderBlock(eyebrow = "Keep Alive", title = stringResource(R.string.s542), statusBarPadding = false)
 
             // 服务状态
-            McCard(title = "服务状态") {
+            McCard(title = stringResource(R.string.s543)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     androidx.compose.foundation.layout.Box(
                         modifier = Modifier
@@ -125,31 +125,31 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
             }
 
             // 保活开关
-            McCard(title = "保活开关") {
+            McCard(title = stringResource(R.string.s548)) {
                 KeepAliveToggle(
-                    title = "开机自启动",
-                    subtitle = "设备开机后自动启动后台服务，无需手动打开应用（需授予自启动权限）",
+                    title = stringResource(R.string.s549),
+                    subtitle = stringResource(R.string.s550),
                     checked = bootAuto,
                     onChange = { vm.setBootAutoStart(it); bootAuto = it }
                 )
                 Spacer(Modifier.height(8.dp))
                 KeepAliveToggle(
-                    title = "后台周期保活",
-                    subtitle = "每 15 分钟检查保活服务是否存活，被系统杀死后自动重新拉起（WorkManager）",
+                    title = stringResource(R.string.s551),
+                    subtitle = stringResource(R.string.s552),
                     checked = keepAlive,
                     onChange = { vm.setKeepAliveEnabled(it); keepAlive = it }
                 )
                 Spacer(Modifier.height(8.dp))
                 KeepAliveToggle(
-                    title = "崩溃自动重启",
-                    subtitle = "MC 服务器进程异常退出时自动重启（默认关闭省电）",
+                    title = stringResource(R.string.s396),
+                    subtitle = stringResource(R.string.s553),
                     checked = config.autoRestartOnCrash,
                     onChange = { vm.setAutoRestart(it) }
                 )
             }
 
             // 说明
-            McCard(title = "说明") {
+            McCard(title = stringResource(R.string.s554)) {
                 Text(
                     "Android 系统对后台进程有严格限制，保活能力受系统版本与厂商策略影响。\n" +
                         "前台服务通知常驻可显著降低被杀概率；请勿在系统设置中限制本应用后台运行。",

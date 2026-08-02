@@ -77,10 +77,10 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Text(stringResource(R.string.s404), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
-        HeaderBlock(eyebrow = "Help", title = "下载慢怎么办？", statusBarPadding = false)
+        HeaderBlock(eyebrow = "Help", title = stringResource(R.string.s405), statusBarPadding = false)
 
         // 介绍
-        McCard(title = "为什么下载会慢？") {
+        McCard(title = stringResource(R.string.s406)) {
             Text(
                 "本应用需要从 GitHub 下载运行环境（约 50MB）和服务端核心（约 50MB）。GitHub 服务器在国外，国内访问可能很慢甚至失败。下面提供几种解决方案，按推荐顺序排列。",
                 color = Muted, fontSize = 12.sp
@@ -93,7 +93,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             iconColor = Indigo,
             tag = "推荐",
             tagColor = Mint,
-            title = "方案一：切换 Termux 环境下载源",
+            title = stringResource(R.string.s409),
             description = "本应用内置 7 个 GitHub 镜像源（gh-proxy.com、ghproxy.net 等），可自动加速 GitHub 下载。切换后重新初始化即可生效。"
         ) {
             HelpStep("1", "进入「设置」标签页")
@@ -109,7 +109,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             iconColor = Indigo,
             tag = "推荐",
             tagColor = Mint,
-            title = "方案二：切换依赖包下载源（apt 镜像）",
+            title = stringResource(R.string.s416),
             description = "JDK、wget、frp 等依赖包从 Termux 官方源下载，国内可能很慢。切换到国内镜像可大幅提速。"
         ) {
             HelpStep("1", "进入「设置」标签页")
@@ -124,7 +124,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             iconColor = Indigo,
             tag = "免费",
             tagColor = Mint,
-            title = "方案三：切换网络环境",
+            title = stringResource(R.string.s422),
             description = "不同运营商对 GitHub 的路由质量差异很大，切换网络可能立竿见影。"
         ) {
             HelpStep("1", "尝试切换 WiFi 和手机数据")
@@ -139,7 +139,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             iconColor = Coral,
             tag = "进阶",
             tagColor = Coral,
-            title = "方案四：使用网络代理（VPN）",
+            title = stringResource(R.string.s429),
             description = "使用代理工具加速 GitHub 访问。这是最彻底但需要额外工具的方案。"
         ) {
             HelpStep("1", "在手机上启动代理工具（支持全局或分应用代理）")
@@ -154,7 +154,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             iconColor = Coral,
             tag = "手动",
             tagColor = Coral,
-            title = "方案五：用电脑下载后传到手机",
+            title = stringResource(R.string.s436),
             description = "如果手机网络实在不行，可以用电脑下载后通过文件管理器传到手机。"
         ) {
             HelpStep("1", "在电脑浏览器打开 GitHub release 页面下载所需文件")
@@ -164,7 +164,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
         }
 
         // 测速小贴士
-        McCard(title = "如何判断当前速度？") {
+        McCard(title = stringResource(R.string.s442)) {
             Text(
                 "在下载过程中，本应用会实时显示下载速度（如 \"2.35 MB/s\"）。一般来说：",
                 color = Muted, fontSize = 12.sp
