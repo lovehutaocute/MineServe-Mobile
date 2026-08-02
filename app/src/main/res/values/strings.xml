@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">MC 云控面板</string>
+    <string name="app_name">JavaMC GO</string>
     <string name="notif_channel_id">mc_server_runtime</string>
     <string name="notif_channel_name">MC 服务运行时</string>
     <string name="notif_channel_desc">显示 Minecraft 服务器运行状态，关闭通知会导致服务被系统杀死</string>

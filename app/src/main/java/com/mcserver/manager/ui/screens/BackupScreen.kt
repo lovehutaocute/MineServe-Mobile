@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -121,7 +122,14 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
             }
 
             // 备份列表
-            McCard(title = "备份列表 (${snapshots.size})") {
+            McCard(
+                title = "备份列表 (${snapshots.size})",
+                trailing = {
+                    IconButton(onClick = { vm.loadSnapshots() }) {
+                        Icon(Icons.Outlined.Refresh, "刷新", tint = Indigo, modifier = Modifier.size(18.dp))
+                    }
+                }
+            ) {
                 if (snapshots.isEmpty()) {
                     Text("暂无备份", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp))
                 } else {

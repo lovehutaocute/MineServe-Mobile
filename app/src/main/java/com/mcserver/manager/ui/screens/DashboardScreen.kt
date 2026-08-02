@@ -2,6 +2,7 @@ package com.mcserver.manager.ui.screens
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -503,6 +504,10 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     Column(Modifier.weight(1f)) {
                         androidx.compose.material3.Text("局域网", color = Muted, fontSize = 10.sp)
                         androidx.compose.material3.Text("${lanIp}:${config.localPort}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                    }
+                    // 刷新局域网 IP
+                    androidx.compose.material3.IconButton(onClick = { vm.refreshLanIp() }) {
+                        androidx.compose.material3.Icon(Icons.Outlined.Refresh, "刷新", tint = Indigo, modifier = Modifier.size(16.dp))
                     }
                     androidx.compose.material3.IconButton(onClick = {
                         val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
