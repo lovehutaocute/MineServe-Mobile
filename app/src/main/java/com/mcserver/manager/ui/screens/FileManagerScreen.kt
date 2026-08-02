@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -152,7 +155,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    Text("📁 MT 管理器管理文件", fontSize = 13.sp)
+                    Text(stringResource(R.string.s489), fontSize = 13.sp)
                 }
                 OutlinedButton(
                     onClick = { exportServerLauncher.launch("服务器导出.zip") },
@@ -161,7 +164,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                 ) {
                     Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(4.dp))
-                    Text("导出服务器", fontSize = 12.sp, color = Indigo)
+                    Text(stringResource(R.string.s491), fontSize = 12.sp, color = Indigo)
                 }
             }
 
@@ -179,7 +182,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 2.dp)
             ) {
-                Text("📺 MT 管理器使用教程视频", fontSize = 12.sp, color = Indigo)
+                Text(stringResource(R.string.s492), fontSize = 12.sp, color = Indigo)
             }
 
             // 路径导航栏
@@ -239,7 +242,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.size(4.dp))
-                        Text("上级", color = Color.White, fontSize = 11.sp)
+                        Text(stringResource(R.string.s496), color = Color.White, fontSize = 11.sp)
                     }
 
                     // 上传文件
@@ -257,7 +260,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.size(4.dp))
-                        Text("上传", color = Color.White, fontSize = 11.sp)
+                        Text(stringResource(R.string.s497), color = Color.White, fontSize = 11.sp)
                     }
 
                     // 新建文件夹
@@ -276,7 +279,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.size(4.dp))
-                        Text("新建", color = Color.White, fontSize = 11.sp)
+                        Text(stringResource(R.string.s499), color = Color.White, fontSize = 11.sp)
                     }
                 }
             }
@@ -324,7 +327,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
     showDeleteConfirm?.let { fileToDelete ->
         AlertDialog(
             onDismissRequest = { showDeleteConfirm = null },
-            title = { Text("确认删除", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.s401), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     buildString {
@@ -346,14 +349,14 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                         showDeleteConfirm = null
                     }
                 ) {
-                    Text("删除", color = Coral, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s339), color = Coral, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = { showDeleteConfirm = null }
                 ) {
-                    Text("取消", color = Muted)
+                    Text(stringResource(R.string.s402), color = Muted)
                 }
             }
         )
@@ -363,12 +366,12 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
     if (showNewDirDialog) {
         AlertDialog(
             onDismissRequest = { showNewDirDialog = false },
-            title = { Text("新建文件夹", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.s498), fontWeight = FontWeight.Bold) },
             text = {
                 OutlinedTextField(
                     value = newDirName,
                     onValueChange = { newDirName = it },
-                    label = { Text("文件夹名称", fontSize = 12.sp) },
+                    label = { Text(stringResource(R.string.s506), fontSize = 12.sp) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -382,14 +385,14 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                         }
                     }
                 ) {
-                    Text("创建", color = Indigo, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s507), color = Indigo, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(
                     onClick = { showNewDirDialog = false }
                 ) {
-                    Text("取消", color = Muted)
+                    Text(stringResource(R.string.s402), color = Muted)
                 }
             }
         )

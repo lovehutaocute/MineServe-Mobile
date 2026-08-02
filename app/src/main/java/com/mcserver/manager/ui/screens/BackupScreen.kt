@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -88,7 +91,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
 
             // 快照操作
             McCard(title = "创建备份") {
-                Text("将 world 目录打包为 zip，保存到 home/snapshots/", color = Muted, fontSize = 11.sp)
+                Text(stringResource(R.string.s326), color = Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -99,7 +102,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                         enabled = isBootstrapped,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)
-                    ) { Text("保存", color = Color.White, fontSize = 12.sp) }
+                    ) { Text(stringResource(R.string.s328), color = Color.White, fontSize = 12.sp) }
                     Button(
                         onClick = {
                             isSnapshotting = true
@@ -116,7 +119,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                         shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)
                     ) {
                         if (isSnapshotting) CircularProgressIndicator(Modifier.size(16.dp), Color.White, strokeWidth = 2.dp)
-                        else Text("新建备份", color = Color.White, fontSize = 12.sp)
+                        else Text(stringResource(R.string.s331), color = Color.White, fontSize = 12.sp)
                     }
                 }
             }
@@ -131,7 +134,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 }
             ) {
                 if (snapshots.isEmpty()) {
-                    Text("暂无备份", color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp))
+                    Text(stringResource(R.string.s334), color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp))
                 } else {
                     snapshots.forEachIndexed { i, snap ->
                         if (i > 0) Spacer(Modifier.height(6.dp))

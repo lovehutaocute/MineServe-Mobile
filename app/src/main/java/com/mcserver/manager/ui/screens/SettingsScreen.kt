@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -75,7 +78,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 onValueChange = { v -> v.toIntOrNull()?.let { vm.setMaxHeap(it) } },
                 sanitize = { it.filter(Char::isDigit) },
                 singleLine = true,
-                label = { Text("最大堆 (MB)") },
+                label = { Text(stringResource(R.string.s1006)) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth()
             )
@@ -89,7 +92,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 fontSize = 11.sp
             )
             Spacer(Modifier.height(8.dp))
-            Text("Termux 下载源", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s1009), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 DownloadMirror.values().forEach { mirror ->
@@ -110,7 +113,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 fontSize = 11.sp
             )
             Spacer(Modifier.height(8.dp))
-            Text("APT 镜像", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s1012), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 AptMirror.values().forEach { mirror ->
@@ -163,7 +166,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                     .fillMaxWidth()
                     .height(56.dp)
             ) {
-                Text("进入后台保活设置", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.s1019), fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
         }
 

@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -506,7 +509,7 @@ fun PluginsScreen(vm: McViewModel) {
     pendingModDelete?.let { mod ->
         AlertDialog(
             onDismissRequest = { pendingModDelete = null },
-            title = { Text("确认删除模组", fontWeight = FontWeight.Bold) },
+            title = { Text(stringResource(R.string.s768), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
                     "即将删除模组：\n${mod.baseName}\n\n此操作不可撤销。",
@@ -519,12 +522,12 @@ fun PluginsScreen(vm: McViewModel) {
                     vm.deleteMod(mod.fileName)
                     pendingModDelete = null
                 }) {
-                    Text("删除", color = Coral, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s339), color = Coral, fontWeight = FontWeight.SemiBold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { pendingModDelete = null }) {
-                    Text("取消", color = Muted)
+                    Text(stringResource(R.string.s402), color = Muted)
                 }
             }
         )
@@ -566,7 +569,7 @@ private fun InstalledTab(
         OutlinedTextField(
             value = searchQuery,
             onValueChange = { searchQuery = it },
-            placeholder = { Text("搜索插件名称...", fontSize = 11.sp) },
+            placeholder = { Text(stringResource(R.string.s772), fontSize = 11.sp) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -814,7 +817,7 @@ private fun CuratedTab(
         ) {
             Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(4.dp))
-            Text("强制重新检测（清空缓存）", color = Indigo, fontSize = 11.sp)
+            Text(stringResource(R.string.s783), color = Indigo, fontSize = 11.sp)
         }
     }
 
@@ -1004,15 +1007,15 @@ private fun CuratedPluginRow(
                     isInstalled && hasUpdate -> {
                         Icon(Icons.Outlined.Update, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.size(4.dp))
-                        Text("更新到最新", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.s789), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                     isInstalled -> {
-                        Text("已安装（最新）", color = Mint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.s790), color = Mint, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                     else -> {
                         Icon(Icons.Outlined.Extension, contentDescription = null, modifier = Modifier.size(14.dp))
                         Spacer(Modifier.size(4.dp))
-                        Text("下载安装", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.s791), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
@@ -1074,9 +1077,9 @@ private fun UploadTab(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Outlined.CloudUpload, contentDescription = "上传", tint = Indigo, modifier = Modifier.size(36.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("点击选择 .jar 文件", color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.s795), color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.size(2.dp))
-                Text("支持任意来源的 .jar 文件", color = Muted, fontSize = 10.sp)
+                Text(stringResource(R.string.s796), color = Muted, fontSize = 10.sp)
             }
         }
 
@@ -1085,14 +1088,14 @@ private fun UploadTab(
         // 分隔线
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(modifier = Modifier.weight(1f).height(1.dp).background(IndigoSoft))
-            Text("或", color = Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
+            Text(stringResource(R.string.s797), color = Muted, fontSize = 10.sp, modifier = Modifier.padding(horizontal = 8.dp))
             Box(modifier = Modifier.weight(1f).height(1.dp).background(IndigoSoft))
         }
 
         Spacer(Modifier.height(16.dp))
 
         // 自定义 URL 下载
-        Text("自定义 URL 下载", color = Indigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.s798), color = Indigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
             "粘贴 .jar 文件的直链下载 URL（如 SpigotMC、Modrinth 手动复制的直链）",
@@ -1104,7 +1107,7 @@ private fun UploadTab(
         OutlinedTextField(
             value = customUrl,
             onValueChange = { customUrl = it },
-            label = { Text("下载 URL", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.s800), fontSize = 11.sp) },
             leadingIcon = { Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -1115,7 +1118,7 @@ private fun UploadTab(
         OutlinedTextField(
             value = customName,
             onValueChange = { customName = it },
-            label = { Text("保存文件名（含或不含 .jar）", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.s801), fontSize = 11.sp) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
@@ -1152,7 +1155,7 @@ private fun UploadTab(
         ) {
             Icon(Icons.Outlined.Link, contentDescription = null, modifier = Modifier.size(14.dp))
             Spacer(Modifier.size(4.dp))
-            Text("开始下载", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s486), color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         }
 
         Spacer(Modifier.height(12.dp))
@@ -1161,7 +1164,7 @@ private fun UploadTab(
             shape = RoundedCornerShape(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("查看已安装列表", color = Indigo, fontSize = 11.sp)
+            Text(stringResource(R.string.s802), color = Indigo, fontSize = 11.sp)
         }
     }
 }
@@ -1177,10 +1180,10 @@ private fun DeletePluginDialog(
     var alsoRemoveData by remember { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("删除插件", fontWeight = FontWeight.Bold) },
+        title = { Text(stringResource(R.string.s803), fontWeight = FontWeight.Bold) },
         text = {
             Column {
-                Text("确认删除以下插件？", fontSize = 13.sp)
+                Text(stringResource(R.string.s804), fontSize = 13.sp)
                 Spacer(Modifier.height(6.dp))
                 Text(
                     plugin.fileName,
@@ -1211,7 +1214,7 @@ private fun DeletePluginDialog(
                     )
                     Spacer(Modifier.size(4.dp))
                     Column {
-                        Text("同时删除插件数据目录", fontSize = 12.sp)
+                        Text(stringResource(R.string.s807), fontSize = 12.sp)
                         Text(
                             if (plugin.meta?.name != null)
                                 "将删除 plugins/${plugin.meta.name}/ 下的配置和数据"
@@ -1228,10 +1231,10 @@ private fun DeletePluginDialog(
             Button(
                 onClick = { onConfirm(alsoRemoveData) },
                 colors = ButtonDefaults.buttonColors(containerColor = Coral)
-            ) { Text("删除", color = Color.White) }
+            ) { Text(stringResource(R.string.s339), color = Color.White) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("取消") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.s402)) }
         }
     )
 }
@@ -1249,7 +1252,7 @@ private fun PluginDetailDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Extension, contentDescription = null, tint = Indigo, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("插件详情", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.s810), fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -1286,7 +1289,7 @@ private fun PluginDetailDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
         }
     )
 }
@@ -1419,7 +1422,7 @@ private fun ModsTab(
         ) {
             Icon(Icons.Outlined.Upload, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
-            Text("上传模组 (.jar)", color = Indigo, fontSize = 12.sp)
+            Text(stringResource(R.string.s830), color = Indigo, fontSize = 12.sp)
         }
     }
 
@@ -1439,7 +1442,7 @@ private fun ModsTab(
             OutlinedTextField(
                 value = modrinthQuery,
                 onValueChange = { modrinthQuery = it },
-                placeholder = { Text("搜索模组，如 sodium", fontSize = 11.sp) },
+                placeholder = { Text(stringResource(R.string.s833), fontSize = 11.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(10.dp)
@@ -1468,13 +1471,13 @@ private fun ModsTab(
                 colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                 shape = RoundedCornerShape(10.dp)
             ) {
-                Text("搜索", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.s834), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
         // 加载器多选筛选
         if (modrinthLoaders.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text("加载器筛选（可多选，不选表示全部）", color = Muted, fontSize = 10.sp)
+            Text(stringResource(R.string.s835), color = Muted, fontSize = 10.sp)
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 modrinthLoaders.take(12).forEach { loader ->
@@ -1529,7 +1532,7 @@ private fun ModsTab(
                         colors = ButtonDefaults.buttonColors(containerColor = Mint),
                         shape = RoundedCornerShape(8.dp)
                     ) {
-                        Text("安装", color = Color.White, fontSize = 11.sp)
+                        Text(stringResource(R.string.s837), color = Color.White, fontSize = 11.sp)
                     }
                 }
             }

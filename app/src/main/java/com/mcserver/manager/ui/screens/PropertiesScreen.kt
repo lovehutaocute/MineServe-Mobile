@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -188,7 +191,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
-            Text("返回设置", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
+            Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
         }
         Column(
@@ -231,7 +234,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
                 val unknownKeys = props.keys.filter { it !in knownKeys }
                 if (unknownKeys.isNotEmpty()) {
                     Spacer(Modifier.height(4.dp))
-                    Text("其他参数（新版服务端新增）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s1000), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     unknownKeys.forEach { key ->
                         Text(key, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
@@ -264,7 +267,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Text("保存", color = Color.White, fontWeight = FontWeight.Bold)
+            Text(stringResource(R.string.s328), color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 
@@ -272,17 +275,17 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
     if (showRestartDialog) {
         AlertDialog(
             onDismissRequest = { showRestartDialog = false },
-            title = { Text("提示", fontWeight = FontWeight.Bold) },
-            text = { Text("部分属性需重启服务器才生效，是否继续？") },
+            title = { Text(stringResource(R.string.s581), fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.s1001)) },
             confirmButton = {
                 TextButton(onClick = {
                     showRestartDialog = false
                     vm.saveServerProperties(props)
-                }) { Text("继续", color = Indigo) }
+                }) { Text(stringResource(R.string.s1002), color = Indigo) }
             },
             dismissButton = {
                 TextButton(onClick = { showRestartDialog = false }) {
-                    Text("取消", color = Coral)
+                    Text(stringResource(R.string.s402), color = Coral)
                 }
             }
         )

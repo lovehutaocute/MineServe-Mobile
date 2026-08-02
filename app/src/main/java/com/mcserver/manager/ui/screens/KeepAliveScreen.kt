@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
@@ -79,7 +82,7 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
-            Text("返回设置", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
+            Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
         Column(
             modifier = Modifier
@@ -112,12 +115,12 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
-                    ) { Text("启动服务", color = Color.White, fontSize = 12.sp) }
+                    ) { Text(stringResource(R.string.s546), color = Color.White, fontSize = 12.sp) }
                     OutlinedButton(
                         onClick = { vm.stopKeepAliveService() },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
-                    ) { Text("停止服务", color = Coral, fontSize = 12.sp) }
+                    ) { Text(stringResource(R.string.s547), color = Coral, fontSize = 12.sp) }
                 }
             }
 

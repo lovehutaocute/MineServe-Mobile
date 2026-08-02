@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -84,7 +87,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text("LOG STREAM", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                Text("控制台日志", color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.s557), color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
             // 一键复制日志按钮
             IconButton(onClick = {
@@ -182,7 +185,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             OutlinedTextField(
                 value = input,
                 onValueChange = { input = it },
-                placeholder = { Text("向控制台发送指令（如 /say hello）", fontSize = 12.sp) },
+                placeholder = { Text(stringResource(R.string.s562), fontSize = 12.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f)
             )

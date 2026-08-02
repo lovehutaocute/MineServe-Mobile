@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -128,7 +131,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
-            Text("返回设置", fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
+            Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
         HeaderBlock(eyebrow = "Networking", title = "端口与内网穿透", statusBarPadding = false)
 
@@ -153,7 +156,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(12.dp))
 
             // 本地回环地址（本机直连，同设备测试用）
-            Text("本机地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s588), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -185,7 +188,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             Spacer(Modifier.height(12.dp))
 
             // 局域网 IP（其他设备连接用）
-            Text("局域网 IP", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s590), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(lanIp, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -195,12 +198,12 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
 
-            Text("端口", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s592), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Text("${config.localPort}", fontSize = 18.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
 
-            Text("局域网连接地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s593), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -240,7 +243,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
 
         // ── 本地端口配置 ──────────────────────────────────────
         McCard(title = "本地端口") {
-            Text("Minecraft 服务器监听端口，默认 25565", color = Muted, fontSize = 11.sp)
+            Text(stringResource(R.string.s596), color = Muted, fontSize = 11.sp)
             Spacer(Modifier.height(8.dp))
             DebouncedTextField(
                 value = config.localPort.toString(),
@@ -255,7 +258,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
         // ── 内网穿透配置 ──────────────────────────────────────
         McCard(title = "内网穿透配置") {
             // 穿透类型选择器
-            Text("穿透类型", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+            Text(stringResource(R.string.s598), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(8.dp))
 
             TunnelType.values().forEach { type ->
@@ -292,12 +295,12 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 exit = shrinkVertically()
             ) {
                 Column {
-                    Text("frpc.toml 配置", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s599), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     DebouncedTextField(
                         value = config.frpConfigText,
                         onValueChange = { v -> vm.updateConfig { it.copy(frpConfigText = v) } },
-                        placeholder = { Text("粘贴完整 frpc.toml 内容...") },
+                        placeholder = { Text(stringResource(R.string.s600)) },
                         minLines = 6,
                         maxLines = 12,
                         modifier = Modifier.fillMaxWidth()
@@ -316,12 +319,12 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 exit = shrinkVertically()
             ) {
                 Column {
-                    Text("bore 服务端地址", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s602), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
                     DebouncedTextField(
                         value = config.boreServerAddr,
                         onValueChange = { v -> vm.updateConfig { it.copy(boreServerAddr = v) } },
-                        placeholder = { Text("例如: your-vps.com:7835") },
+                        placeholder = { Text(stringResource(R.string.s603)) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
@@ -441,7 +444,7 @@ private fun TunnelStatusCard(
             ) {
                 Icon(Icons.Outlined.PlayArrow, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
-                Text("启动穿透", color = Color.White)
+                Text(stringResource(R.string.s615), color = Color.White)
             }
 
             Button(
@@ -456,7 +459,7 @@ private fun TunnelStatusCard(
             ) {
                 Icon(Icons.Outlined.Stop, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.size(6.dp))
-                Text("停止", color = Color.White)
+                Text(stringResource(R.string.s382), color = Color.White)
             }
         }
     }
@@ -518,7 +521,7 @@ private fun TunnelLogPreview(consoleLines: List<String>) {
                         .verticalScroll(rememberScrollState())
                 ) {
                     if (tunnelLogs.isEmpty()) {
-                        Text("暂无隧道日志", color = Muted, fontSize = 13.sp)
+                        Text(stringResource(R.string.s619), color = Muted, fontSize = 13.sp)
                     } else {
                         tunnelLogs.forEach { line ->
                             Text(
@@ -536,7 +539,7 @@ private fun TunnelLogPreview(consoleLines: List<String>) {
             },
             confirmButton = {
                 Button(onClick = { showFullLog = false }) {
-                    Text("关闭")
+                    Text(stringResource(R.string.s620))
                 }
             }
         )

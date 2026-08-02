@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -60,13 +63,13 @@ fun MtGuideScreen(onBack: () -> Unit) {
             IconButton(onClick = onBack) {
                 Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
             }
-            Text("返回", fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(stringResource(R.string.s404), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
 
         HeaderBlock(eyebrow = "Tools", title = "MT 管理器管理文件", statusBarPadding = false)
 
         McCard(title = "下载 MT 管理器") {
-            Text("MT 管理器是一款强大的 Android 文件管理工具，支持免 Root 浏览应用私有数据目录。", color = Muted, fontSize = 12.sp)
+            Text(stringResource(R.string.s566), color = Muted, fontSize = 12.sp)
             Spacer(Modifier.height(10.dp))
             Button(
                 onClick = {
@@ -76,7 +79,7 @@ fun MtGuideScreen(onBack: () -> Unit) {
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("📥 前往 MT 管理器官网下载", fontSize = 14.sp)
+                Text(stringResource(R.string.s567), fontSize = 14.sp)
             }
         }
 
