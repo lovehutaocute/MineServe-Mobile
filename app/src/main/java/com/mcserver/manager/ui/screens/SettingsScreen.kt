@@ -40,6 +40,7 @@ import com.mcserver.manager.ui.McViewModel
 import com.mcserver.manager.ui.SegPill
 import com.mcserver.manager.ui.DebouncedTextField
 import com.mcserver.manager.ui.SubPage
+import com.mcserver.manager.ui.theme.Coral
 import com.mcserver.manager.ui.theme.Indigo
 import com.mcserver.manager.ui.theme.Muted
 
@@ -62,6 +63,11 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 "为 MC 进程分配 -Xmx，建议不超过设备可用 RAM 的 60%。",
                 color = Muted,
                 fontSize = 11.sp
+            )
+            Text(
+                "修改后需重启服务器生效（-Xmx 为 JVM 启动参数）",
+                color = Coral,
+                fontSize = 10.sp
             )
             Spacer(Modifier.height(8.dp))
             DebouncedTextField(
@@ -139,6 +145,26 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 checked = config.keepCpuWakelock,
                 onChange = { vm.setKeepCpuWakelock(it) }
             )
+        }
+
+        // 后台保活（大尺寸独立入口）
+        McCard(title = "后台保活") {
+            Text(
+                "开机自启 / 后台周期保活 / 崩溃自动重启",
+                color = Muted,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { onNavigate(SubPage.KeepAlive) },
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(56.dp)
+            ) {
+                Text("进入后台保活设置", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
         }
 
         // 快捷入口（子页面跳转）

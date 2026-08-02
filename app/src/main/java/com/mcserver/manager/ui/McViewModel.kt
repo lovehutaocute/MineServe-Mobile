@@ -3,7 +3,10 @@ package com.mcserver.manager.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.mcserver.manager.BootReceiver
+import com.mcserver.manager.KeepAliveWorker
 import com.mcserver.manager.McApplication
+import com.mcserver.manager.service.McForegroundService
 import android.net.Uri
 import com.mcserver.manager.data.McConfig
 import com.mcserver.manager.data.ServerCore
@@ -1733,5 +1736,61 @@ class McViewModel(
                 }
             }
         }
+    }
+
+    // ── 后台保活（开机自启 / 周期保活） ─────────────────────────────
+
+    private fun metaPrefs() =
+        McApplication.get().getSharedPreferences(BootReceiver.META_PREFS, android.content.Context.MODE_PRIVATE)
+
+    /** 开机自启动开关状态 */
+    fun isBootAutoStart(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_BOOT_AUTO_START, false)
+
+    /** 设置开机自启动：开启时立即拉起前台服务，关闭时停止 */
+    fun setBootAutoStart(v: Boolean) {
+        metaPrefs().edit().putBoolean(BootReceiver.KEY_BOOT_AUTO_START, v).apply()
+        if (v) startKeepAliveService() else stopKeepAliveService()
+    }
+
+    /** 后台周期保活开关状态 */
+    fun isKeepAliveEnabled(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_KEEP_ALIVE, false)
+
+    /** 设置后台周期保活：开启时调度 WorkManager 周期任务，关闭时取消 */
+    fun setKeepAliveEnabled(v: Boolean) {
+        metaPrefs().edit().putBoolean(BootReceiver.KEY_KEEP_ALIVE, v).apply()
+        if (v) scheduleKeepAlive() else cancelKeepAlive()
+    }
+
+    /** 拉起前台保活服务 */
+    fun startKeepAliveService() {
+        try {
+            val intent = android.content.Intent(McApplication.get(), McForegroundService::class.java)
+                .apply { action = McForegroundService.ACTION_START }
+            McApplication.get().startForegroundService(intent)
+        } catch (e: Exception) {
+            _errorFlow.tryEmit("启动保活服务失败: ${e.message}")
+        }
+    }
+
+    /** 停止前台保活服务 */
+    fun stopKeepAliveService() {
+        try {
+            val intent = android.content.Intent(McApplication.get(), McForegroundService::class.java)
+                .apply { action = McForegroundService.ACTION_STOP }
+            McApplication.get().startService(intent)
+        } catch (e: Exception) {
+            // 忽略
+        }
+    }
+
+    private fun scheduleKeepAlive() {
+        val request = androidx.work.PeriodicWorkRequestBuilder<KeepAliveWorker>(15, java.util.concurrent.TimeUnit.MINUTES).build()
+        androidx.work.WorkManager.getInstance(McApplication.get()).enqueueUniquePeriodicWork(
+            "keep_alive", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, request
+        )
+    }
+
+    private fun cancelKeepAlive() {
+        androidx.work.WorkManager.getInstance(McApplication.get()).cancelUniqueWork("keep_alive")
     }
 }

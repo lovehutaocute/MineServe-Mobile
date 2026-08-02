@@ -47,6 +47,7 @@ class McForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         termux = McApplication.get(this).termuxRuntime
         // 移到 IO 线程，避免主线程阻塞导致 ANR
         scope.launch { detectSurvivingProcess() }
@@ -219,6 +220,7 @@ class McForegroundService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         scope.cancel()
         releaseLocks()
     }
@@ -230,5 +232,9 @@ class McForegroundService : Service() {
         const val ACTION_START = "com.mcserver.manager.action.START"
         const val ACTION_STOP = "com.mcserver.manager.action.STOP"
         private const val TAG = "McForegroundService"
+
+        /** 服务是否在运行（供保活检查） */
+        @Volatile
+        var isRunning: Boolean = false
     }
 }

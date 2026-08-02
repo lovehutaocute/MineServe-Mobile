@@ -27,6 +27,7 @@ import com.mcserver.manager.ui.screens.DashboardScreen
 import com.mcserver.manager.ui.screens.DownloadHelpScreen
 import com.mcserver.manager.ui.screens.DownloadScreen
 import com.mcserver.manager.ui.screens.FileManagerScreen
+import com.mcserver.manager.ui.screens.KeepAliveScreen
 import com.mcserver.manager.ui.screens.MtGuideScreen
 import com.mcserver.manager.ui.screens.LogsScreen
 import com.mcserver.manager.ui.screens.NetworkScreen
@@ -39,7 +40,7 @@ import com.mcserver.manager.ui.theme.IndigoSoft
 import com.mcserver.manager.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -104,6 +105,7 @@ fun McApp() {
                         SubPage.Backup -> BackupScreen(vm = vm, onBack = { subPage = null })
                         SubPage.DownloadHelp -> DownloadHelpScreen(vm = vm, onBack = { subPage = null })
                         SubPage.MtGuide -> MtGuideScreen(onBack = { subPage = null })
+                        SubPage.KeepAlive -> KeepAliveScreen(vm = vm, onBack = { subPage = null })
                         null -> {}
                     }
                 }
