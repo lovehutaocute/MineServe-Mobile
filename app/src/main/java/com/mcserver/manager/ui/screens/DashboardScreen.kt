@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Refresh
@@ -211,7 +214,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     .fillMaxWidth()
                     .padding(horizontal = 20.dp)
             ) {
-                Text("▶ 打开 MC 终端", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.s350), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
             // bootstrap 初始化进度（未完成时显示）
@@ -256,7 +259,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("重试", color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.s355), color = Color.White, fontWeight = FontWeight.SemiBold)
                         }
                     } else {
                         // 初始化中
@@ -405,7 +408,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     }
                 } else {
                     // 核心选择（强化视觉展示，避免用户忽略该选项）
-                    Text("选择服务器核心", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s371), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(
                         if (activeCore != null)
@@ -541,7 +544,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 // 局域网
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        androidx.compose.material3.Text("局域网", color = Muted, fontSize = 10.sp)
+                        androidx.compose.material3.Text(stringResource(R.string.s387), color = Muted, fontSize = 10.sp)
                         androidx.compose.material3.Text("${lanIp}:${config.localPort}", fontSize = 12.sp, fontWeight = FontWeight.Medium)
                     }
                     // 刷新局域网 IP
@@ -560,7 +563,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     Spacer(Modifier.height(6.dp))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
-                            androidx.compose.material3.Text("公网穿透", color = Muted, fontSize = 10.sp)
+                            androidx.compose.material3.Text(stringResource(R.string.s389), color = Muted, fontSize = 10.sp)
                             androidx.compose.material3.Text(tunnelState.publicUrl, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Indigo, maxLines = 1)
                         }
                         androidx.compose.material3.IconButton(onClick = { vm.copyTunnelUrl(context) }) {
@@ -573,7 +576,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             // 插件入口（精简）
             McCard(title = "已安装插件") {
                 if (installedPlugins.isEmpty()) {
-                    Text("暂无已安装插件", color = Muted, fontSize = 11.sp)
+                    Text(stringResource(R.string.s391), color = Muted, fontSize = 11.sp)
                 } else {
                     Text("${installedPlugins.size} 个插件已安装", fontSize = 11.sp)
                 }
@@ -604,12 +607,12 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
         if (showStartSettings) {
             AlertDialog(
                 onDismissRequest = { showStartSettings = false },
-                title = { Text("服务器启动设置", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.s395), fontWeight = FontWeight.Bold) },
                 text = {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("崩溃自动重启", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.s396), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                 Text(
                                     "MC 进程异常退出时自动重启（默认关闭省电）",
                                     color = Muted,
@@ -631,7 +634,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 },
                 confirmButton = {
                     TextButton(onClick = { showStartSettings = false }) {
-                        Text("完成", color = Indigo, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.s73), color = Indigo, fontWeight = FontWeight.SemiBold)
                     }
                 }
             )
@@ -641,7 +644,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
         if (showDeleteConfirm) {
             AlertDialog(
                 onDismissRequest = { showDeleteConfirm = false },
-                title = { Text("删除运行环境", fontWeight = FontWeight.Bold) },
+                title = { Text(stringResource(R.string.s399), fontWeight = FontWeight.Bold) },
                 text = {
                     Text(
                         "将删除 Termux 运行环境（包括所有已安装的依赖包和缓存），删除后会自动重新下载和初始化。此操作不可撤销。",
@@ -656,14 +659,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             vm.deleteBootstrap()
                         }
                     ) {
-                        Text("确认删除", color = Coral, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.s401), color = Coral, fontWeight = FontWeight.SemiBold)
                     }
                 },
                 dismissButton = {
                     TextButton(
                         onClick = { showDeleteConfirm = false }
                     ) {
-                        Text("取消", color = Muted)
+                        Text(stringResource(R.string.s402), color = Muted)
                     }
                 }
             )

@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -300,7 +303,7 @@ private fun PlayerHistoryDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.History, contentDescription = null, tint = Indigo, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("玩家进服/离服记录", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.s677), fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -311,7 +314,7 @@ private fun PlayerHistoryDialog(
                         .padding(vertical = 24.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text("暂无历史记录", color = Muted, fontSize = 12.sp)
+                    Text(stringResource(R.string.s678), color = Muted, fontSize = 12.sp)
                 }
             } else {
                 Column(
@@ -357,7 +360,7 @@ private fun PlayerHistoryDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
         }
     )
 }
@@ -457,7 +460,7 @@ private fun OnlineTab(
             TextButton(onClick = onRefresh) {
                 Icon(Icons.Outlined.Refresh, contentDescription = null, modifier = Modifier.size(14.dp), tint = Indigo)
                 Spacer(Modifier.size(4.dp))
-                Text("刷新在线列表", color = Indigo, fontSize = 11.sp)
+                Text(stringResource(R.string.s686), color = Indigo, fontSize = 11.sp)
             }
         }
     }
@@ -491,7 +494,7 @@ private fun OnlinePlayerRow(
         Spacer(Modifier.size(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("在线", color = Mint, fontSize = 10.sp)
+            Text(stringResource(R.string.s318), color = Mint, fontSize = 10.sp)
         }
         // 复制玩家名
         IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
@@ -544,7 +547,7 @@ private fun OpsTab(
         OutlinedTextField(
             value = search,
             onValueChange = { search = it },
-            placeholder = { Text("搜索 OP 玩家名...", fontSize = 11.sp) },
+            placeholder = { Text(stringResource(R.string.s692), fontSize = 11.sp) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(14.dp)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -574,12 +577,12 @@ private fun OpsTab(
         }
 
         Spacer(Modifier.height(12.dp))
-        Text("添加 OP", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.s696), color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(
             value = opName,
             onValueChange = { opName = it },
-            label = { Text("玩家名", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.s697), fontSize = 11.sp) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
@@ -610,7 +613,7 @@ private fun OpsTab(
         )
         Spacer(Modifier.height(8.dp))
         if (!isRunning) {
-            Text("服务器未运行，无法添加 OP", color = Coral, fontSize = 10.sp)
+            Text(stringResource(R.string.s699), color = Coral, fontSize = 10.sp)
         }
         Button(
             onClick = {
@@ -671,14 +674,14 @@ private fun WhitelistTab(
         }
         if (!isRunning) {
             Spacer(Modifier.height(4.dp))
-            Text("服务器未运行，无法切换白名单", color = Coral, fontSize = 10.sp)
+            Text(stringResource(R.string.s274), color = Coral, fontSize = 10.sp)
         }
 
         Spacer(Modifier.height(12.dp))
         OutlinedTextField(
             value = search,
             onValueChange = { search = it },
-            placeholder = { Text("搜索白名单玩家...", fontSize = 11.sp) },
+            placeholder = { Text(stringResource(R.string.s705), fontSize = 11.sp) },
             leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(14.dp)) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
@@ -708,7 +711,7 @@ private fun WhitelistTab(
         }
 
         Spacer(Modifier.height(12.dp))
-        Text("添加白名单", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.s708), color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -718,7 +721,7 @@ private fun WhitelistTab(
             OutlinedTextField(
                 value = newName,
                 onValueChange = { newName = it },
-                label = { Text("玩家名", fontSize = 11.sp) },
+                label = { Text(stringResource(R.string.s697), fontSize = 11.sp) },
                 singleLine = true,
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(10.dp)
@@ -733,7 +736,7 @@ private fun WhitelistTab(
                 enabled = isRunning && newName.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                 shape = RoundedCornerShape(10.dp)
-            ) { Text("添加", color = Color.White, fontSize = 11.sp) }
+            ) { Text(stringResource(R.string.s709), color = Color.White, fontSize = 11.sp) }
         }
     }
 }
@@ -760,7 +763,7 @@ private fun BannedTab(
             OutlinedTextField(
                 value = search,
                 onValueChange = { search = it },
-                placeholder = { Text("搜索封禁玩家...", fontSize = 11.sp) },
+                placeholder = { Text(stringResource(R.string.s711), fontSize = 11.sp) },
                 leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null, modifier = Modifier.size(14.dp)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -787,12 +790,12 @@ private fun BannedTab(
         }
 
         Spacer(Modifier.height(12.dp))
-        Text("封禁玩家", color = Coral, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Text(stringResource(R.string.s716), color = Coral, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(6.dp))
         OutlinedTextField(
             value = banName,
             onValueChange = { banName = it },
-            label = { Text("玩家名", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.s697), fontSize = 11.sp) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
@@ -801,7 +804,7 @@ private fun BannedTab(
         OutlinedTextField(
             value = banReason,
             onValueChange = { banReason = it },
-            label = { Text("封禁原因（可选）", fontSize = 11.sp) },
+            label = { Text(stringResource(R.string.s717), fontSize = 11.sp) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
@@ -827,7 +830,7 @@ private fun BannedTab(
         }
         Spacer(Modifier.height(8.dp))
         if (!isRunning) {
-            Text("服务器未运行，无法执行封禁", color = Coral, fontSize = 10.sp)
+            Text(stringResource(R.string.s718), color = Coral, fontSize = 10.sp)
         }
         Button(
             onClick = {
@@ -879,7 +882,7 @@ private fun PlayerDetailDialog(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Person, contentDescription = null, tint = Indigo, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(8.dp))
-                Text("玩家详情", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.s720), fontWeight = FontWeight.Bold)
             }
         },
         text = {
@@ -908,9 +911,9 @@ private fun PlayerDetailDialog(
 
                 Spacer(Modifier.height(12.dp))
                 if (!isRunning) {
-                    Text("服务器未运行，命令操作不可用", color = Coral, fontSize = 10.sp)
+                    Text(stringResource(R.string.s726), color = Coral, fontSize = 10.sp)
                 } else {
-                    Text("快捷操作", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s727), color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(8.dp))
 
                     val playerName = when (info) {
@@ -921,10 +924,10 @@ private fun PlayerDetailDialog(
 
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                         TextButton(onClick = { onKick(playerName) }, modifier = Modifier.weight(1f)) {
-                            Text("踢出", color = Coral, fontSize = 11.sp)
+                            Text(stringResource(R.string.s688), color = Coral, fontSize = 11.sp)
                         }
                         TextButton(onClick = { onBan(playerName) }, modifier = Modifier.weight(1f)) {
-                            Text("封禁", color = Coral, fontSize = 11.sp)
+                            Text(stringResource(R.string.s728), color = Coral, fontSize = 11.sp)
                         }
                     }
 
@@ -933,12 +936,12 @@ private fun PlayerDetailDialog(
                         is DetailInfo.Op -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 TextButton(onClick = { onDeop(playerName) }, modifier = Modifier.weight(1f)) {
-                                    Text("取消 OP", color = Coral, fontSize = 11.sp)
+                                    Text(stringResource(R.string.s729), color = Coral, fontSize = 11.sp)
                                 }
                             }
                             Spacer(Modifier.height(6.dp))
-                            Text("游戏模式", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
-                            Text("仅在线玩家可切换，离线玩家请上线后操作", color = Coral.copy(alpha = 0.9f), fontSize = 9.sp)
+                            Text(stringResource(R.string.s730), color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.s731), color = Coral.copy(alpha = 0.9f), fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 listOf("生存" to 0, "创造" to 1, "冒险" to 2, "旁观" to 3).forEach { (name, mode) ->
                                     TextButton(onClick = { onSetGameMode(playerName, mode) }) {
@@ -950,14 +953,14 @@ private fun PlayerDetailDialog(
                         is DetailInfo.Whitelist -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 TextButton(onClick = { onWhitelistRemove(playerName) }, modifier = Modifier.weight(1f)) {
-                                    Text("移出白名单", color = Coral, fontSize = 11.sp)
+                                    Text(stringResource(R.string.s732), color = Coral, fontSize = 11.sp)
                                 }
                             }
                         }
                         is DetailInfo.Banned -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 TextButton(onClick = { onPardon(playerName) }, modifier = Modifier.weight(1f)) {
-                                    Text("解除封禁", color = Mint, fontSize = 11.sp)
+                                    Text(stringResource(R.string.s733), color = Mint, fontSize = 11.sp)
                                 }
                             }
                         }
@@ -966,7 +969,7 @@ private fun PlayerDetailDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
         }
     )
 }

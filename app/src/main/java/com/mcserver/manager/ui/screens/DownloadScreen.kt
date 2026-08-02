@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -156,14 +159,14 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, Indigo),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) { Text("选用", color = Indigo, fontSize = 11.sp) }
+                            ) { Text(stringResource(R.string.s455), color = Indigo, fontSize = 11.sp) }
                             Spacer(Modifier.size(6.dp))
                             OutlinedButton(
                                 onClick = { vm.deleteCore(core.name) },
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, Coral),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
-                            ) { Text("删除", color = Coral, fontSize = 11.sp) }
+                            ) { Text(stringResource(R.string.s339), color = Coral, fontSize = 11.sp) }
                         }
                     }
                 }
@@ -232,10 +235,10 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             color = Indigo,
                             strokeWidth = 2.dp
                         )
-                        Text("正在从官方 API 获取版本列表...", color = Muted, fontSize = 12.sp)
+                        Text(stringResource(R.string.s472), color = Muted, fontSize = 12.sp)
                     }
                 } else if (availableVersions.isEmpty()) {
-                    Text("暂无可用版本，请使用下方自定义版本输入", color = Muted, fontSize = 12.sp)
+                    Text(stringResource(R.string.s473), color = Muted, fontSize = 12.sp)
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         availableVersions.take(20).forEach { ver ->
@@ -249,7 +252,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Text("自定义版本", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -259,7 +262,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     OutlinedTextField(
                         value = customVersion,
                         onValueChange = { customVersion = it },
-                        placeholder = { Text("如 1.20.4", fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.s475), fontSize = 12.sp) },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -276,7 +279,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("确定", color = Color.White, fontSize = 12.sp)
+                        Text(stringResource(R.string.s477), color = Color.White, fontSize = 12.sp)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -351,12 +354,12 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                     Spacer(Modifier.height(10.dp))
                     // 自定义名称输入
-                    Text("核心名称（用于区分不同核心）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Text(stringResource(R.string.s483), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     OutlinedTextField(
                         value = customCoreName,
                         onValueChange = { customCoreName = it },
-                        placeholder = { Text("如 生存服-1.20.4", fontSize = 12.sp) },
+                        placeholder = { Text(stringResource(R.string.s484), fontSize = 12.sp) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true
                     )
@@ -386,7 +389,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     // 下载日志预览
                     if (isDownloadingCore || consoleLines.isNotEmpty()) {
                         Spacer(Modifier.height(12.dp))
-                        Text("下载日志：", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.s487), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
                         consoleLines.takeLast(8).forEach { line ->
                             Text(
