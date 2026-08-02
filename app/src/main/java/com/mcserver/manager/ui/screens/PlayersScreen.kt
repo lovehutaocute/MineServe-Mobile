@@ -22,9 +22,11 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Logout
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.VideogameAsset
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -228,7 +230,9 @@ fun PlayersScreen(vm: McViewModel) {
                         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Player", name))
                         scope.launch { snackbarHostState.showSnackbar("已复制：$name") }
-                    }
+                    },
+                    onKick = { name -> vm.kickPlayer(name) },
+                    onSetGameMode = { name, mode -> vm.setGameMode(name, mode) }
                 )
                 PlayerListTab.Ops -> OpsTab(
                     ops = ops,
@@ -424,7 +428,9 @@ private fun OnlineTab(
     players: List<String>,
     isRunning: Boolean,
     onRefresh: () -> Unit,
-    onCopy: (String) -> Unit
+    onCopy: (String) -> Unit,
+    onKick: (String) -> Unit,
+    onSetGameMode: (String, Int) -> Unit
 ) {
     McCard(title = "在线玩家") {
         if (!isRunning) {
@@ -434,7 +440,12 @@ private fun OnlineTab(
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 players.forEach { name ->
-                    OnlinePlayerRow(name = name, onCopy = { onCopy(name) })
+                    OnlinePlayerRow(
+                        name = name,
+                        onCopy = { onCopy(name) },
+                        onKick = { onKick(name) },
+                        onSetGameMode = { mode -> onSetGameMode(name, mode) }
+                    )
                 }
             }
         }
@@ -453,7 +464,13 @@ private fun OnlineTab(
 }
 
 @Composable
-private fun OnlinePlayerRow(name: String, onCopy: () -> Unit) {
+private fun OnlinePlayerRow(
+    name: String,
+    onCopy: () -> Unit,
+    onKick: () -> Unit,
+    onSetGameMode: (Int) -> Unit
+) {
+    var modeMenuOpen by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -476,8 +493,27 @@ private fun OnlinePlayerRow(name: String, onCopy: () -> Unit) {
             Text(name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text("在线", color = Mint, fontSize = 10.sp)
         }
-        IconButton(onClick = onCopy) {
+        // 复制玩家名
+        IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
             Icon(Icons.Outlined.ContentCopy, contentDescription = "复制玩家名", tint = Indigo, modifier = Modifier.size(16.dp))
+        }
+        // 踢出玩家
+        IconButton(onClick = onKick, modifier = Modifier.size(32.dp)) {
+            Icon(Icons.Outlined.Logout, contentDescription = "踢出", tint = Coral, modifier = Modifier.size(16.dp))
+        }
+        // 切换游戏模式
+        Box {
+            IconButton(onClick = { modeMenuOpen = true }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Outlined.VideogameAsset, contentDescription = "切换游戏模式", tint = Indigo, modifier = Modifier.size(16.dp))
+            }
+            DropdownMenu(expanded = modeMenuOpen, onDismissRequest = { modeMenuOpen = false }) {
+                listOf("生存" to 0, "创造" to 1, "冒险" to 2, "旁观" to 3).forEach { (label, mode) ->
+                    DropdownMenuItem(
+                        text = { Text(label, fontSize = 12.sp) },
+                        onClick = { modeMenuOpen = false; onSetGameMode(mode) }
+                    )
+                }
+            }
         }
     }
 }
@@ -902,6 +938,7 @@ private fun PlayerDetailDialog(
                             }
                             Spacer(Modifier.height(6.dp))
                             Text("游戏模式", color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                            Text("仅在线玩家可切换，离线玩家请上线后操作", color = Coral.copy(alpha = 0.9f), fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 listOf("生存" to 0, "创造" to 1, "冒险" to 2, "旁观" to 3).forEach { (name, mode) ->
                                     TextButton(onClick = { onSetGameMode(playerName, mode) }) {
