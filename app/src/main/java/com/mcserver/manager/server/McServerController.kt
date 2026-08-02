@@ -649,8 +649,12 @@ class McServerController(
             throw RuntimeException("server.jar 不存在，请先在「下载」Tab 下载服务端核心")
         }
         // NeoForge/Quilt：使用 installer 生成的启动方式（unix_args.txt / quilt-server-launch.jar），
-        // 产物缺失时明确报错，避免回退到不可启动的 installer.jar
-        val launchArgs = when (config.selectedCore) {
+        // 产物缺失时明确报错，避免回退到不可启动的 installer.jar。
+        // 注意：必须按「实际激活核心」的类型判断——selectedCore 只是下载页的临时选择，
+        // 若用户在下载页选过 Quilt 后切到 Paper 启动，会误判启动方式导致失败。
+        val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+        val coreType = activeCore?.core ?: config.selectedCore
+        val launchArgs = when (coreType) {
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
                 ?.let { "@${it.absolutePath}" }
