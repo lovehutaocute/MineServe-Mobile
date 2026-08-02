@@ -3,6 +3,7 @@ package com.mcserver.manager.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.mcserver.manager.R
 import com.mcserver.manager.BootReceiver
 import com.mcserver.manager.KeepAliveWorker
 import com.mcserver.manager.McApplication
@@ -242,14 +243,14 @@ class McViewModel(
         val ip = _lanIp.value
         val port = config.value.localPort
         val address = if (ip == "--") {
-            _errorFlow.tryEmit("无法获取局域网 IP，请确认已连接 WiFi")
+            _errorFlow.tryEmit(str(R.string.s187))
             return
         } else {
             "$ip:$port"
         }
         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Server", address))
-        _messageFlow.tryEmit("已复制：$address")
+        _messageFlow.tryEmit(str(R.string.s188, address))
     }
 
     companion object {
@@ -342,7 +343,7 @@ class McViewModel(
             try {
                 repo.saveConfig(transform(config.value))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("配置保存失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s191, e.message))
             }
         }
     }
@@ -367,7 +368,7 @@ class McViewModel(
 
     fun installDependencies() {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         if (_isInstalling.value) return
@@ -379,12 +380,12 @@ class McViewModel(
                 }
                 _installSpeed.value = 0L
                 if (ok) {
-                    _messageFlow.tryEmit("依赖安装完成")
+                    _messageFlow.tryEmit(str(R.string.s193))
                 } else {
-                    _errorFlow.tryEmit("依赖安装失败，请查看日志")
+                    _errorFlow.tryEmit(str(R.string.s194))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("依赖安装失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s195, e.message))
             } finally {
                 _isInstalling.value = false
             }
@@ -393,15 +394,15 @@ class McViewModel(
 
     fun startServer() {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         viewModelScope.launch {
             try {
                 controller.start(config.value)
-                _messageFlow.tryEmit("服务器启动指令已发送")
+                _messageFlow.tryEmit(str(R.string.s196))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("服务器启动失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s197, e.message))
             }
         }
     }
@@ -410,9 +411,9 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 controller.stop()
-                _messageFlow.tryEmit("服务器停止指令已发送")
+                _messageFlow.tryEmit(str(R.string.s198))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("服务器停止失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s199, e.message))
             }
         }
     }
@@ -421,11 +422,11 @@ class McViewModel(
 
     fun startTunnel() {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         if (tunnelState.value.status == TunnelStatus.Starting) {
-            _errorFlow.tryEmit("隧道正在启动中，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s200))
             return
         }
         viewModelScope.launch {
@@ -440,12 +441,12 @@ class McViewModel(
                             else "隧道已启动"
                         )
                     }
-                    TunnelStatus.Starting -> _messageFlow.tryEmit("隧道正在启动，请查看日志...")
-                    TunnelStatus.Failed -> _errorFlow.tryEmit("隧道启动失败: ${st.errorMessage}")
-                    else -> _messageFlow.tryEmit("隧道指令已发送")
+                    TunnelStatus.Starting -> _messageFlow.tryEmit(str(R.string.s203))
+                    TunnelStatus.Failed -> _errorFlow.tryEmit(str(R.string.s204, st.errorMessage))
+                    else -> _messageFlow.tryEmit(str(R.string.s205))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("内网穿透启动失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s206, e.message))
             }
         }
     }
@@ -454,9 +455,9 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 tunnelManager.stop()
-                _messageFlow.tryEmit("内网穿透已停止")
+                _messageFlow.tryEmit(str(R.string.s207))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("内网穿透停止失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s208, e.message))
             }
         }
     }
@@ -464,20 +465,20 @@ class McViewModel(
     fun copyTunnelUrl(context: android.content.Context) {
         val url = tunnelState.value.publicUrl
         if (url.isBlank()) {
-            _errorFlow.tryEmit("暂无公网地址，请先启动隧道")
+            _errorFlow.tryEmit(str(R.string.s209))
             return
         }
         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
             as android.content.ClipboardManager
         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("Tunnel URL", url))
-        _messageFlow.tryEmit("已复制：$url")
+        _messageFlow.tryEmit(str(R.string.s210, url))
     }
 
     fun sendCommand(line: String) {
         try {
             controller.sendCommand(line)
         } catch (e: Exception) {
-            _errorFlow.tryEmit("命令发送失败: ${e.message}")
+            _errorFlow.tryEmit(str(R.string.s211, e.message))
         }
     }
 
@@ -530,18 +531,18 @@ class McViewModel(
     /** 扫描当前核心的 plugins 目录 */
     fun refreshInstalledPlugins() {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         viewModelScope.launch {
             try {
                 _installedPlugins.value = pluginManager.scan(dirName)
             } catch (e: Exception) {
-                _errorFlow.tryEmit("扫描插件目录失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s213, e.message))
             }
         }
     }
@@ -556,7 +557,7 @@ class McViewModel(
             try {
                 _mods.value = withContext(Dispatchers.IO) { pluginManager.readMods(dirName) }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("扫描模组目录失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s214, e.message))
             }
         }
     }
@@ -569,7 +570,7 @@ class McViewModel(
                 withContext(Dispatchers.IO) { pluginManager.toggleModEnabled(fileName, dirName) }
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("切换模组状态失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s215, e.message))
             }
         }
     }
@@ -580,10 +581,10 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 val ok = withContext(Dispatchers.IO) { pluginManager.deleteMod(fileName, dirName) }
-                if (ok) _messageFlow.tryEmit("已删除模组: $fileName")
+                if (ok) _messageFlow.tryEmit(str(R.string.s216, fileName))
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除模组失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s217, e.message))
             }
         }
     }
@@ -591,17 +592,17 @@ class McViewModel(
     /** 从本地 Uri 上传模组 */
     fun installModFromUri(uri: Uri) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: return
         viewModelScope.launch {
             try {
                 val name = withContext(Dispatchers.IO) { pluginManager.installModFromUri(uri, dirName) }
-                _messageFlow.tryEmit("模组上传完成: $name")
+                _messageFlow.tryEmit(str(R.string.s218, name))
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("模组上传失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s219, e.message))
             }
         }
     }
@@ -609,11 +610,11 @@ class McViewModel(
     /** 从精选库下载安装模组（GitHub 动态解析最新版本） */
     fun installCuratedMod(mod: PluginManager.CuratedMod) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         viewModelScope.launch {
@@ -622,10 +623,10 @@ class McViewModel(
                     pluginManager.resolveLatestAsset(mod.repo, mod.githubAssetPattern)
                 } ?: throw RuntimeException("无法解析最新版本下载地址")
                 withContext(Dispatchers.IO) { pluginManager.installModFromUrl(url, mod.targetFileName, dirName) }
-                _messageFlow.tryEmit("${mod.name} 安装完成")
+                _messageFlow.tryEmit(str(R.string.s221, mod.name))
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("${mod.name} 安装失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s222, e.message))
             }
         }
     }
@@ -664,7 +665,7 @@ class McViewModel(
                 pluginManager.searchModrinth(query, loaders, sort)
             }
             if (_modrinthResults.value.isEmpty()) {
-                _messageFlow.tryEmit("未找到相关模组，请尝试其他关键词或筛选条件")
+                _messageFlow.tryEmit(str(R.string.s223))
             }
         }
     }
@@ -672,11 +673,11 @@ class McViewModel(
     /** 一键安装 Modrinth 模组（解析最新 release 直链并下载到 mods/） */
     fun installModrinthMod(hit: PluginManager.ModrinthHit) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         val loader = modrinthLoader(config.value.selectedCore)
@@ -688,10 +689,10 @@ class McViewModel(
                 } ?: throw RuntimeException("该模组不支持当前 MC 版本/加载器")
                 val fileName = "${hit.slug}.jar"
                 withContext(Dispatchers.IO) { pluginManager.installModFromUrl(url, fileName, dirName) }
-                _messageFlow.tryEmit("${hit.title} 安装完成")
+                _messageFlow.tryEmit(str(R.string.s225, hit.title))
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("${hit.title} 安装失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s226, e.message))
             }
         }
     }
@@ -699,15 +700,15 @@ class McViewModel(
     /** 从精选库下载安装插件 */
     fun installCuratedPlugin(curated: PluginManager.CuratedPlugin) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         if (_pluginDownloadProgress.value.containsKey(curated.id)) {
-            _errorFlow.tryEmit("${curated.name} 正在下载中，请稍候")
+            _errorFlow.tryEmit(str(R.string.s227, curated.name))
             return
         }
         viewModelScope.launch {
@@ -733,12 +734,12 @@ class McViewModel(
                         speedBytesPerSec = speed
                     ))
                 }
-                _messageFlow.tryEmit("${curated.name} 安装完成")
+                _messageFlow.tryEmit(str(R.string.s229, curated.name))
                 _pluginDownloadProgress.value = _pluginDownloadProgress.value - curated.id
                 refreshInstalledPlugins()
             } catch (e: Exception) {
                 _pluginDownloadProgress.value = _pluginDownloadProgress.value - curated.id
-                _errorFlow.tryEmit("${curated.name} 安装失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s230, e.message))
             }
         }
     }
@@ -746,20 +747,20 @@ class McViewModel(
     /** 从本地 Uri 上传插件 */
     fun installPluginFromUri(uri: Uri) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         viewModelScope.launch {
             try {
                 val fileName = pluginManager.installFromUri(uri, dirName)
-                _messageFlow.tryEmit("插件 $fileName 上传成功")
+                _messageFlow.tryEmit(str(R.string.s231, fileName))
                 refreshInstalledPlugins()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("插件上传失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s232, e.message))
             }
         }
     }
@@ -767,7 +768,7 @@ class McViewModel(
     /** 删除插件 */
     fun deletePlugin(fileName: String, alsoRemoveDataDir: Boolean = false) {
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         viewModelScope.launch {
@@ -778,10 +779,10 @@ class McViewModel(
                     _messageFlow.tryEmit(msg)
                     refreshInstalledPlugins()
                 } else {
-                    _errorFlow.tryEmit("删除失败：文件不存在或被占用")
+                    _errorFlow.tryEmit(str(R.string.s235))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s236, e.message))
             }
         }
     }
@@ -789,7 +790,7 @@ class McViewModel(
     /** 切换插件启用/禁用 */
     fun togglePluginEnabled(fileName: String) {
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         viewModelScope.launch {
@@ -800,10 +801,10 @@ class McViewModel(
                     _messageFlow.tryEmit("$action $fileName")
                     refreshInstalledPlugins()
                 } else {
-                    _errorFlow.tryEmit("切换状态失败：文件不存在")
+                    _errorFlow.tryEmit(str(R.string.s239))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("切换状态失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s240, e.message))
             }
         }
     }
@@ -827,11 +828,11 @@ class McViewModel(
     fun checkCuratedUpdates() {
         if (_isCheckingUpdates.value) return
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         viewModelScope.launch {
@@ -846,7 +847,7 @@ class McViewModel(
                     else "检测完成：所有精选插件均为最新版本"
                 )
             } catch (e: Exception) {
-                _errorFlow.tryEmit("更新检测失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s243, e.message))
             } finally {
                 _isCheckingUpdates.value = false
             }
@@ -866,19 +867,19 @@ class McViewModel(
     /** 从自定义 URL 下载插件 */
     fun installPluginFromUrl(url: String, customFileName: String) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择服务端核心")
+            _errorFlow.tryEmit(str(R.string.s212))
             return
         }
         if (url.isBlank() || customFileName.isBlank()) {
-            _errorFlow.tryEmit("URL 和文件名不能为空")
+            _errorFlow.tryEmit(str(R.string.s244))
             return
         }
         if (_pluginDownloadProgress.value.containsKey(URL_DOWNLOAD_ID)) {
-            _errorFlow.tryEmit("已有下载任务进行中，请稍候")
+            _errorFlow.tryEmit(str(R.string.s245))
             return
         }
         viewModelScope.launch {
@@ -891,12 +892,12 @@ class McViewModel(
                         speedBytesPerSec = speed
                     ))
                 }
-                _messageFlow.tryEmit("$customFileName 下载安装完成")
+                _messageFlow.tryEmit(str(R.string.s246, customFileName))
                 _pluginDownloadProgress.value = _pluginDownloadProgress.value - URL_DOWNLOAD_ID
                 refreshInstalledPlugins()
             } catch (e: Exception) {
                 _pluginDownloadProgress.value = _pluginDownloadProgress.value - URL_DOWNLOAD_ID
-                _errorFlow.tryEmit("自定义 URL 下载失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s247, e.message))
             }
         }
     }
@@ -944,7 +945,7 @@ class McViewModel(
             try {
                 _snapshots.value = withContext(Dispatchers.IO) { backupManager.listSnapshots() }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("加载快照列表失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s248, e.message))
             }
         }
     }
@@ -952,25 +953,25 @@ class McViewModel(
     /** 恢复快照（会先停止服务器） */
     fun restoreSnapshot(name: String) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            _errorFlow.tryEmit(str(R.string.s249))
             return
         }
         viewModelScope.launch {
             try {
-                _messageFlow.tryEmit("正在恢复快照，服务器将停止...")
+                _messageFlow.tryEmit(str(R.string.s250))
                 val ok = withContext(Dispatchers.IO) { backupManager.restoreSnapshot(name, dirName) }
                 if (ok) {
-                    _messageFlow.tryEmit("快照恢复成功，请重新启动服务器")
+                    _messageFlow.tryEmit(str(R.string.s251))
                     loadSnapshots()
                 } else {
-                    _errorFlow.tryEmit("快照恢复失败")
+                    _errorFlow.tryEmit(str(R.string.s252))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("恢复快照失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s253, e.message))
             }
         }
     }
@@ -979,7 +980,7 @@ class McViewModel(
     fun exportSnapshotToUri(snapshotName: String, uri: android.net.Uri) {
         val src = java.io.File(repo.termuxRuntime.installer.rootDir, "home/snapshots/$snapshotName")
         if (!src.exists()) {
-            _errorFlow.tryEmit("快照文件不存在")
+            _errorFlow.tryEmit(str(R.string.s254))
             return
         }
         viewModelScope.launch {
@@ -989,9 +990,9 @@ class McViewModel(
                         ?: throw RuntimeException("无法打开导出目标")
                     output.use { os -> src.inputStream().use { it.copyTo(os) } }
                 }
-                _messageFlow.tryEmit("快照已导出: $snapshotName")
+                _messageFlow.tryEmit(str(R.string.s256, snapshotName))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("导出失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s257, e.message))
             }
         }
     }
@@ -1002,13 +1003,13 @@ class McViewModel(
             try {
                 val ok = withContext(Dispatchers.IO) { backupManager.deleteSnapshot(name) }
                 if (ok) {
-                    _messageFlow.tryEmit("已删除快照: $name")
+                    _messageFlow.tryEmit(str(R.string.s258, name))
                     loadSnapshots()
                 } else {
-                    _errorFlow.tryEmit("删除快照失败: 文件不存在")
+                    _errorFlow.tryEmit(str(R.string.s259))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除快照失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s260, e.message))
             }
         }
     }
@@ -1028,7 +1029,7 @@ class McViewModel(
             try {
                 _serverProperties.value = withContext(Dispatchers.IO) { propertiesManager.readProperties(dirName) }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("读取 server.properties 失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s261, e.message))
             }
         }
     }
@@ -1036,24 +1037,24 @@ class McViewModel(
     /** 保存 server.properties */
     fun saveServerProperties(props: Map<String, String>) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         val dirName = activeDirName() ?: run {
-            _errorFlow.tryEmit("未选择要操作的服务端核心")
+            _errorFlow.tryEmit(str(R.string.s249))
             return
         }
         viewModelScope.launch {
             try {
                 val ok = withContext(Dispatchers.IO) { propertiesManager.writeProperties(props, dirName) }
                 if (ok) {
-                    _messageFlow.tryEmit("server.properties 保存成功")
+                    _messageFlow.tryEmit(str(R.string.s262))
                     _serverProperties.value = props
                 } else {
-                    _errorFlow.tryEmit("server.properties 保存失败")
+                    _errorFlow.tryEmit(str(R.string.s263))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("保存 server.properties 失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s264, e.message))
             }
         }
     }
@@ -1175,7 +1176,7 @@ class McViewModel(
                     _whitelistEnabled.value = props["white-list"]?.equals("true", ignoreCase = true) == true
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("刷新玩家数据失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s265, e.message))
             }
         }
     }
@@ -1187,7 +1188,7 @@ class McViewModel(
      */
     private fun afterCmd(sent: Boolean, msg: String, refresh: Boolean = true) {
         if (!sent) {
-            _errorFlow.tryEmit("服务器未运行，无法发送命令")
+            _errorFlow.tryEmit(str(R.string.s266))
             return
         }
         _messageFlow.tryEmit(msg)
@@ -1237,7 +1238,7 @@ class McViewModel(
             _whitelistEnabled.value = enabled
             _messageFlow.tryEmit(if (enabled) "白名单已开启" else "白名单已关闭")
         } else {
-            _errorFlow.tryEmit("服务器未运行，无法切换白名单")
+            _errorFlow.tryEmit(str(R.string.s274))
         }
     }
 
@@ -1270,9 +1271,9 @@ class McViewModel(
     fun requestOnlinePlayers() {
         val sent = playerManager.requestOnlineList()
         if (sent) {
-            _messageFlow.tryEmit("已请求在线玩家列表，结果将显示在日志中")
+            _messageFlow.tryEmit(str(R.string.s279))
         } else {
-            _errorFlow.tryEmit("服务器未运行")
+            _errorFlow.tryEmit(str(R.string.s280))
         }
     }
 
@@ -1305,7 +1306,7 @@ class McViewModel(
             try {
                 _crashReports.value = withContext(Dispatchers.IO) { crashReportManager.listCrashReports() }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("加载崩溃报告失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s287, e.message))
             }
         }
     }
@@ -1320,10 +1321,10 @@ class McViewModel(
             try {
                 _currentCrashContent.value = withContext(Dispatchers.IO) { crashReportManager.readCrashReport(fileName) }
                 if (_currentCrashContent.value == null) {
-                    _errorFlow.tryEmit("读取崩溃报告失败: 文件不存在")
+                    _errorFlow.tryEmit(str(R.string.s288))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("读取崩溃报告失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s289, e.message))
             }
         }
     }
@@ -1338,10 +1339,10 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) { crashReportManager.deleteCrashReport(fileName) }
-                _messageFlow.tryEmit("已删除崩溃报告: $fileName")
+                _messageFlow.tryEmit(str(R.string.s290, fileName))
                 loadCrashReports()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除崩溃报告失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s291, e.message))
             }
         }
     }
@@ -1351,10 +1352,10 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 val count = withContext(Dispatchers.IO) { crashReportManager.clearAllCrashReports() }
-                _messageFlow.tryEmit("已清空 $count 个崩溃报告")
+                _messageFlow.tryEmit(str(R.string.s292, count))
                 loadCrashReports()
             } catch (e: Exception) {
-                _errorFlow.tryEmit("清空崩溃报告失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s293, e.message))
             }
         }
     }
@@ -1428,7 +1429,7 @@ class McViewModel(
                 val versions = controller.fetchVersions(core)
                 _availableVersions.value = versions
             } catch (e: Exception) {
-                _errorFlow.tryEmit("获取版本列表失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s294, e.message))
                 _availableVersions.value = emptyList()
             } finally {
                 _isLoadingVersions.value = false
@@ -1439,12 +1440,12 @@ class McViewModel(
     /** 下载服务端核心（使用自定义名称，保存到独立目录），成功返回 true */
     fun downloadCore(customName: String) {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         if (_isDownloadingCore.value) return
         if (customName.isBlank()) {
-            _errorFlow.tryEmit("请输入核心名称")
+            _errorFlow.tryEmit(str(R.string.s295))
             return
         }
         _isDownloadingCore.value = true
@@ -1454,9 +1455,9 @@ class McViewModel(
                 controller.downloadCore(config.value, customName.trim()) { downloaded, total, speed ->
                     _downloadProgress.value = DownloadProgress(downloaded, total, speed)
                 }
-                _messageFlow.tryEmit("服务端核心「${customName.trim()}」下载完成")
+                _messageFlow.tryEmit(str(R.string.s296, customName.trim()))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("服务端核心下载失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s297, e.message))
             } finally {
                 _isDownloadingCore.value = false
                 _downloadProgress.value = DownloadProgress()
@@ -1479,7 +1480,7 @@ class McViewModel(
                 val dir = repo.termuxRuntime.serverDirFor(core.dirName)
                 val deleted = withContext(Dispatchers.IO) { dir.deleteRecursively() }
                 if (!deleted) {
-                    _errorFlow.tryEmit("删除核心文件夹失败: ${dir.absolutePath}")
+                    _errorFlow.tryEmit(str(R.string.s299, dir.absolutePath))
                     return@launch
                 }
                 val updated = config.value.installedCores.filter { it.name != name }
@@ -1488,9 +1489,9 @@ class McViewModel(
                     installedCores = updated,
                     activeCoreName = newActive
                 ))
-                _messageFlow.tryEmit("已删除核心「$name」")
+                _messageFlow.tryEmit(str(R.string.s300, name))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除核心失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s301, e.message))
             }
         }
     }
@@ -1543,7 +1544,7 @@ class McViewModel(
                     }
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("读取目录失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s302, e.message))
             }
         }
     }
@@ -1551,7 +1552,7 @@ class McViewModel(
     /** 加载文件管理根目录 */
     fun loadFilesRoot() {
         if (!isBootstrapped.value) {
-            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            _errorFlow.tryEmit(str(R.string.s192))
             return
         }
         loadFiles(fileManagerRoot)
@@ -1574,7 +1575,7 @@ class McViewModel(
     /** 打开 MC 终端前初始化日志 */
     fun launchMcConsole() {
         // 确保终端日志色标已处理
-        _messageFlow.tryEmit("MC 终端已就绪，输入 help 查看可用命令")
+        _messageFlow.tryEmit(str(R.string.s303))
     }
 
     private fun formatBytes(bytes: Long): String {
@@ -1593,13 +1594,13 @@ class McViewModel(
                     if (file.isDirectory) file.deleteRecursively() else file.delete()
                 }
                 if (ok) {
-                    _messageFlow.tryEmit("已删除: ${file.name}")
+                    _messageFlow.tryEmit(str(R.string.s304, file.name))
                     loadFiles(java.io.File(_currentPath.value))
                 } else {
-                    _errorFlow.tryEmit("删除失败: ${file.name}")
+                    _errorFlow.tryEmit(str(R.string.s305, file.name))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s236, e.message))
             }
         }
     }
@@ -1620,10 +1621,10 @@ class McViewModel(
                         }
                     }
                 }
-                _messageFlow.tryEmit("文件上传成功")
+                _messageFlow.tryEmit(str(R.string.s307))
                 loadFiles(java.io.File(_currentPath.value))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("上传失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s308, e.message))
             }
         }
     }
@@ -1652,9 +1653,9 @@ class McViewModel(
                         }
                     }
                 }
-                _messageFlow.tryEmit("导出完成")
+                _messageFlow.tryEmit(str(R.string.s309))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("导出失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s257, e.message))
             }
         }
     }
@@ -1664,7 +1665,7 @@ class McViewModel(
         val dirName = activeDirName() ?: return
         val dir = java.io.File(fileManagerRoot, dirName)
         if (!dir.exists()) {
-            _errorFlow.tryEmit("服务器目录不存在")
+            _errorFlow.tryEmit(str(R.string.s310))
             return
         }
         exportPathToUri(dir, uri)
@@ -1693,13 +1694,13 @@ class McViewModel(
                     java.io.File(parent, name).mkdirs()
                 }
                 if (ok) {
-                    _messageFlow.tryEmit("目录已创建: $name")
+                    _messageFlow.tryEmit(str(R.string.s311, name))
                     loadFiles(java.io.File(_currentPath.value))
                 } else {
-                    _errorFlow.tryEmit("创建目录失败（可能已存在）")
+                    _errorFlow.tryEmit(str(R.string.s312))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("创建目录失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.s313, e.message))
             }
         }
     }
@@ -1740,6 +1741,10 @@ class McViewModel(
 
     // ── 后台保活（开机自启 / 周期保活） ─────────────────────────────
 
+    /** 本地化字符串（ViewModel 中获取资源） */
+    private fun str(id: Int, vararg args: Any?): String =
+        McApplication.get().getString(id, *args)
+
     private fun metaPrefs() =
         McApplication.get().getSharedPreferences(BootReceiver.META_PREFS, android.content.Context.MODE_PRIVATE)
 
@@ -1768,7 +1773,7 @@ class McViewModel(
                 .apply { action = McForegroundService.ACTION_START }
             McApplication.get().startForegroundService(intent)
         } catch (e: Exception) {
-            _errorFlow.tryEmit("启动保活服务失败: ${e.message}")
+            _errorFlow.tryEmit(str(R.string.s314, e.message))
         }
     }
 

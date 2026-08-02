@@ -126,7 +126,7 @@
     <string name="s837" formatted="false">Install</string>
 
     <string name="s1" formatted="false">Boot auto-start: launching foreground keep-alive service</string>
-    <string name="s2" formatted="false">Boot auto-start failed: ${e.message}</string>
+    <string name="s2" formatted="false">Boot auto-start failed: %1$s</string>
     <string name="s7" formatted="false">Unknown error</string>
     <string name="s8" formatted="false">Init failed, please check network and retry</string>
     <string name="s9" formatted="false">Self-hosted server, full features, custom ports</string>
@@ -160,15 +160,15 @@
     <string name="s41" formatted="false">invalid!</string>
     <string name="s42" formatted="false">Initializing config...</string>
     <string name="s43" formatted="false">Termux environment initialized</string>
-    <string name="s44" formatted="false">Init failed: ${e.message}</string>
+    <string name="s44" formatted="false">Init failed: %1$s</string>
     <string name="s47" formatted="false">Processing symlinks (SYMLINKS.txt)...</string>
     <string name="s50" formatted="false">Warning: SYMLINKS.txt missing!</string>
     <string name="s51" formatted="false">Downloading Termux runtime (~30MB)...</string>
-    <string name="s52" formatted="false">Mirror${idx}</string>
+    <string name="s52" formatted="false">Mirror%1$s</string>
     <string name="s54" formatted="false">Verifying file integrity...</string>
     <string name="s55" formatted="false">SHA256 verification failed</string>
     <string name="s56" formatted="false">Verification passed</string>
-    <string name="s58" formatted="false">All mirrors failed: ${lastError?.message}</string>
+    <string name="s58" formatted="false">All mirrors failed: %1$s</string>
     <string name="s64" formatted="false">Merging Android system CA certificates...</string>
     <string name="s70" formatted="false">Downloading Linux filesystem</string>
     <string name="s71" formatted="false">Extracting filesystem</string>
@@ -185,31 +185,31 @@
     <string name="s96" formatted="false">--- MC native crash report ---</string>
     <string name="s99" formatted="false">(No MC native crash report)</string>
     <string name="s100" formatted="false">Termux environment not initialized, please wait</string>
-    <string name="s101" formatted="false">[install] Running ${config.selectedCore.displayName} installer, first install downloads dependencies, please wait...</string>
-    <string name="s102" formatted="false">NeoForge installer failed (exit=$code)</string>
-    <string name="s103" formatted="false">Quilt installer failed (exit=$code)</string>
-    <string name="s104" formatted="false">[install] ${config.selectedCore.displayName} installed</string>
-    <string name="s105" formatted="false">[download] Downloading ${config.selectedCore.displayName} ${config.mcVersion}</string>
-    <string name="s106" formatted="false">[download] Save path: $jarPath</string>
-    <string name="s109" formatted="false">Downloaded file too small ($fileSize bytes), download may have failed</string>
-    <string name="s110" formatted="false">[download] Download complete: ${fileSize / 1024 / 1024}MB</string>
-    <string name="s113" formatted="false">Download failed (retried 3 times): ${lastError?.message}</string>
+    <string name="s101" formatted="false">[install] Running %1$s installer, first install downloads dependencies, please wait...</string>
+    <string name="s102" formatted="false">NeoForge installer failed (exit=%1$s)</string>
+    <string name="s103" formatted="false">Quilt installer failed (exit=%1$s)</string>
+    <string name="s104" formatted="false">[install] %1$s installed</string>
+    <string name="s105" formatted="false">[download] Downloading %1$s %2$s</string>
+    <string name="s106" formatted="false">[download] Save path: %1$s</string>
+    <string name="s109" formatted="false">Downloaded file too small (%1$s bytes), download may have failed</string>
+    <string name="s110" formatted="false">[download] Download complete: %1$sMB</string>
+    <string name="s113" formatted="false">Download failed (retried 3 times): %1$s</string>
     <string name="s114" formatted="false">Dependency install failed, install dependencies first before starting server</string>
     <string name="s115" formatted="false">No server core selected, download or select one in the Download tab first</string>
-    <string name="s116" formatted="false">Core ${activeCore.name} server.jar not found, please re-download</string>
+    <string name="s116" formatted="false">Core %1$s server.jar not found, please re-download</string>
     <string name="s117" formatted="false">server.jar not found, download a server core in the Download tab first</string>
     <string name="s118" formatted="false">Environment not initialized, please wait</string>
     <string name="s119" formatted="false">Delete the entire Termux runtime environment?</string>
     <string name="s120" formatted="false">This will delete all servers, worlds and data. Operation cannot be undone!</string>
     <string name="s121" formatted="false">Delete</string>
-    <string name="s122" formatted="false">Delete failed: ${e.message}</string>
+    <string name="s122" formatted="false">Delete failed: %1$s</string>
     <string name="s123" formatted="false">Add dependency install steps</string>
     <string name="s124" formatted="false">Environment initializing</string>
     <string name="s125" formatted="false">Installing...</string>
     <string name="s126" formatted="false">Start install</string>
     <string name="s127" formatted="false">Delete Termux runtime environment</string>
     <string name="s128" formatted="false">Copy server address</string>
-    <string name="s129" formatted="false">Address copied: $address</string>
+    <string name="s129" formatted="false">Address copied: %1$s</string>
     <string name="s130" formatted="false">Delete runtime environment button</string>
     <string name="s131" formatted="false">Server is running, restarting required for config changes</string>
     <string name="s132" formatted="false">Restart Server</string>
@@ -231,7 +231,7 @@
     <string name="s148" formatted="false">Reset all data</string>
     <string name="s149" formatted="false">Reset data</string>
     <string name="s150" formatted="false">All data has been reset</string>
-    <string name="s151" formatted="false">Data reset failed: ${e.message}</string>
+    <string name="s151" formatted="false">Data reset failed: %1$s</string>
     <string name="s152" formatted="false">Install plugins after server starts</string>
     <string name="s153" formatted="false">Search player name...</string>
     <string name="s154" formatted="false">Server not running</string>
@@ -320,111 +320,111 @@
     <string name="s237" formatted="false">License</string>
     <string name="s238" formatted="false">Source code</string>
     <string name="s239" formatted="false">Toggle failed: file not found</string>
-    <string name="s240" formatted="false">Toggle failed: ${e.message}</string>
-    <string name="s241" formatted="false">Check complete: $updateCount plugins have updates</string>
+    <string name="s240" formatted="false">Toggle failed: %1$s</string>
+    <string name="s241" formatted="false">Check complete: %1$s plugins have updates</string>
     <string name="s242" formatted="false">Check complete: all curated plugins are up to date</string>
-    <string name="s243" formatted="false">Update check failed: ${e.message}</string>
+    <string name="s243" formatted="false">Update check failed: %1$s</string>
     <string name="s244" formatted="false">URL and file name cannot be empty</string>
     <string name="s245" formatted="false">Download task already in progress, please wait</string>
-    <string name="s246" formatted="false">$customFileName downloaded and installed</string>
-    <string name="s247" formatted="false">Custom URL download failed: ${e.message}</string>
-    <string name="s248" formatted="false">Failed to load snapshot list: ${e.message}</string>
+    <string name="s246" formatted="false">%1$s downloaded and installed</string>
+    <string name="s247" formatted="false">Custom URL download failed: %1$s</string>
+    <string name="s248" formatted="false">Failed to load snapshot list: %1$s</string>
     <string name="s249" formatted="false">No server core selected</string>
     <string name="s250" formatted="false">Restoring snapshot, server will stop...</string>
     <string name="s251" formatted="false">Snapshot restored, please restart the server</string>
     <string name="s252" formatted="false">Snapshot restore failed</string>
-    <string name="s253" formatted="false">Restore snapshot failed: ${e.message}</string>
+    <string name="s253" formatted="false">Restore snapshot failed: %1$s</string>
     <string name="s254" formatted="false">Snapshot file not found</string>
     <string name="s255" formatted="false">Cannot open export target</string>
-    <string name="s256" formatted="false">Snapshot exported: $snapshotName</string>
-    <string name="s257" formatted="false">Export failed: ${e.message}</string>
-    <string name="s258" formatted="false">Snapshot deleted: $name</string>
+    <string name="s256" formatted="false">Snapshot exported: %1$s</string>
+    <string name="s257" formatted="false">Export failed: %1$s</string>
+    <string name="s258" formatted="false">Snapshot deleted: %1$s</string>
     <string name="s259" formatted="false">Delete snapshot failed: file not found</string>
-    <string name="s260" formatted="false">Delete snapshot failed: ${e.message}</string>
-    <string name="s261" formatted="false">Failed to read server.properties: ${e.message}</string>
+    <string name="s260" formatted="false">Delete snapshot failed: %1$s</string>
+    <string name="s261" formatted="false">Failed to read server.properties: %1$s</string>
     <string name="s262" formatted="false">server.properties saved</string>
     <string name="s263" formatted="false">server.properties save failed</string>
-    <string name="s264" formatted="false">Save server.properties failed: ${e.message}</string>
-    <string name="s265" formatted="false">Failed to refresh player data: ${e.message}</string>
+    <string name="s264" formatted="false">Save server.properties failed: %1$s</string>
+    <string name="s265" formatted="false">Failed to refresh player data: %1$s</string>
     <string name="s266" formatted="false">Server not running, cannot send commands</string>
-    <string name="s267" formatted="false">OP added for $name</string>
-    <string name="s268" formatted="false">OP set for $name (level $level)</string>
-    <string name="s269" formatted="false">OP removed for $name</string>
-    <string name="s270" formatted="false">$name added to whitelist</string>
-    <string name="s271" formatted="false">$name removed from whitelist</string>
+    <string name="s267" formatted="false">OP added for %1$s</string>
+    <string name="s268" formatted="false">OP set for %1$s (level %2$s)</string>
+    <string name="s269" formatted="false">OP removed for %1$s</string>
+    <string name="s270" formatted="false">%1$s added to whitelist</string>
+    <string name="s271" formatted="false">%1$s removed from whitelist</string>
     <string name="s272" formatted="false">Whitelist enabled</string>
     <string name="s273" formatted="false">Whitelist disabled</string>
-    <string name="s275" formatted="false">$name kicked</string>
-    <string name="s276" formatted="false">$name permanently banned</string>
-    <string name="s277" formatted="false">$name banned temporarily ($duration)</string>
-    <string name="s278" formatted="false">$name unbanned</string>
+    <string name="s275" formatted="false">%1$s kicked</string>
+    <string name="s276" formatted="false">%1$s permanently banned</string>
+    <string name="s277" formatted="false">%1$s banned temporarily (%2$s)</string>
+    <string name="s278" formatted="false">%1$s unbanned</string>
     <string name="s279" formatted="false">Online player list requested, result will show in logs</string>
     <string name="s280" formatted="false">Server not running</string>
     <string name="s281" formatted="false">Survival</string>
     <string name="s282" formatted="false">Creative</string>
     <string name="s283" formatted="false">Adventure</string>
     <string name="s284" formatted="false">Spectator</string>
-    <string name="s285" formatted="false">$name set to $modeName mode</string>
-    <string name="s286" formatted="false">Gave $name $amount XP</string>
-    <string name="s287" formatted="false">Failed to load crash reports: ${e.message}</string>
+    <string name="s285" formatted="false">%1$s set to %2$s mode</string>
+    <string name="s286" formatted="false">Gave %1$s %2$s XP</string>
+    <string name="s287" formatted="false">Failed to load crash reports: %1$s</string>
     <string name="s288" formatted="false">Failed to read crash report: file not found</string>
-    <string name="s289" formatted="false">Failed to read crash report: ${e.message}</string>
-    <string name="s290" formatted="false">Crash report deleted: $fileName</string>
-    <string name="s291" formatted="false">Delete crash report failed: ${e.message}</string>
-    <string name="s292" formatted="false">Cleared $count crash reports</string>
-    <string name="s293" formatted="false">Clear crash reports failed: ${e.message}</string>
-    <string name="s294" formatted="false">Failed to fetch version list: ${e.message}</string>
+    <string name="s289" formatted="false">Failed to read crash report: %1$s</string>
+    <string name="s290" formatted="false">Crash report deleted: %1$s</string>
+    <string name="s291" formatted="false">Delete crash report failed: %1$s</string>
+    <string name="s292" formatted="false">Cleared %1$s crash reports</string>
+    <string name="s293" formatted="false">Clear crash reports failed: %1$s</string>
+    <string name="s294" formatted="false">Failed to fetch version list: %1$s</string>
     <string name="s295" formatted="false">Please enter a core name</string>
-    <string name="s296" formatted="false">Server core \"${customName.trim()}\" downloaded</string>
-    <string name="s297" formatted="false">Server core download failed: ${e.message}</string>
-    <string name="s298" formatted="false">Core $name not found</string>
-    <string name="s299" formatted="false">Failed to delete core folder: ${dir.absolutePath}</string>
-    <string name="s300" formatted="false">Core \"$name\" deleted</string>
-    <string name="s301" formatted="false">Delete core failed: ${e.message}</string>
-    <string name="s302" formatted="false">Failed to read directory: ${e.message}</string>
+    <string name="s296" formatted="false">Server core \"%1$s\" downloaded</string>
+    <string name="s297" formatted="false">Server core download failed: %1$s</string>
+    <string name="s298" formatted="false">Core %1$s not found</string>
+    <string name="s299" formatted="false">Failed to delete core folder: %1$s</string>
+    <string name="s300" formatted="false">Core \"%1$s\" deleted</string>
+    <string name="s301" formatted="false">Delete core failed: %1$s</string>
+    <string name="s302" formatted="false">Failed to read directory: %1$s</string>
     <string name="s303" formatted="false">MC console ready, type help for available commands</string>
-    <string name="s304" formatted="false">Deleted: ${file.name}</string>
-    <string name="s305" formatted="false">Delete failed: ${file.name}</string>
+    <string name="s304" formatted="false">Deleted: %1$s</string>
+    <string name="s305" formatted="false">Delete failed: %1$s</string>
     <string name="s306" formatted="false">Cannot open file</string>
     <string name="s307" formatted="false">File uploaded</string>
-    <string name="s308" formatted="false">Upload failed: ${e.message}</string>
+    <string name="s308" formatted="false">Upload failed: %1$s</string>
     <string name="s309" formatted="false">Export complete</string>
     <string name="s310" formatted="false">Server directory not found</string>
-    <string name="s311" formatted="false">Directory created: $name</string>
+    <string name="s311" formatted="false">Directory created: %1$s</string>
     <string name="s312" formatted="false">Failed to create directory (may already exist)</string>
-    <string name="s313" formatted="false">Failed to create directory: ${e.message}</string>
-    <string name="s314" formatted="false">Failed to start keep-alive service: ${e.message}</string>
-    <string name="s315" formatted="false">Starting server · $coreLabel</string>
-    <string name="s316" formatted="false">Server running · $coreLabel</string>
+    <string name="s313" formatted="false">Failed to create directory: %1$s</string>
+    <string name="s314" formatted="false">Failed to start keep-alive service: %1$s</string>
+    <string name="s315" formatted="false">Starting server · %1$s</string>
+    <string name="s316" formatted="false">Server running · %1$s</string>
     <string name="s317" formatted="false">Server not started</string>
     <string name="s319" formatted="false">Memory</string>
     <string name="s320" formatted="false">Uptime</string>
     <string name="s321" formatted="false">Server startup usually takes 30s to a few minutes, see MC console for logs...</string>
-    <string name="s322" formatted="false">${m}min</string>
-    <string name="s323" formatted="false">${totalSec}s</string>
+    <string name="s322" formatted="false">%1$smin</string>
+    <string name="s323" formatted="false">%1$ss</string>
     <string name="s324" formatted="false">Backup and Restore</string>
     <string name="s325" formatted="false">Create Backup</string>
     <string name="s327" formatted="false">save-all sent</string>
-    <string name="s329" formatted="false">Created: $path</string>
+    <string name="s329" formatted="false">Created: %1$s</string>
     <string name="s330" formatted="false">Creation failed</string>
-    <string name="s332" formatted="false">Backup list (${snapshots.size})</string>
+    <string name="s332" formatted="false">Backup list (%1$s)</string>
     <string name="s333" formatted="false">Refresh</string>
     <string name="s335" formatted="false">Export</string>
     <string name="s336" formatted="false">Restore started</string>
     <string name="s337" formatted="false">Restore</string>
-    <string name="s338" formatted="false">Deleted ${snap.name}</string>
+    <string name="s338" formatted="false">Deleted %1$s</string>
     <string name="s340" formatted="false">Cloud Control Panel</string>
     <string name="s341" formatted="false">Device Status</string>
     <string name="s342" formatted="false">Device Memory</string>
     <string name="s343" formatted="false">Storage</string>
     <string name="s344" formatted="false">Battery</string>
-    <string name="s345" formatted="false">${deviceStats.batteryPercent}% charging</string>
+    <string name="s345" formatted="false">%1$s% charging</string>
     <string name="s346" formatted="false">Total Downloaded</string>
     <string name="s347" formatted="false">Total Uploaded</string>
     <string name="s348" formatted="false">Download Speed</string>
     <string name="s349" formatted="false">Upload Speed</string>
     <string name="s351" formatted="false">Initialize Runtime Environment</string>
-    <string name="s352" formatted="false">Downloading and extracting Termux environment (${state.currentProgress}%)</string>
+    <string name="s352" formatted="false">Downloading and extracting Termux environment (%1$s%)</string>
     <string name="s353" formatted="false">Download Termux runtime (~50MB)</string>
     <string name="s354" formatted="false">Init failed</string>
     <string name="s356" formatted="false">Downloading and extracting Termux runtime, please wait...</string>
@@ -442,9 +442,9 @@
     <string name="s368" formatted="false">Environment ready</string>
     <string name="s369" formatted="false">Installed</string>
     <string name="s370" formatted="false">Install</string>
-    <string name="s372" formatted="false">Current core: ${activeCore.name} (${activeCore.core.displayName} ${activeCore.version})</string>
+    <string name="s372" formatted="false">Current core: %1$s (%2$s %3$s)</string>
     <string name="s373" formatted="false">No core selected! Please choose one below before starting</string>
-    <string name="s374" formatted="false">Switch server core: ${activeCore.name}</string>
+    <string name="s374" formatted="false">Switch server core: %1$s</string>
     <string name="s375" formatted="false">Select server core</string>
     <string name="s376" formatted="false">Core list</string>
     <string name="s377" formatted="false">Search core...</string>
@@ -530,7 +530,7 @@
     <string name="s468" formatted="false">Completed</string>
     <string name="s469" formatted="false">Failed</string>
     <string name="s470" formatted="false">Waiting</string>
-    <string name="s471" formatted="false">Speed: ${speedMB}MB/s</string>
+    <string name="s471" formatted="false">Speed: %1$sMB/s</string>
     <string name="s476" formatted="false">Version list</string>
     <string name="s478" formatted="false">Select core</string>
     <string name="s479" formatted="false">Download and install</string>
@@ -595,7 +595,7 @@
     <string name="s554" formatted="false">Notes</string>
     <string name="s555" formatted="false">Android strictly limits background processes; keep-alive effectiveness varies by system version and vendor policy.\n</string>
     <string name="s556" formatted="false">Persistent foreground notification significantly reduces kill rate; do not restrict this app\'s background in system settings.</string>
-    <string name="s558" formatted="false">Copied ${lines.size} lines of log</string>
+    <string name="s558" formatted="false">Copied %1$s lines of log</string>
     <string name="s559" formatted="false">No log to copy</string>
     <string name="s560" formatted="false">Copy Log</string>
     <string name="s561" formatted="false">No log output yet. Start the MC server to see the live console stream here</string>
@@ -639,8 +639,8 @@
     <string name="s613" formatted="false">Share this address with players; paste in Minecraft \"Direct Connect\" to join</string>
     <string name="s614" formatted="false">Restart tunnel to get a new address</string>
     <string name="s616" formatted="false">Tunnel Logs</string>
-    <string name="s617" formatted="false">View all logs (${tunnelLogs.size})</string>
-    <string name="s618" formatted="false">Tunnel logs (${tunnelLogs.size})</string>
+    <string name="s617" formatted="false">View all logs (%1$s)</string>
+    <string name="s618" formatted="false">Tunnel logs (%1$s)</string>
     <string name="s621" formatted="false">Operation Guide</string>
     <string name="s622" formatted="false">Tap${if (expanded)</string>
     <string name="s623" formatted="false">Expand</string>
@@ -698,7 +698,7 @@
     <string name="s675" formatted="false">Whitelist Player</string>
     <string name="s676" formatted="false">Player Actions</string>
     <string name="s679" formatted="false">Copy player name</string>
-    <string name="s680" formatted="false">Copied: $name</string>
+    <string name="s680" formatted="false">Copied: %1$s</string>
     <string name="s681" formatted="false">No online players</string>
     <string name="s682" formatted="false">Server not running, no online players</string>
     <string name="s683" formatted="false">Refresh online list</string>
@@ -774,7 +774,7 @@
     <string name="s777" formatted="false">Plugin description</string>
     <string name="s778" formatted="false">Plugin main class</string>
     <string name="s784" formatted="false">Update available</string>
-    <string name="s785" formatted="false">Author: ${curated.author}</string>
+    <string name="s785" formatted="false">Author: %1$s</string>
     <string name="s786" formatted="false">Latest:</string>
     <string name="s787" formatted="false">  -  Current:</string>
     <string name="s788" formatted="false">Downloading, please wait...</string>
@@ -782,9 +782,9 @@
     <string name="s793" formatted="false">Supports Bukkit / Spigot / Paper server plugins (.jar)</string>
     <string name="s794" formatted="false">Uploaded plugins are copied to the current core\'s plugins/ directory; reload or restart to take effect</string>
     <string name="s799" formatted="false">Paste the direct download URL of the .jar (e.g. direct links from SpigotMC, Modrinth)</string>
-    <string name="s805" formatted="false">Size: ${plugin.sizeText}  -  Modified: ${plugin.lastModifiedText}</string>
+    <string name="s805" formatted="false">Size: %1$s  -  Modified: %2$s</string>
     <string name="s806" formatted="false">Deletion cannot be undone; disable instead if you want to keep it.</string>
-    <string name="s808" formatted="false">Will delete config and data under plugins/${plugin.meta.name}/</string>
+    <string name="s808" formatted="false">Will delete config and data under plugins/%1$s/</string>
     <string name="s809" formatted="false">Will delete config and data under the plugin\'s same-name directory</string>
     <string name="s811" formatted="false">File name</string>
     <string name="s812" formatted="false">Display name</string>
@@ -807,10 +807,10 @@
     <string name="s829" formatted="false">No mods installed</string>
     <string name="s831" formatted="false">Mod Acquisition (Modrinth)</string>
     <string name="s832" formatted="false">Search and one-click install mods from the Modrinth open platform</string>
-    <string name="s836" formatted="false">This mod does not match the current core (${coreType.displayName})</string>
+    <string name="s836" formatted="false">This mod does not match the current core (%1$s)</string>
     <string name="s838" formatted="false">%.1fM downloads</string>
     <string name="s839" formatted="false">%.1fK downloads</string>
-    <string name="s840" formatted="false">$d downloads</string>
+    <string name="s840" formatted="false">%1$s downloads</string>
     <string name="s841" formatted="false">Basic Config</string>
     <string name="s842" formatted="false">Advanced Config</string>
     <string name="s843" formatted="false">Difficulty</string>
