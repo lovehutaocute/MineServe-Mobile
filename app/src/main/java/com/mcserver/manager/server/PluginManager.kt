@@ -65,103 +65,8 @@ class PluginManager(
         val githubAssetPattern: String? = null
     )
 
-    val curatedPlugins: List<CuratedPlugin> = listOf(
-        CuratedPlugin(
-            id = "luckperms",
-            name = "LuckPerms",
-            author = "Luck",
-            description = "现代权限系统，支持 Web 在线编辑、组组继承、临时权限",
-            avatarText = "LP",
-            homepage = "https://luckperms.net",
-            downloadUrl = "https://github.com/LuckPerms/LuckPerms/releases/latest/download/LuckPerms-Bukkit.jar",
-            targetFileName = "LuckPerms-Bukkit.jar",
-            repo = "LuckPerms/LuckPerms",
-            githubAssetPattern = "LuckPerms-Bukkit"
-        ),
-        CuratedPlugin(
-            id = "essentialsx",
-            name = "EssentialsX",
-            author = "EssentialsX Team",
-            description = "基础指令套件：/home、/tpa、/spawn、经济系统、防卡盾等",
-            avatarText = "EX",
-            homepage = "https://essentialsx.net",
-            downloadUrl = "https://github.com/EssentialsX/Essentials/releases/latest/download/EssentialsX.jar",
-            targetFileName = "EssentialsX.jar",
-            repo = "EssentialsX/Essentials",
-            githubAssetPattern = "EssentialsX-"
-        ),
-        CuratedPlugin(
-            id = "vault",
-            name = "Vault",
-            author = "MilkBowl",
-            description = "经济/权限/聊天 API 抽象层，大部分插件的依赖前置",
-            avatarText = "VT",
-            homepage = "https://github.com/MilkBowl/Vault",
-            downloadUrl = "https://github.com/MilkBowl/Vault/releases/latest/download/Vault.jar",
-            targetFileName = "Vault.jar",
-            repo = "MilkBowl/Vault"
-        ),
-        CuratedPlugin(
-            id = "worldedit",
-            name = "WorldEdit",
-            author = "EngineHub",
-            description = "世界编辑神器，//set、//copy、//paste 等大批量操作",
-            avatarText = "WE",
-            homepage = "https://worldedit.enginehub.org",
-            downloadUrl = "https://github.com/EngineHub/WorldEdit/releases/latest/download/worldedit-bukkit.jar",
-            targetFileName = "worldedit-bukkit.jar",
-            repo = "EngineHub/WorldEdit",
-            githubAssetPattern = "worldedit-bukkit"
-        ),
-        CuratedPlugin(
-            id = "coreprotect",
-            name = "CoreProtect",
-            author = "PlayPro",
-            description = "方块日志记录与回滚，/co i 查询、/co rollback 恢复",
-            avatarText = "CP",
-            homepage = "https://coreprotect.net",
-            downloadUrl = "https://github.com/PlayPro/CoreProtect/releases/latest/download/CoreProtect.jar",
-            targetFileName = "CoreProtect.jar",
-            repo = "PlayPro/CoreProtect",
-            githubAssetPattern = "CoreProtect-"
-        ),
-        CuratedPlugin(
-            id = "protocollib",
-            name = "ProtocolLib",
-            author = "dmulloy2",
-            description = "协议层抽象库，大量插件依赖以拦截/伪造数据包",
-            avatarText = "PL",
-            homepage = "https://github.com/dmulloy2/ProtocolLib",
-            downloadUrl = "https://github.com/dmulloy2/ProtocolLib/releases/latest/download/ProtocolLib.jar",
-            targetFileName = "ProtocolLib.jar",
-            repo = "dmulloy2/ProtocolLib",
-            githubAssetPattern = "ProtocolLib"
-        ),
-        CuratedPlugin(
-            id = "viaversion",
-            name = "ViaVersion",
-            author = "ViaVersion Team",
-            description = "跨版本协议支持，让低版本客户端连接高版本服务器",
-            avatarText = "VV",
-            homepage = "https://github.com/ViaVersion/ViaVersion",
-            downloadUrl = "https://github.com/ViaVersion/ViaVersion/releases/latest",
-            targetFileName = "ViaVersion.jar",
-            repo = "ViaVersion/ViaVersion",
-            githubAssetPattern = "ViaVersion"
-        ),
-        CuratedPlugin(
-            id = "viabackwards",
-            name = "ViaBackwards",
-            author = "ViaVersion Team",
-            description = "反向协议支持，让高版本客户端连接低版本服务器（需配合 ViaVersion）",
-            avatarText = "VB",
-            homepage = "https://github.com/ViaVersion/ViaBackwards",
-            downloadUrl = "https://github.com/ViaVersion/ViaBackwards/releases/latest",
-            targetFileName = "ViaBackwards.jar",
-            repo = "ViaVersion/ViaBackwards",
-            githubAssetPattern = "ViaBackwards"
-        )
-    )
+    /** 精选插件已下线（统一从 Modrinth 等平台获取，避免失效链接） */
+    val curatedPlugins: List<CuratedPlugin> = emptyList()
 
     /**
      * 从 plugin.yml 解析出的插件元信息
@@ -830,24 +735,8 @@ class PluginManager(
         val githubAssetPattern: String
     )
 
-    val curatedMods: List<CuratedMod> = listOf(
-        CuratedMod("fabric-api", "Fabric API", "FabricMC",
-            "Fabric 模组基础 API，绝大多数 Fabric 模组的前置依赖",
-            "FA", "https://github.com/FabricMC/fabric", "fabric-api.jar",
-            "FabricMC/fabric", "fabric-api"),
-        CuratedMod("sodium", "Sodium", "CaffeineMC",
-            "高性能渲染优化模组，大幅提升帧率（Fabric）",
-            "SD", "https://github.com/CaffeineMC/sodium", "sodium.jar",
-            "CaffeineMC/sodium", "sodium-fabric"),
-        CuratedMod("lithium", "Lithium", "CaffeineMC",
-            "通用游戏逻辑优化模组，降低服务端/客户端卡顿（Fabric）",
-            "LI", "https://github.com/CaffeineMC/lithium", "lithium.jar",
-            "CaffeineMC/lithium", "lithium-fabric"),
-        CuratedMod("modmenu", "Mod Menu", "TerraformersMC",
-            "模组列表界面，可视化查看/配置已安装模组（Fabric）",
-            "MM", "https://github.com/TerraformersMC/ModMenu", "modmenu.jar",
-            "TerraformersMC/ModMenu", "ModMenu")
-    )
+    /** 精选模组已下线（统一从 Modrinth 获取，避免失效链接） */
+    val curatedMods: List<CuratedMod> = emptyList()
 
     /** 当前核心的 mods 目录路径 */
     fun currentModsPath(dirName: String): String = modsDirOf(dirName).absolutePath
@@ -866,7 +755,9 @@ class PluginManager(
         val slug: String = "",
         val description: String = "",
         val author: String = "",
-        val downloads: Long = 0
+        val downloads: Long = 0,
+        val icon_url: String = "",
+        val categories: List<String> = emptyList()
     )
 
     @Serializable
@@ -881,18 +772,49 @@ class PluginManager(
     private val modrinthJson = Json { ignoreUnknownKeys = true }
 
     /** 搜索 Modrinth 模组（按加载器过滤，最多 20 条） */
-    fun searchModrinth(query: String, loader: String): List<ModrinthHit> {
+    /**
+     * 搜索 Modrinth 模组（多加载器 OR 过滤 + 排序，最多 20 条）
+     * @param loaders 加载器列表（fabric/forge/quilt/neoforge 等），空表示不限
+     * @param sort 排序：relevance/downloads/newest
+     */
+    fun searchModrinth(query: String, loaders: List<String>, sort: String): List<ModrinthHit> {
         if (query.isBlank()) return emptyList()
         return try {
-            val facets = "[[\"categories:$loader\"],[\"project_type:mod\"]]"
+            val facets = buildString {
+                append("[")
+                if (loaders.isNotEmpty()) {
+                    append("[")
+                    loaders.forEachIndexed { i, l ->
+                        if (i > 0) append(",")
+                        append("\"categories:$l\"")
+                    }
+                    append("],")
+                }
+                append("[\"project_type:mod\"]")
+                append("]")
+            }
             val urlStr = "https://api.modrinth.com/v2/search?query=${java.net.URLEncoder.encode(query, "UTF-8")}" +
-                "&facets=${java.net.URLEncoder.encode(facets, "UTF-8")}&limit=20"
+                "&facets=${java.net.URLEncoder.encode(facets, "UTF-8")}" +
+                "&index=${java.net.URLEncoder.encode(sort, "UTF-8")}&limit=20"
             val body = fetchModrinthText(urlStr)
             modrinthJson.decodeFromString<ModrinthSearchResponse>(body).hits
         } catch (e: Exception) {
             emptyList()
         }
     }
+
+    /** 拉取 Modrinth 全部可用加载器列表 */
+    fun fetchModrinthLoaders(): List<String> {
+        return try {
+            val body = fetchModrinthText("https://api.modrinth.com/v2/tag/loader")
+            modrinthJson.decodeFromString<List<ModrinthLoader>>(body).map { it.name }
+        } catch (e: Exception) {
+            listOf("fabric", "forge", "quilt", "neoforge")
+        }
+    }
+
+    @Serializable
+    private data class ModrinthLoader(val name: String = "")
 
     /** 解析 Modrinth 模组在指定 MC 版本+加载器下的最新 release 下载直链 */
     fun resolveModrinthDownload(slug: String, mcVersion: String, loader: String): String? {

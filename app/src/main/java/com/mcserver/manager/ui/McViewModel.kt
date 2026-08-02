@@ -610,20 +610,30 @@ class McViewModel(
     private val _modrinthResults = MutableStateFlow<List<PluginManager.ModrinthHit>>(emptyList())
     val modrinthResults: StateFlow<List<PluginManager.ModrinthHit>> = _modrinthResults.asStateFlow()
 
+    /** Modrinth 全部可用加载器 */
+    private val _modrinthLoaders = MutableStateFlow<List<String>>(emptyList())
+    val modrinthLoaders: StateFlow<List<String>> = _modrinthLoaders.asStateFlow()
+
     /** 当前核心对应的 Modrinth 加载器名 */
     private fun modrinthLoader(core: com.mcserver.manager.data.ServerCore): String =
         if (core == com.mcserver.manager.data.ServerCore.Fabric || core == com.mcserver.manager.data.ServerCore.Quilt) "fabric"
         else "forge"
 
-    /** 搜索 Modrinth 模组 */
-    fun searchModrinthMods(query: String) {
-        val loader = modrinthLoader(config.value.selectedCore)
+    /** 加载 Modrinth 可用加载器列表 */
+    fun loadModrinthLoaders() {
+        viewModelScope.launch {
+            _modrinthLoaders.value = withContext(Dispatchers.IO) { pluginManager.fetchModrinthLoaders() }
+        }
+    }
+
+    /** 搜索 Modrinth 模组（多加载器 + 排序） */
+    fun searchModrinthMods(query: String, loaders: List<String>, sort: String) {
         viewModelScope.launch {
             _modrinthResults.value = withContext(Dispatchers.IO) {
-                pluginManager.searchModrinth(query, loader)
+                pluginManager.searchModrinth(query, loaders, sort)
             }
             if (_modrinthResults.value.isEmpty()) {
-                _messageFlow.tryEmit("未找到相关模组，请尝试其他关键词")
+                _messageFlow.tryEmit("未找到相关模组，请尝试其他关键词或筛选条件")
             }
         }
     }

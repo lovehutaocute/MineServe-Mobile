@@ -5,12 +5,15 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.Spacer
@@ -28,6 +31,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.OpenInNew
 import androidx.compose.material.icons.outlined.CloudUpload
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Info
@@ -41,6 +46,8 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -67,10 +74,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mcserver.manager.data.ServerCore
@@ -88,7 +101,7 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private enum class PluginTab(val label: String) { Installed("已安装"), Curated("精选推荐"), Upload("本地上传") }
+private enum class PluginTab(val label: String) { Installed("已安装"), Upload("本地上传") }
 
 /** 资源类型：插件 / 模组（按核心兼容性屏蔽） */
 private enum class ResourceType(val label: String) { Plugin("插件"), Mod("模组") }
@@ -123,7 +136,7 @@ private val pluginSites = listOf(
         "https://www.curseforge.com/minecraft/bukkit-plugins"
     )
 )
-private enum class InstalledFilter(val label: String) { All("全部"), Enabled("启用"), Disabled("禁用"), Curated("精选"), Local("本地") }
+private enum class InstalledFilter(val label: String) { All("全部"), Enabled("启用"), Disabled("禁用"), Local("本地") }
 
 /**
  * 插件管理页（重构完善版）
@@ -143,10 +156,9 @@ fun PluginsScreen(vm: McViewModel) {
     val installedPlugins by vm.installedPlugins.collectAsState()
     val mods by vm.mods.collectAsState()
     val modrinthResults by vm.modrinthResults.collectAsState()
+    val modrinthLoaders by vm.modrinthLoaders.collectAsState()
     val downloadProgress by vm.pluginDownloadProgress.collectAsState()
     val serverState by vm.serverState.collectAsState()
-    val curatedUpdates by vm.curatedUpdates.collectAsState()
-    val isCheckingUpdates by vm.isCheckingUpdates.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -180,10 +192,11 @@ fun PluginsScreen(vm: McViewModel) {
     LaunchedEffect(coreType) {
         resourceType = availableTypes.firstOrNull() ?: ResourceType.Plugin
     }
-    // 进入模组分类时刷新模组列表
+    // 进入模组分类时刷新模组列表 + 加载 Modrinth 加载器列表
     LaunchedEffect(isBootstrapped, config.activeCoreName, resourceType) {
         if (isBootstrapped && config.activeCoreName != null && resourceType == ResourceType.Mod) {
             vm.refreshMods()
+            vm.loadModrinthLoaders()
         }
     }
     val pluginsPath = vm.currentPluginsPath()
@@ -365,18 +378,6 @@ fun PluginsScreen(vm: McViewModel) {
                     onShowDetail = { detailPlugin = it }
                 )
 
-                PluginTab.Curated -> CuratedTab(
-                    curatedList = vm.curatedPlugins,
-                    downloadProgress = downloadProgress,
-                    curatedUpdates = curatedUpdates,
-                    isCheckingUpdates = isCheckingUpdates,
-                    coreType = coreType,
-                    isCuratedInstalled = { vm.isCuratedPluginInstalled(it) },
-                    onInstall = { vm.installCuratedPlugin(it) },
-                    onCheckUpdates = { vm.checkCuratedUpdates() },
-                    onForceRecheck = { vm.forceRecheckUpdates() }
-                )
-
                 PluginTab.Upload -> UploadTab(
                     activeCoreExists = activeCore != null,
                     customUrlProgress = vm.customUrlDownloadProgress(),
@@ -392,11 +393,12 @@ fun PluginsScreen(vm: McViewModel) {
                     activeCoreExists = activeCore != null,
                     coreType = coreType,
                     modrinthResults = modrinthResults,
+                    modrinthLoaders = modrinthLoaders,
                     onToggle = { vm.toggleModEnabled(it) },
                     onDelete = { pendingModDelete = it },
                     onUpload = { uri -> vm.installModFromUri(uri) },
                     onInstallCurated = { vm.installCuratedMod(it) },
-                    onSearchModrinth = { vm.searchModrinthMods(it) },
+                    onSearchModrinth = { query, loaders, sort -> vm.searchModrinthMods(query, loaders, sort) },
                     onInstallModrinth = { vm.installModrinthMod(it) }
                 )
             }
@@ -442,6 +444,48 @@ fun PluginsScreen(vm: McViewModel) {
                 fontSize = 10.sp,
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
+
+            // ── 插件资源站点 ──
+            Spacer(Modifier.height(10.dp))
+            McCard(title = "插件资源站点") {
+                Text(
+                    "优质插件/模组下载平台，点击跳转官网",
+                    color = Muted,
+                    fontSize = 10.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                val context = LocalContext.current
+                pluginSites.forEach { site ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(site.url)))
+                                } catch (e: Exception) { /* 无浏览器时忽略 */ }
+                            }
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(site.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text(
+                                site.desc,
+                                color = Muted,
+                                fontSize = 10.sp,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                        Icon(
+                            Icons.AutoMirrored.Outlined.OpenInNew,
+                            contentDescription = "打开",
+                            tint = Indigo,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -541,7 +585,6 @@ private fun InstalledTab(
                     InstalledFilter.All -> installed.size
                     InstalledFilter.Enabled -> installed.count { it.isEnabled }
                     InstalledFilter.Disabled -> installed.count { !it.isEnabled }
-                    InstalledFilter.Curated -> installed.count { it.sourceTag == "精选" }
                     InstalledFilter.Local -> installed.count { it.sourceTag == "本地" }
                 }
                 val label = "$filter $count"
@@ -569,7 +612,6 @@ private fun InstalledTab(
             (activeFilter == InstalledFilter.All ||
                 (activeFilter == InstalledFilter.Enabled && p.isEnabled) ||
                 (activeFilter == InstalledFilter.Disabled && !p.isEnabled) ||
-                (activeFilter == InstalledFilter.Curated && p.sourceTag == "精选") ||
                 (activeFilter == InstalledFilter.Local && p.sourceTag == "本地")) &&
                 (searchQuery.isBlank() || p.baseName.contains(searchQuery, ignoreCase = true) ||
                     (p.meta?.name?.contains(searchQuery, ignoreCase = true) == true))
@@ -1299,14 +1341,18 @@ private fun ModsTab(
     activeCoreExists: Boolean,
     coreType: ServerCore,
     modrinthResults: List<PluginManager.ModrinthHit>,
+    modrinthLoaders: List<String>,
     onToggle: (String) -> Unit,
     onDelete: (PluginManager.ModEntry) -> Unit,
     onUpload: (Uri) -> Unit,
     onInstallCurated: (PluginManager.CuratedMod) -> Unit,
-    onSearchModrinth: (String) -> Unit,
+    onSearchModrinth: (String, List<String>, String) -> Unit,
     onInstallModrinth: (PluginManager.ModrinthHit) -> Unit
 ) {
     var modrinthQuery by remember { mutableStateOf("") }
+    var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
+    var sortIndex by remember { mutableStateOf(0) }
+    val sortOptions = listOf("downloads" to "按下载量", "relevance" to "按相关性", "newest" to "按最新")
     // 本地上传模组选择器
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -1377,61 +1423,10 @@ private fun ModsTab(
         }
     }
 
-    // 精选模组（Fabric 专用；Forge 模组与 Fabric 不通用，提示自行下载）
-    McCard(title = "精选模组") {
-        if (coreType != ServerCore.Fabric) {
-            Text(
-                "精选模组目前仅支持 Fabric 核心（当前 ${coreType.displayName} 核心的模组请前往 Modrinth 等平台自行下载）",
-                color = Muted,
-                fontSize = 11.sp
-            )
-        } else {
-            Text(
-                "内置常用 Fabric 模组，自动从 GitHub 跟随最新版本下载",
-                color = Muted,
-                fontSize = 10.sp
-            )
-            Spacer(Modifier.height(10.dp))
-            curatedMods.forEach { mod ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Mint.copy(alpha = 0.15f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(mod.avatarText, color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                    }
-                    Spacer(Modifier.size(10.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(mod.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                        Text(
-                            mod.description,
-                            color = Muted,
-                            fontSize = 10.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                    Button(
-                        onClick = { onInstallCurated(mod) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Text("安装", color = Color.White, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-    }
 
     // ── Modrinth 模组获取 ──
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    @OptIn(ExperimentalLayoutApi::class)
     McCard(title = "模组获取（Modrinth）") {
         Text(
             "从 Modrinth 开放平台搜索并一键安装模组",
@@ -1439,6 +1434,7 @@ private fun ModsTab(
             fontSize = 10.sp
         )
         Spacer(Modifier.height(6.dp))
+        // 搜索框 + 排序 + 搜索按钮
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = modrinthQuery,
@@ -1449,8 +1445,25 @@ private fun ModsTab(
                 shape = RoundedCornerShape(10.dp)
             )
             Spacer(Modifier.size(6.dp))
+            Box {
+                OutlinedButton(
+                    onClick = { sortMenuOpen = true },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(sortOptions[sortIndex].second, fontSize = 11.sp, color = Indigo)
+                }
+                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                    sortOptions.forEachIndexed { i, (_, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label, fontSize = 12.sp) },
+                            onClick = { sortIndex = i; sortMenuOpen = false }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(6.dp))
             Button(
-                onClick = { onSearchModrinth(modrinthQuery.trim()) },
+                onClick = { onSearchModrinth(modrinthQuery.trim(), selectedLoaders.toList(), sortOptions[sortIndex].first) },
                 enabled = modrinthQuery.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                 shape = RoundedCornerShape(10.dp)
@@ -1458,8 +1471,32 @@ private fun ModsTab(
                 Text("搜索", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
         }
+        // 加载器多选筛选
+        if (modrinthLoaders.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text("加载器筛选（可多选，不选表示全部）", color = Muted, fontSize = 10.sp)
+            Spacer(Modifier.height(4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                modrinthLoaders.take(12).forEach { loader ->
+                    val selected = loader in selectedLoaders
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            selectedLoaders = if (selected) selectedLoaders - loader else selectedLoaders + loader
+                        },
+                        label = { Text(loader, fontSize = 10.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = IndigoSoft,
+                            selectedLabelColor = Indigo
+                        )
+                    )
+                }
+            }
+        }
+        // 结果列表
         if (modrinthResults.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
+            val coreLoader = if (coreType == ServerCore.Fabric || coreType == ServerCore.Quilt) "fabric" else "forge"
             modrinthResults.forEach { hit ->
                 Row(
                     modifier = Modifier
@@ -1467,6 +1504,8 @@ private fun ModsTab(
                         .padding(vertical = 5.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
+                    ModrinthIcon(hit.icon_url)
+                    Spacer(Modifier.size(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(hit.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(
@@ -1474,8 +1513,15 @@ private fun ModsTab(
                             color = Muted,
                             fontSize = 10.sp
                         )
-                        if (hit.description.isNotBlank()) {
-                            Text(hit.description, color = Muted, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        // 当前核心不匹配红字提醒
+                        if (hit.categories.isNotEmpty() && coreLoader !in hit.categories) {
+                            Text(
+                                "⚠ 该模组不匹配当前核心（${coreType.displayName}）",
+                                color = Coral,
+                                fontSize = 9.sp
+                            )
+                        } else if (hit.description.isNotBlank()) {
+                            Text(hit.description, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     Button(
@@ -1496,4 +1542,46 @@ private fun formatModrinthDownloads(d: Long): String = when {
     d >= 1_000_000 -> String.format("%.1fM 下载", d / 1_000_000.0)
     d >= 1_000 -> String.format("%.1fK 下载", d / 1_000.0)
     else -> "$d 下载"
+}
+
+/** Modrinth 模组图标（网络加载，失败显示占位） */
+@Composable
+private fun ModrinthIcon(url: String, size: Dp = 32.dp) {
+    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(url) {
+        if (url.isNotBlank()) {
+            bitmap = withContext(Dispatchers.IO) {
+                try {
+                    val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 8000
+                    conn.readTimeout = 8000
+                    conn.setRequestProperty("User-Agent", "McServerManager/1.0 (mcserver-manager)")
+                    val bytes = conn.inputStream.use { it.readBytes() }
+                    conn.disconnect()
+                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                } catch (e: Exception) {
+                    null
+                }
+            }
+        }
+    }
+    Box(
+        modifier = Modifier
+            .size(size)
+            .clip(RoundedCornerShape(8.dp))
+            .background(IndigoSoft),
+        contentAlignment = Alignment.Center
+    ) {
+        val bmp = bitmap
+        if (bmp != null) {
+            Image(
+                bitmap = bmp,
+                contentDescription = null,
+                modifier = Modifier.size(size),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text("🟦", fontSize = 14.sp)
+        }
+    }
 }
