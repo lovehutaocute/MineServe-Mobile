@@ -605,6 +605,56 @@ class McViewModel(
         return pluginManager.currentModsPath(dirName)
     }
 
+    // ── Modrinth 模组获取 ────────────────────────────────────────
+
+    private val _modrinthResults = MutableStateFlow<List<PluginManager.ModrinthHit>>(emptyList())
+    val modrinthResults: StateFlow<List<PluginManager.ModrinthHit>> = _modrinthResults.asStateFlow()
+
+    /** 当前核心对应的 Modrinth 加载器名 */
+    private fun modrinthLoader(core: com.mcserver.manager.data.ServerCore): String =
+        if (core == com.mcserver.manager.data.ServerCore.Fabric || core == com.mcserver.manager.data.ServerCore.Quilt) "fabric"
+        else "forge"
+
+    /** 搜索 Modrinth 模组 */
+    fun searchModrinthMods(query: String) {
+        val loader = modrinthLoader(config.value.selectedCore)
+        viewModelScope.launch {
+            _modrinthResults.value = withContext(Dispatchers.IO) {
+                pluginManager.searchModrinth(query, loader)
+            }
+            if (_modrinthResults.value.isEmpty()) {
+                _messageFlow.tryEmit("未找到相关模组，请尝试其他关键词")
+            }
+        }
+    }
+
+    /** 一键安装 Modrinth 模组（解析最新 release 直链并下载到 mods/） */
+    fun installModrinthMod(hit: PluginManager.ModrinthHit) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit("Termux 环境仍在初始化，请稍候...")
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit("未选择服务端核心")
+            return
+        }
+        val loader = modrinthLoader(config.value.selectedCore)
+        val mcVersion = config.value.mcVersion
+        viewModelScope.launch {
+            try {
+                val url = withContext(Dispatchers.IO) {
+                    pluginManager.resolveModrinthDownload(hit.slug, mcVersion, loader)
+                } ?: throw RuntimeException("该模组不支持当前 MC 版本/加载器")
+                val fileName = "${hit.slug}.jar"
+                withContext(Dispatchers.IO) { pluginManager.installModFromUrl(url, fileName, dirName) }
+                _messageFlow.tryEmit("${hit.title} 安装完成")
+                refreshMods()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("${hit.title} 安装失败: ${e.message}")
+            }
+        }
+    }
+
     /** 从精选库下载安装插件 */
     fun installCuratedPlugin(curated: PluginManager.CuratedPlugin) {
         if (!isBootstrapped.value) {

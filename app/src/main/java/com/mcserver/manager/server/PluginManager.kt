@@ -8,6 +8,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -853,5 +856,71 @@ class PluginManager(
         bytes >= 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024.0))
         bytes >= 1024 -> String.format("%.1f KB", bytes / 1024.0)
         else -> "$bytes B"
+    }
+
+    // ── Modrinth 模组获取（开放 API，需 User-Agent） ───────────────
+
+    @Serializable
+    data class ModrinthHit(
+        val title: String = "",
+        val slug: String = "",
+        val description: String = "",
+        val author: String = "",
+        val downloads: Long = 0
+    )
+
+    @Serializable
+    private data class ModrinthSearchResponse(val hits: List<ModrinthHit> = emptyList())
+
+    @Serializable
+    private data class ModrinthVersion(val version_type: String = "", val files: List<ModrinthFile> = emptyList())
+
+    @Serializable
+    private data class ModrinthFile(val url: String = "", val primary: Boolean = false)
+
+    private val modrinthJson = Json { ignoreUnknownKeys = true }
+
+    /** 搜索 Modrinth 模组（按加载器过滤，最多 20 条） */
+    fun searchModrinth(query: String, loader: String): List<ModrinthHit> {
+        if (query.isBlank()) return emptyList()
+        return try {
+            val facets = "[[\"categories:$loader\"],[\"project_type:mod\"]]"
+            val urlStr = "https://api.modrinth.com/v2/search?query=${java.net.URLEncoder.encode(query, "UTF-8")}" +
+                "&facets=${java.net.URLEncoder.encode(facets, "UTF-8")}&limit=20"
+            val body = fetchModrinthText(urlStr)
+            modrinthJson.decodeFromString<ModrinthSearchResponse>(body).hits
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** 解析 Modrinth 模组在指定 MC 版本+加载器下的最新 release 下载直链 */
+    fun resolveModrinthDownload(slug: String, mcVersion: String, loader: String): String? {
+        return try {
+            val gameVersions = java.net.URLEncoder.encode("[\"$mcVersion\"]", "UTF-8")
+            val loaders = java.net.URLEncoder.encode("[\"$loader\"]", "UTF-8")
+            val urlStr = "https://api.modrinth.com/v2/project/$slug/version?game_versions=$gameVersions&loaders=$loaders"
+            val body = fetchModrinthText(urlStr)
+            val versions = modrinthJson.decodeFromString<List<ModrinthVersion>>(body)
+            val v = versions.firstOrNull { it.version_type == "release" } ?: versions.firstOrNull() ?: return null
+            v.files.firstOrNull { it.primary }?.url ?: v.files.firstOrNull()?.url
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** 读取 URL 文本（Modrinth 要求 User-Agent） */
+    private fun fetchModrinthText(urlStr: String): String {
+        val conn = URL(urlStr).openConnection() as HttpURLConnection
+        try {
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 15_000
+            conn.setRequestProperty("User-Agent", "McServerManager/1.0 (mcserver-manager)")
+            val code = conn.responseCode
+            if (code !in 200..299) throw RuntimeException("HTTP $code")
+            return conn.inputStream.bufferedReader().use { it.readText() }
+        } finally {
+            conn.disconnect()
+        }
     }
 }

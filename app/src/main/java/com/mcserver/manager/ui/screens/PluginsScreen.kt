@@ -142,6 +142,7 @@ fun PluginsScreen(vm: McViewModel) {
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
     val mods by vm.mods.collectAsState()
+    val modrinthResults by vm.modrinthResults.collectAsState()
     val downloadProgress by vm.pluginDownloadProgress.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val curatedUpdates by vm.curatedUpdates.collectAsState()
@@ -390,10 +391,13 @@ fun PluginsScreen(vm: McViewModel) {
                     curatedMods = vm.curatedMods,
                     activeCoreExists = activeCore != null,
                     coreType = coreType,
+                    modrinthResults = modrinthResults,
                     onToggle = { vm.toggleModEnabled(it) },
                     onDelete = { pendingModDelete = it },
                     onUpload = { uri -> vm.installModFromUri(uri) },
-                    onInstallCurated = { vm.installCuratedMod(it) }
+                    onInstallCurated = { vm.installCuratedMod(it) },
+                    onSearchModrinth = { vm.searchModrinthMods(it) },
+                    onInstallModrinth = { vm.installModrinthMod(it) }
                 )
             }
 
@@ -1294,11 +1298,15 @@ private fun ModsTab(
     curatedMods: List<PluginManager.CuratedMod>,
     activeCoreExists: Boolean,
     coreType: ServerCore,
+    modrinthResults: List<PluginManager.ModrinthHit>,
     onToggle: (String) -> Unit,
     onDelete: (PluginManager.ModEntry) -> Unit,
     onUpload: (Uri) -> Unit,
-    onInstallCurated: (PluginManager.CuratedMod) -> Unit
+    onInstallCurated: (PluginManager.CuratedMod) -> Unit,
+    onSearchModrinth: (String) -> Unit,
+    onInstallModrinth: (PluginManager.ModrinthHit) -> Unit
 ) {
+    var modrinthQuery by remember { mutableStateOf("") }
     // 本地上传模组选择器
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -1422,4 +1430,70 @@ private fun ModsTab(
             }
         }
     }
+
+    // ── Modrinth 模组获取 ──
+    McCard(title = "模组获取（Modrinth）") {
+        Text(
+            "从 Modrinth 开放平台搜索并一键安装模组",
+            color = Muted,
+            fontSize = 10.sp
+        )
+        Spacer(Modifier.height(6.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = modrinthQuery,
+                onValueChange = { modrinthQuery = it },
+                placeholder = { Text("搜索模组，如 sodium", fontSize = 11.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp)
+            )
+            Spacer(Modifier.size(6.dp))
+            Button(
+                onClick = { onSearchModrinth(modrinthQuery.trim()) },
+                enabled = modrinthQuery.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text("搜索", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        if (modrinthResults.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            modrinthResults.forEach { hit ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(hit.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(
+                            "${hit.author} · ${formatModrinthDownloads(hit.downloads)}",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                        if (hit.description.isNotBlank()) {
+                            Text(hit.description, color = Muted, fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Button(
+                        onClick = { onInstallModrinth(hit) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Mint),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text("安装", color = Color.White, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Modrinth 下载量格式化 */
+private fun formatModrinthDownloads(d: Long): String = when {
+    d >= 1_000_000 -> String.format("%.1fM 下载", d / 1_000_000.0)
+    d >= 1_000 -> String.format("%.1fK 下载", d / 1_000.0)
+    else -> "$d 下载"
 }
