@@ -488,6 +488,12 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     color = if (state.isRunning) Mint else Muted,
                     fontSize = 11.sp
                 )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "首次启动需下载运行文件，请耐心等待",
+                    color = Muted,
+                    fontSize = 10.sp
+                )
             }
 
             // ── 服务器地址 ──

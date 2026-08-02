@@ -144,12 +144,6 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         // 快捷入口（子页面跳转）
         McCard(title = "快捷入口") {
             SettingEntry(
-                title = "server.properties 编辑",
-                subtitle = "修改服务器基础配置（难度/模式/人数等）",
-                onClick = { onNavigate(SubPage.Properties) }
-            )
-            Spacer(Modifier.height(8.dp))
-            SettingEntry(
                 title = "下载帮助",
                 subtitle = "下载慢？查看解决方案",
                 onClick = { onNavigate(SubPage.DownloadHelp) }
