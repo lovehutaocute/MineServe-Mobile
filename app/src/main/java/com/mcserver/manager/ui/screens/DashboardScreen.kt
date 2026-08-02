@@ -3,6 +3,7 @@ package com.mcserver.manager.ui.screens
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -29,11 +30,14 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -100,6 +104,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val scope = rememberCoroutineScope()
 
     var isStopping by remember { mutableStateOf(false) }
+    var showStartSettings by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
 
@@ -165,6 +170,33 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             deviceStats.isCharging -> "${deviceStats.batteryPercent}% 充电中"
                             else -> "${deviceStats.batteryPercent}%"
                         },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                // 网络数据（总上传/下载 + 实时速度）
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    DeviceStatCell(
+                        label = "总下载",
+                        value = if (deviceStats.totalRxBytes > 0) formatNetBytes(deviceStats.totalRxBytes) else "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "总上传",
+                        value = if (deviceStats.totalTxBytes > 0) formatNetBytes(deviceStats.totalTxBytes) else "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "下载速度",
+                        value = if (deviceStats.rxSpeedBps > 0) "${formatNetBytes(deviceStats.rxSpeedBps)}/s" else "--",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "上传速度",
+                        value = if (deviceStats.txSpeedBps > 0) "${formatNetBytes(deviceStats.txSpeedBps)}/s" else "--",
                         modifier = Modifier.weight(1f)
                     )
                 }
@@ -430,7 +462,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // 启停控制
-            McCard(title = "服务控制") {
+            McCard(
+                title = "服务控制",
+                trailing = {
+                    IconButton(onClick = { showStartSettings = true }) {
+                        Icon(Icons.Outlined.Settings, "启动设置", tint = Indigo, modifier = Modifier.size(18.dp))
+                    }
+                }
+            ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -559,6 +598,43 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+
+        // 服务器启动设置弹窗
+        if (showStartSettings) {
+            AlertDialog(
+                onDismissRequest = { showStartSettings = false },
+                title = { Text("服务器启动设置", fontWeight = FontWeight.Bold) },
+                text = {
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("崩溃自动重启", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(
+                                    "MC 进程异常退出时自动重启（默认关闭省电）",
+                                    color = Muted,
+                                    fontSize = 10.sp
+                                )
+                            }
+                            Switch(
+                                checked = config.autoRestartOnCrash,
+                                onCheckedChange = { vm.setAutoRestart(it) }
+                            )
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            "JVM 内存上限：${config.maxHeapMb} MB（在设置页修改）",
+                            color = Muted,
+                            fontSize = 11.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showStartSettings = false }) {
+                        Text("完成", color = Indigo, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            )
         }
 
         // 删除运行环境确认对话框
@@ -690,3 +766,11 @@ private fun DeviceStatCell(label: String, value: String, modifier: Modifier = Mo
 /** MB 数值格式化：超过 1GB 显示 G */
 private fun formatDeviceMb(mb: Long): String =
     if (mb >= 1024) String.format("%.1fG", mb / 1024.0) else "${mb}M"
+
+/** 字节数格式化（网络流量）：KB/MB/GB */
+private fun formatNetBytes(bytes: Long): String = when {
+    bytes >= 1024 * 1024 * 1024 -> String.format("%.1fGB", bytes / (1024.0 * 1024 * 1024))
+    bytes >= 1024 * 1024 -> String.format("%.1fMB", bytes / (1024.0 * 1024))
+    bytes >= 1024 -> String.format("%.1fKB", bytes / 1024.0)
+    else -> "${bytes}B"
+}

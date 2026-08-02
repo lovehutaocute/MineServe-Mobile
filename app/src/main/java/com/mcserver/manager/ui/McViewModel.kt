@@ -119,11 +119,20 @@ class McViewModel(
         val totalStorageMb: Long = 0L,
         val availStorageMb: Long = 0L,
         val batteryPercent: Int = -1,   // -1 表示未知
-        val isCharging: Boolean = false
+        val isCharging: Boolean = false,
+        val totalRxBytes: Long = 0L,    // 累计下载量（TrafficStats）
+        val totalTxBytes: Long = 0L,    // 累计上传量
+        val rxSpeedBps: Long = 0L,      // 实时下载速度（字节/秒）
+        val txSpeedBps: Long = 0L       // 实时上传速度（字节/秒）
     )
 
     private val _deviceStats = MutableStateFlow(DeviceStats())
     val deviceStats: StateFlow<DeviceStats> = _deviceStats.asStateFlow()
+
+    /** 网络流量速度采样（上次采样值） */
+    private var lastRxBytes = 0L
+    private var lastTxBytes = 0L
+    private var lastNetSampleMs = 0L
 
     /** 定时采集设备指标（每 3 秒），同时将 MC 进程真实内存写入 usedMemoryMb */
     private fun startDeviceStatsCollection() {
@@ -162,13 +171,32 @@ class McViewModel(
                 // 部分设备/模拟器不支持电池属性，保持 -1
             }
 
+            // 网络流量（TrafficStats 设备总量，无权限）与实时速度（相邻采样差值）
+            val rxBytes = android.net.TrafficStats.getTotalRxBytes().takeIf { it >= 0 } ?: 0L
+            val txBytes = android.net.TrafficStats.getTotalTxBytes().takeIf { it >= 0 } ?: 0L
+            val now = android.os.SystemClock.elapsedRealtime()
+            var rxSpeed = 0L
+            var txSpeed = 0L
+            if (lastNetSampleMs > 0 && now > lastNetSampleMs) {
+                val dtMs = (now - lastNetSampleMs).coerceAtLeast(1)
+                if (rxBytes >= lastRxBytes) rxSpeed = (rxBytes - lastRxBytes) * 1000 / dtMs
+                if (txBytes >= lastTxBytes) txSpeed = (txBytes - lastTxBytes) * 1000 / dtMs
+            }
+            lastRxBytes = rxBytes
+            lastTxBytes = txBytes
+            lastNetSampleMs = now
+
             val newStats = DeviceStats(
                 totalMemoryMb = totalMemMb,
                 availMemoryMb = availMemMb,
                 totalStorageMb = totalStorageMb,
                 availStorageMb = availStorageMb,
                 batteryPercent = batteryPercent,
-                isCharging = isCharging
+                isCharging = isCharging,
+                totalRxBytes = rxBytes,
+                totalTxBytes = txBytes,
+                rxSpeedBps = rxSpeed,
+                txSpeedBps = txSpeed
             )
             // 值未变化时不推送，避免每 3 秒触发 UI 重组
             if (_deviceStats.value != newStats) _deviceStats.value = newStats
