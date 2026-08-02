@@ -1,5 +1,8 @@
 package com.mcserver.manager.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -61,6 +65,15 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
     LaunchedEffect(Unit) { vm.errorFlow.collectLatest { snackbarHostState.showSnackbar(it) } }
     LaunchedEffect(Unit) { vm.messageFlow.collectLatest { snackbarHostState.showSnackbar(it) } }
+
+    // 快照导出到本地（SAF 自定义路径）
+    var exportTarget by remember { mutableStateOf<String?>(null) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri: Uri? ->
+        uri?.let { target -> exportTarget?.let { vm.exportSnapshotToUri(it, target) } }
+        exportTarget = null
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -118,6 +131,15 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                             Column(Modifier.weight(1f)) {
                                 Text(snap.name, fontSize = 11.sp, fontWeight = FontWeight.Medium)
                                 Text("${snap.sizeText} · ${snap.createdText}", color = Muted, fontSize = 10.sp)
+                            }
+                            IconButton(
+                                onClick = {
+                                    exportTarget = snap.name
+                                    exportLauncher.launch(snap.name)
+                                },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Outlined.FileDownload, "导出", tint = Indigo, modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = {
                                 scope.launch {

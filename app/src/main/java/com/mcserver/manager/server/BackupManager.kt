@@ -105,26 +105,30 @@ class BackupManager(private val termux: TermuxRuntime) {
                 }
             }
 
-            val world = worldDir(dirName)
+            val serverDir = worldDir(dirName).parentFile
+            val dims = listOf("world", "world_nether", "world_the_end")
 
-            // 2. 备份当前 world（重命名为 world.bak.<timestamp>）
-            if (world.exists()) {
-                val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-                val backup = File(world.parentFile, "world.bak.$ts")
-                if (!world.renameTo(backup)) {
-                    // 重命名失败，直接递归删除
-                    world.deleteRecursively()
+            // 2. 备份当前三维度目录（重命名为 *.bak.<timestamp>）
+            dims.forEach { dim ->
+                val dimDir = File(serverDir, dim)
+                if (dimDir.exists()) {
+                    val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+                    val backup = File(serverDir, "$dim.bak.$ts")
+                    if (!dimDir.renameTo(backup)) {
+                        // 重命名失败，直接递归删除
+                        dimDir.deleteRecursively()
+                    }
                 }
             }
 
-            // 3. 确保 world 已删除（重命名成功后 world 不存在）
-            if (world.exists()) {
-                world.deleteRecursively()
+            // 3. 确保已删除（重命名成功后原目录不存在）
+            dims.forEach { dim ->
+                val dimDir = File(serverDir, dim)
+                if (dimDir.exists()) dimDir.deleteRecursively()
             }
 
-            // 4. 解压快照到 world 目录
-            world.mkdirs()
-            extractZipToDir(snapshotFile, world)
+            // 4. 解压快照到 serverDir（zip 条目带 world/ 前缀，恢复三维度目录）
+            extractZipToDir(snapshotFile, serverDir)
             true
         } catch (e: Exception) {
             false

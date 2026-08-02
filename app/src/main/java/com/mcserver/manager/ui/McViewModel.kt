@@ -884,6 +884,27 @@ class McViewModel(
         }
     }
 
+    /** 导出快照 zip 到用户选择的 Uri（自定义导出路径） */
+    fun exportSnapshotToUri(snapshotName: String, uri: android.net.Uri) {
+        val src = java.io.File(repo.termuxRuntime.installer.rootDir, "home/snapshots/$snapshotName")
+        if (!src.exists()) {
+            _errorFlow.tryEmit("快照文件不存在")
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val output = McApplication.get().contentResolver.openOutputStream(uri)
+                        ?: throw RuntimeException("无法打开导出目标")
+                    output.use { os -> src.inputStream().use { it.copyTo(os) } }
+                }
+                _messageFlow.tryEmit("快照已导出: $snapshotName")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("导出失败: ${e.message}")
+            }
+        }
+    }
+
     /** 删除快照 */
     fun deleteSnapshot(name: String) {
         viewModelScope.launch {
