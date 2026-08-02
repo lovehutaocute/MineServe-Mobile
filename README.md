@@ -27,10 +27,74 @@ JavaMC GO is a native Android app that runs a Minecraft Java Edition server on y
 - **Full server.properties editor** — 73 parameters, basic/advanced groups, dedicated bottom-nav tab
 - **Material 3 UI** — Jetpack Compose, edge-to-edge immersive design
 
+## 📖 Features in Detail
+
+### 🧩 Server Cores (9 supported)
+- **Paper** — high-performance, plugin-compatible, production recommended
+- **Purpur** — Paper fork with extra vanilla feature toggles
+- **Fabric / Forge** — classic mod loaders, latest versions auto-detected
+- **NeoForge / Quilt** — auto-run installer (`--installServer` / `quilt install server`) then start with generated launch files
+- **Vanilla** — official Mojang server (from version manifest)
+- **Velocity / BungeeCord** — proxy servers (Jenkins / PaperMC v3 API)
+- Multi-core support: each core has its own isolated directory, config, world, plugins & mods
+- Version list auto-fetched from official APIs; custom core name supported
+
+### 🎮 Server Control
+- One-tap start / stop, start-up status (with duration & TPS/online/memory stats)
+- Crash auto-restart (configurable)
+- MC console terminal with quick commands & colored logs
+- Server launch settings popup (gear icon on the control card)
+
+### 👥 Player Management
+- **Online player list** — real-time from logs, with copy / kick / switch gamemode actions
+- **Join/leave history** — recorded to the second, persisted across restarts
+- OP / whitelist / ban lists (with tempban, OP levels, search & detail dialogs)
+
+### 🔌 Plugin Management
+- Installed plugin list (scan + plugin.yml metadata), enable/disable/delete with data dir cleanup
+- Local upload & install from URL
+- Resource site directory (SpigotMC / Hangar / Modrinth / BuiltByBit / CurseForge)
+
+### 🧪 Mod Management
+- `mods/` directory scan (Fabric/Forge), enable/disable via `.jar.disabled`, delete, upload
+- **Modrinth integration** — search (multi-loader filter, sort by downloads/relevance/newest), mod icons, one-click install with MC-version matching, incompatible-core warning
+
+### 📁 File Manager
+- Browse server directories, upload, create folders, delete
+- **Export** — single file / folder (zip) / entire server (zip) to any local path via SAF
+- MT Manager integration + tutorial video (streamed online, not bundled)
+- Auto annotations for common server files/folders
+
+### 🌐 Tunneling
+- **frp** (auto-strips `autoTLS` for old frpc compatibility) & **bore** — public access for friends
+
+### 💾 Backup & Restore
+- Snapshots of all 3 dimensions (world / world_nether / world_the_end)
+- Restore (auto-stops server, backs up current worlds) & export snapshot to local
+- Auto-cleanup of old snapshots
+
+### ⚙️ Configuration
+- Full `server.properties` editor — all 73 parameters, grouped Basic/Advanced, data-driven rendering
+- JVM heap limit, download mirror, APT mirror, auto-restart toggles
+
+### 📊 Device & Network Monitor
+- Device memory / storage / battery (no permissions needed)
+- Real-time network traffic: total upload/download + current speeds
+
+### 🛡️ Keep-Alive
+- Foreground service (START_STICKY + persistent notification + wake locks)
+- Boot auto-start (BOOT_COMPLETED) & WorkManager periodic keep-alive
+- Dedicated keep-alive page with per-feature switches & explanations
+
+### 🎨 UI & UX
+- Material 3, immersive edge-to-edge full screen, 9-tab bottom navigation
+- Debounced text inputs (no lag / no reordering while typing)
+- Back-key returns page by page instead of exiting the app
+
 ## 📋 Requirements
 
 - Android 8.0 (API 26) or higher
-- arm64-v8a or x86_64 architecture
+- arm64-v8a architecture (releases build only arm64)
 - At least 4GB RAM recommended (to run the MC server)
 - Internet connection (first launch downloads Termux environment + JDK)
 
@@ -41,7 +105,7 @@ JavaMC GO is a native Android app that runs a Minecraft Java Edition server on y
 From the [Releases page](../../releases):
 
 - `app-arm64-v8a-release.apk` — most phones
-- `app-x86_64-release.apk` — emulators
+
 
 ### Option 2: Build from source
 

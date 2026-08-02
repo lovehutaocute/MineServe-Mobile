@@ -20,12 +20,12 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
-    // ABI 分包：仅打包用户当前架构，避免 bootstrap 多架构冗余
+    // ABI 分包：仅打包 arm64-v8a（绝大多数手机），x86_64 模拟器不再产出
     splits {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "x86_64")
+            include("arm64-v8a")
             isUniversalApk = false
         }
     }

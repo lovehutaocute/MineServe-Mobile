@@ -30,7 +30,7 @@ JavaMC GO 是一款 Android 原生应用，可在手机上直接运行 Minecraft
 ## 📋 系统要求
 
 - Android 8.0 (API 26) 及以上
-- arm64-v8a 或 x86_64 架构
+- arm64-v8a 架构（正式版仅构建 arm64）
 - 建议至少 4GB RAM（运行 MC 服务端）
 - 需要网络连接（首次初始化下载 Termux 环境和 JDK）
 
@@ -41,7 +41,7 @@ JavaMC GO 是一款 Android 原生应用，可在手机上直接运行 Minecraft
 从 [Releases 页面](../../releases) 下载：
 
 - `app-arm64-v8a-release.apk` — 绝大多数手机
-- `app-x86_64-release.apk` — 模拟器
+
 
 ### 方式二：自行编译
 

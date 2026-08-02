@@ -1,5 +1,6 @@
 package com.mcserver.manager.ui.screens
 
+import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -55,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -73,6 +75,7 @@ import java.io.File
 
 @Composable
 fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
+    val context = LocalContext.current
     val files by vm.fileList.collectAsState()
     val currentPath by vm.currentPath.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
@@ -160,6 +163,23 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     Spacer(Modifier.size(4.dp))
                     Text("导出服务器", fontSize = 12.sp, color = Indigo)
                 }
+            }
+
+            // MT 管理器教程视频入口（在线播放，不打包进安装包）
+            OutlinedButton(
+                onClick = {
+                    try {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TUTORIAL_VIDEO_URL)))
+                    } catch (e: Exception) {
+                        // 无浏览器/网络异常时静默
+                    }
+                },
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
+            ) {
+                Text("📺 MT 管理器使用教程视频", fontSize = 12.sp, color = Indigo)
             }
 
             // 路径导航栏
@@ -465,6 +485,10 @@ private fun FileItemRow(
 }
 
 // ── 服务器目录文件/文件夹中文功能注释 ────────────────────────────────
+
+/** MT 管理器教程视频（在线播放） */
+private const val TUTORIAL_VIDEO_URL =
+    "https://img.remit.ee/api/file/BAACAgUAAyEGAASHRsPbAAEYWwdqbtydlO6_o-rdvwpJ3O92AfEtHQACbB0AAh7GeVdh2nS2uFg_6T0E.mp4"
 
 private val fileAnnotations = mapOf(
     "server.jar" to "服务端核心文件",
