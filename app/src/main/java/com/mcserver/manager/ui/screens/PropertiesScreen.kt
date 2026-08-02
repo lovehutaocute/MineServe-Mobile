@@ -214,7 +214,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
                     renderProperty(spec, props) { v ->
                         props = props.toMutableMap().apply { put(spec.key, v) }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
                 }
             }
 
@@ -224,15 +224,15 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
                     renderProperty(spec, props) { v ->
                         props = props.toMutableMap().apply { put(spec.key, v) }
                     }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(6.dp))
                 }
                 // 兜底：未收录的新参数（保证完整加载展示，不丢失）
                 val knownKeys = propertySpecs.map { it.key }.toSet()
                 val unknownKeys = props.keys.filter { it !in knownKeys }
                 if (unknownKeys.isNotEmpty()) {
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(4.dp))
                     Text("其他参数（新版服务端新增）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(4.dp))
                     unknownKeys.forEach { key ->
                         Text(key, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(Modifier.height(4.dp))
@@ -242,7 +242,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(6.dp))
                     }
                 }
             }
@@ -331,7 +331,7 @@ private fun LabeledNumberField(
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(4.dp))
     DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
@@ -390,7 +390,7 @@ private fun EnumField(
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(4.dp))
     FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (display, v) ->
             SegPill(
@@ -412,7 +412,7 @@ private fun LabeledTextField(
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
-    Spacer(Modifier.height(6.dp))
+    Spacer(Modifier.height(4.dp))
     DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
