@@ -154,6 +154,7 @@ private enum class InstalledFilter(val label: String) { All("全部"), Enabled("
  */
 @Composable
 fun PluginsScreen(vm: McViewModel) {
+    val context = LocalContext.current
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
@@ -230,9 +231,9 @@ fun PluginsScreen(vm: McViewModel) {
                         modifier = Modifier.clickable {
                             if (activeCore != null) {
                                 vm.refreshInstalledPlugins()
-                                scope.launch { snackbarHostState.showSnackbar("已刷新插件列表") }
+                                scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s752)) }
                             } else {
-                                scope.launch { snackbarHostState.showSnackbar("请先选择服务端核心") }
+                                scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s753)) }
                             }
                         }
                     )
@@ -420,7 +421,7 @@ fun PluginsScreen(vm: McViewModel) {
                 Button(
                     onClick = {
                         vm.sendCommand("reload")
-                        scope.launch { snackbarHostState.showSnackbar("已发送 reload 指令") }
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s762)) }
                     },
                     enabled = isServerRunning,
                     colors = ButtonDefaults.buttonColors(

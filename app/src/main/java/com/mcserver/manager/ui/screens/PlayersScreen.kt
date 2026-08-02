@@ -232,7 +232,7 @@ fun PlayersScreen(vm: McViewModel) {
                     onCopy = { name ->
                         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Player", name))
-                        scope.launch { snackbarHostState.showSnackbar("已复制：$name") }
+                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s188, name)) }
                     },
                     onKick = { name -> vm.kickPlayer(name) },
                     onSetGameMode = { name, mode -> vm.setGameMode(name, mode) }

@@ -1,6 +1,7 @@
 package com.mcserver.manager.ui.screens
 
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import com.mcserver.manager.R
 
 import androidx.compose.foundation.BorderStroke
@@ -69,6 +70,7 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
+    val context = LocalContext.current
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val availableVersions by vm.availableVersions.collectAsState()
@@ -153,7 +155,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             OutlinedButton(
                                 onClick = {
                                     vm.setActiveCore(core.name)
-                                    scope.launch { snackbarHostState.showSnackbar("已选用「${core.name}」") }
+                                    scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s376, core.name)) }
                                 },
                                 enabled = core.name != config.activeCoreName,
                                 shape = RoundedCornerShape(12.dp),
@@ -271,7 +273,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             if (customVersion.isNotBlank()) {
                                 vm.setMcVersion(customVersion.trim())
                                 scope.launch {
-                                    snackbarHostState.showSnackbar("已设置版本为 ${customVersion.trim()}")
+                                    snackbarHostState.showSnackbar(context.getString(R.string.s476, customVersion.trim()))
                                 }
                             }
                         },

@@ -1,5 +1,7 @@
 package com.mcserver.manager.ui.screens
 
+import androidx.compose.ui.platform.LocalContext
+
 import androidx.compose.ui.res.stringResource
 import com.mcserver.manager.R
 
@@ -59,6 +61,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
+    val context = LocalContext.current
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
@@ -97,7 +100,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                     Button(
                         onClick = {
                             vm.sendCommand("save-all")
-                            scope.launch { snackbarHostState.showSnackbar("已发送 save-all") }
+                            scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s327)) }
                         },
                         enabled = isBootstrapped,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
@@ -155,7 +158,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                             IconButton(onClick = {
                                 scope.launch {
                                     vm.restoreSnapshot(snap.name)
-                                    snackbarHostState.showSnackbar("还原已启动")
+                                    snackbarHostState.showSnackbar(context.getString(R.string.s336))
                                 }
                             }, modifier = Modifier.size(32.dp)) {
                                 Icon(Icons.Outlined.Restore, "还原", tint = Indigo, modifier = Modifier.size(18.dp))

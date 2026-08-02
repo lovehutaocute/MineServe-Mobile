@@ -455,7 +455,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                                     onClick = {
                                         vm.setActiveCore(core.name)
                                         showCoreDropdown = false
-                                        scope.launch { snackbarHostState.showSnackbar("已选用「${core.name}」") }
+                                        scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s376, core.name)) }
                                     }
                                 )
                             }
