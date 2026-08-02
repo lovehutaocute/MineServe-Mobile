@@ -199,7 +199,10 @@ class PlayerManager(private val termux: TermuxRuntime) {
      */
     fun setGameMode(name: String, mode: Int): Boolean {
         val m = mode.coerceIn(0, 3)
-        return sendCmd("gamemode $m $name")
+        // 兼容新旧语法：MC 1.13+ 为 `gamemode <模式> <玩家>`，旧版为 `gamemode <玩家> <模式>`。
+        // 同时发送两条保证任一生效（错误的一条 MC 仅提示 usage，不影响另一条）。
+        sendCmd("gamemode $m $name")
+        return sendCmd("gamemode $name $m")
     }
 
     /**
