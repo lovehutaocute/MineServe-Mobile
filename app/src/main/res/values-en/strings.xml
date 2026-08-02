@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">JavaMC GO</string>
+    <string name="tab_dashboard">Dashboard</string>
+    <string name="tab_download">Download</string>
+    <string name="tab_players">Players</string>
+    <string name="tab_plugins">Plugins &amp; Mods</string>
+    <string name="tab_files">Files</string>
+    <string name="tab_network">Network</string>
+    <string name="tab_backup">Backup</string>
+    <string name="tab_config">Config</string>
+    <string name="tab_settings">Settings</string>
+</resources>

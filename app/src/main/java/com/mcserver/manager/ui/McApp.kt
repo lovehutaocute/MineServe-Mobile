@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -76,8 +77,8 @@ fun McApp() {
                     NavigationBarItem(
                         selected = tab == t && subPage == null,
                         onClick = { tab = t; showLogs = false; subPage = null },
-                        icon = { Icon(t.icon, contentDescription = t.label) },
-                        label = { Text(t.label, fontSize = 10.sp) },
+                        icon = { Icon(t.icon, contentDescription = stringResource(t.labelRes)) },
+                        label = { Text(stringResource(t.labelRes), fontSize = 10.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Indigo,
                             selectedTextColor = Indigo,
