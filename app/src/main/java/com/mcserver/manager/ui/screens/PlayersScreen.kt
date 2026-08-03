@@ -275,8 +275,8 @@ fun PlayersScreen(vm: McViewModel) {
             onDeop = { vm.deopPlayer(it); detailPlayer = null },
             onWhitelistRemove = { vm.whitelistRemove(it); detailPlayer = null },
             onPardon = { vm.pardonPlayer(it); detailPlayer = null },
-            onKick = { vm.kickPlayer(it, stringResource(R.string.s675)); detailPlayer = null },
-            onBan = { vm.banPlayer(it, stringResource(R.string.s676)); detailPlayer = null },
+            onKick = { vm.kickPlayer(it, context.getString(R.string.s675)); detailPlayer = null },
+            onBan = { vm.banPlayer(it, context.getString(R.string.s676)); detailPlayer = null },
             onSetGameMode = { name, mode -> vm.setGameMode(name, mode) },
             onGiveXp = { name, amount -> vm.giveXp(name, amount) }
         )

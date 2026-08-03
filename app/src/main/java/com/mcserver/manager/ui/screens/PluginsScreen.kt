@@ -254,7 +254,7 @@ fun PluginsScreen(vm: McViewModel) {
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        stringResource(R.string.s755, pluginsPath),
+                        stringResource(R.string.s755, pluginsPath ?: "--"),
                         color = Muted,
                         fontSize = 10.sp,
                         maxLines = 2,
@@ -474,7 +474,7 @@ fun PluginsScreen(vm: McViewModel) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(site.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                             Text(
-                                site.desc,
+                                stringResource(site.descRes),
                                 color = Muted,
                                 fontSize = 10.sp,
                                 maxLines = 2,
@@ -846,7 +846,7 @@ private fun CuratedTab(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(site.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                     Text(
-                        site.desc,
+                        stringResource(site.descRes),
                         color = Muted,
                         fontSize = 10.sp,
                         maxLines = 2,

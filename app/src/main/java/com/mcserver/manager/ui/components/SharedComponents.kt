@@ -1,5 +1,7 @@
 package com.mcserver.manager.ui
 
+import androidx.compose.ui.res.stringResource
+import com.mcserver.manager.R
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
