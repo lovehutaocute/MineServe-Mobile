@@ -926,6 +926,13 @@ esac
         var lastSpeedCalcTime = System.currentTimeMillis()
         var lastSpeedCalcBytes = downloaded
         while (input.read(buf).also { read = it } != -1) {
+            // 响应用户请求切换镜像源：立即中断当前下载
+            if (stopAndSwitchRequested) {
+                output.close()
+                input.close()
+                conn.disconnect()
+                throw RuntimeException("用户请求切换镜像源")
+            }
             output.write(buf, 0, read)
             downloaded += read
 
