@@ -63,12 +63,12 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         // JVM 内存上限
         McCard(title = stringResource(R.string.s1003)) {
             Text(
-                "为 MC 进程分配 -Xmx，建议不超过设备可用 RAM 的 60%。",
+                stringResource(R.string.s1004),
                 color = Muted,
                 fontSize = 11.sp
             )
             Text(
-                "修改后需重启服务器生效（-Xmx 为 JVM 启动参数）",
+                stringResource(R.string.s1005),
                 color = Coral,
                 fontSize = 10.sp
             )
@@ -108,7 +108,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         // APT 镜像设置（JDK/wget/frp 等依赖包下载源）
         McCard(title = stringResource(R.string.s1010)) {
             Text(
-                "影响 apt 安装依赖（JDK/wget/frp/proot）的下载速度",
+                stringResource(R.string.s1011),
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -153,7 +153,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         // 后台保活（大尺寸独立入口）
         McCard(title = stringResource(R.string.s542)) {
             Text(
-                "开机自启 / 后台周期保活 / 崩溃自动重启",
+                stringResource(R.string.s1018),
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -188,7 +188,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                "基于 Termux 开源组件二次封装，proot-distro 无 root 运行。",
+                stringResource(R.string.s1025),
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -197,7 +197,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         // 意见反馈
         McCard(title = stringResource(R.string.s1026)) {
             Text(
-                "遇到问题或有建议？欢迎发送邮件反馈，我们会尽快处理。",
+                stringResource(R.string.s1027),
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -217,7 +217,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "发送邮件反馈（167245484@qq.com）",
+                    stringResource(R.string.s1029),
                     color = Color.White,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold

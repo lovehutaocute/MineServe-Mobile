@@ -17,7 +17,7 @@
 
     <string name="s1">开机自启：拉起前台保活服务</string>
     <string name="s2">开机自启失败: %1%1$s</string>
-    <string name="s3">崩溃时间: ${java.text.SimpleDateFormat(</string>
+    <string name="s3">崩溃时间: %1$s</string>
     <string name="s4">线程: %1$s</string>
     <string name="s5">异常: %1$s: %2$s</string>
     <string name="s6">[crash] 上次崩溃日志:\n%1$s</string>
@@ -49,18 +49,18 @@
     <string name="s32">开始解压...</string>
     <string name="s33">解压完成</string>
     <string name="s34">错误: bin/bash 不存在！解压失败</string>
-    <string name="s35">bin/ 目录内容: ${binDir.list()?.take(20)?.joinToString(</string>
+    <string name="s35">bin/ 目录内容: %1$s</string>
     <string name="s36">bin/ 目录不存在</string>
-    <string name="s37">rootDir 内容: ${rootDir.list()?.joinToString(</string>
+    <string name="s37">rootDir 内容: %1$s</string>
     <string name="s38">解压后 bin/bash 不存在</string>
     <string name="s39">bash 文件大小: %1$s 字节</string>
-    <string name="s40">bash ELF 魔数: ${if (isElf) </string>
+    <string name="s40">bash ELF 魔数: %1$s</string>
     <string name="s41">无效!</string>
     <string name="s42">初始化配置...</string>
     <string name="s43">Termux 环境初始化完成</string>
     <string name="s44">初始化失败: %1%1$s</string>
     <string name="s45">ZIP 提取完成: %1$s 个文件, %2$s 个条目</string>
-    <string name="s46">前20个条目: ${entryNames.take(20).joinToString(</string>
+    <string name="s46">前20个条目: %1$s</string>
     <string name="s47">处理符号链接 (SYMLINKS.txt)...</string>
     <string name="s48">符号链接失败: %1$s → %2$s: %1%3$s</string>
     <string name="s49">创建了 %1$s 个符号链接, %2$s 个失败</string>
@@ -104,7 +104,7 @@
     <string name="s87">cleanupOldSnapshots: 删除异常 %1$s: %1%2$s</string>
     <string name="s88">cleanupOldSnapshots: 已清理 %1$s 个旧快照（保留 %2$s 个）</string>
     <string name="s89">MCServerManager 崩溃报告</string>
-    <string name="s90">时间: ${SimpleDateFormat(</string>
+    <string name="s90">时间: %1$s</string>
     <string name="s91">退出码: %1$s</string>
     <string name="s92">进程状态: 异常退出</string>
     <string name="s93">--- 最近日志 (最后 200 行) ---</string>
@@ -457,8 +457,8 @@
     <string name="s440">服务端核心 JAR 放到 files/home/home/servers/{核心名}/ 目录</string>
     <string name="s441">重启应用，环境会自动识别已存在的文件跳过下载</string>
     <string name="s442">如何判断当前速度？</string>
-    <string name="s443">在下载过程中，本应用会实时显示下载速度（如 \</string>
-    <string name="s444">）。一般来说：</string>
+    <string name="s443">在下载过程中，本应用会实时显示下载速度（如 2.35 MB/s）。一般来说：</string>
+    <string name="s444">速度参考</string>
     <string name="s445">极快（直连或优质代理）</string>
     <string name="s446">较快（镜像源加速）</string>
     <string name="s447">一般（正常国内访问）</string>
@@ -517,7 +517,7 @@
     <string name="s500">文件列表</string>
     <string name="s501">正在加载...</string>
     <string name="s502">目录为空</string>
-    <string name="s503">即将删除${if (fileToDelete.isDirectory) </string>
+    <string name="s503">即将删除文件夹：\n</string>
     <string name="s504">\n\n该文件夹下的所有内容将被一并删除。</string>
     <string name="s505">\n\n此操作不可撤销。</string>
     <string name="s506">文件夹名称</string>
@@ -621,7 +621,7 @@
     <string name="s604">bore 是纯手机端运行的轻量隧道，无需下载额外程序。在 VPS 上运行 bore server 即可。</string>
     <string name="s605">内网穿透状态</string>
     <string name="s606">运行中</string>
-    <string name="s607">已停止（${tunnelState.errorMessage.ifBlank { </string>
+    <string name="s607">已停止（%1$s）</string>
     <string name="s608">已停止</string>
     <string name="s609">未启动</string>
     <string name="s610">公网连接地址</string>
@@ -636,7 +636,7 @@
     <string name="s619">暂无隧道日志</string>
     <string name="s620">关闭</string>
     <string name="s621">操作指南</string>
-    <string name="s622">点击${if (expanded) </string>
+    <string name="s622">点击%1$s详细配置指引</string>
     <string name="s623">展开</string>
     <string name="s624">frp 使用教程（自建服务器）</string>
     <string name="s625">💡 不想自建服务器？页面下方「免费 FRP 平台」卡片提供 OpenFrp / ChmlFrp / StarryFrp / SakuraFrp 等免费 frp 服务：注册账号后，把平台分配的节点地址、端口与 Token 填入上方 frpc.toml 配置，点「启动穿透」即可。</string>
@@ -645,8 +645,8 @@
     <string name="s628">你需要一台云服务器</string>
     <string name="s629">去阿里云、腾讯云或 Oracle Cloud（有免费的 ARM 实例）租一台云服务器，最便宜的就够用。关键是要有「公网 IP」。</string>
     <string name="s630">在服务器上装 frp 服务端</string>
-    <string name="s631">登录服务器后，去 GitHub 搜 fatedier/frp，下载对应版本，解压后编辑 frps.toml 文件：\nbindPort = 7000\nauth.method = \</string>
-    <string name="s632">随便设个密码\</string>
+    <string name="s631" formatted="false">登录服务器后，去 GitHub 搜 fatedier/frp，下载对应版本，解压后编辑 frps.toml 文件：\nbindPort = 7000\nauth.method = "token"\nauth.token = "随便设个密码"\n然后运行 ./frps -c frps.toml 启动服务端。</string>
+    <string name="s632">随便设个密码</string>
     <string name="s633">在手机上填配置</string>
     <string name="s634">把服务器的公网 IP 填到上面「frp 服务端地址」，端口填 7000，Token 填你刚才设的密码（要跟服务端一模一样）。</string>
     <string name="s635">点启动就行</string>
@@ -715,7 +715,7 @@
     <string name="s698">注：op 命令带等级参数需 MC 1.20.2+ 才支持，旧版服务器统一为默认 4 级</string>
     <string name="s699">服务器未运行，无法添加 OP</string>
     <string name="s700">添加 OP（等级 %1$s）</string>
-    <string name="s701">白名单 ${if (whitelistEnabled) </string>
+    <string name="s701">白名单 %1$s</string>
     <string name="s702">已关闭</string>
     <string name="s703">仅白名单内玩家可加入</string>
     <string name="s704">所有玩家均可加入（开启后可限制）</string>
@@ -1012,8 +1012,8 @@
     <string name="s995">原生传输</string>
     <string name="s996">使用 Linux 原生网络传输</string>
     <string name="s997">服务器属性</string>
-    <string name="s998">当前核心：${activeCore?.name ?: </string>
-    <string name="s999">} · 各服务器核心配置相互独立</string>
+    <string name="s998">当前核心：%1$s · 各服务器核心配置相互独立</string>
+    <string name="s999">未选择</string>
     <string name="s1000">其他参数（新版服务端新增）</string>
     <string name="s1001">部分属性需重启服务器才生效，是否继续？</string>
     <string name="s1002">继续</string>
@@ -1044,4 +1044,5 @@
     <string name="s1027">遇到问题或有建议？欢迎发送邮件反馈，我们会尽快处理。</string>
     <string name="s1028">MCServerManager 意见反馈</string>
     <string name="s1029">发送邮件反馈（167245484@qq.com）</string>
+    <string name="s1030">即将删除文件：\n</string>
 </resources>

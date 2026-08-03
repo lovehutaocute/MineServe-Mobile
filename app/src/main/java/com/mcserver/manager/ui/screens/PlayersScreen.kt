@@ -79,23 +79,23 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private enum class PlayerListTab(val label: String) { Online("在线玩家"), Ops("OP 列表"), Whitelist("白名单"), Banned("封禁列表") }
+private enum class PlayerListTab(val labelRes: Int) { Online(R.string.s657), Ops(R.string.s658), Whitelist(R.string.s659), Banned(R.string.s660) }
 
-private enum class BanDuration(val label: String, val value: String) {
-    FOREVER("永久", ""),
-    MIN30("30 分钟", "30m"),
-    HOUR1("1 小时", "1h"),
-    HOURS6("6 小时", "6h"),
-    DAY1("1 天", "1d"),
-    DAYS7("7 天", "7d"),
-    DAYS30("30 天", "30d")
+private enum class BanDuration(val labelRes: Int, val value: String) {
+    FOREVER(R.string.s661, ""),
+    MIN30(R.string.s662, "30m"),
+    HOUR1(R.string.s663, "1h"),
+    HOURS6(R.string.s664, "6h"),
+    DAY1(R.string.s665, "1d"),
+    DAYS7(R.string.s666, "7d"),
+    DAYS30(R.string.s667, "30d")
 }
 
-private enum class OpLevel(val label: String, val value: Int) {
-    L1("1 - 最低（仅基础命令）", 1),
-    L2("2 - 中等（含封禁/踢出）", 2),
-    L3("3 - 高（含停服/重载）", 3),
-    L4("4 - 最高（完整权限）", 4)
+private enum class OpLevel(val labelRes: Int, val value: Int) {
+    L1(R.string.s668, 1),
+    L2(R.string.s669, 2),
+    L3(R.string.s670, 3),
+    L4(R.string.s671, 4)
 }
 
 /**
@@ -174,7 +174,7 @@ fun PlayersScreen(vm: McViewModel) {
                     onClick = { showHistory = true },
                     modifier = Modifier.padding(end = 8.dp)
                 ) {
-                    Icon(Icons.Outlined.History, contentDescription = "玩家历史记录", tint = Indigo)
+                    Icon(Icons.Outlined.History, contentDescription = stringResource(R.string.s673), tint = Indigo)
                 }
             }
 
@@ -204,7 +204,8 @@ fun PlayersScreen(vm: McViewModel) {
                         PlayerListTab.Whitelist -> whitelist.size
                         PlayerListTab.Banned -> banned.size
                     }
-                    val label = if (count > 0) "${tab.label} $count" else tab.label
+                    val tabLabel = stringResource(tab.labelRes)
+                    val label = if (count > 0) "$tabLabel $count" else tabLabel
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -274,8 +275,8 @@ fun PlayersScreen(vm: McViewModel) {
             onDeop = { vm.deopPlayer(it); detailPlayer = null },
             onWhitelistRemove = { vm.whitelistRemove(it); detailPlayer = null },
             onPardon = { vm.pardonPlayer(it); detailPlayer = null },
-            onKick = { vm.kickPlayer(it, "管理员踢出"); detailPlayer = null },
-            onBan = { vm.banPlayer(it, "管理员封禁"); detailPlayer = null },
+            onKick = { vm.kickPlayer(it, stringResource(R.string.s675)); detailPlayer = null },
+            onBan = { vm.banPlayer(it, stringResource(R.string.s676)); detailPlayer = null },
             onSetGameMode = { name, mode -> vm.setGameMode(name, mode) },
             onGiveXp = { name, amount -> vm.giveXp(name, amount) }
         )
@@ -329,7 +330,7 @@ private fun PlayerHistoryDialog(
                                 .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            val isJoin = h.event == "进服"
+                            val isJoin = h.event == stringResource(R.string.s189)
                             Box(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(4.dp))
@@ -382,7 +383,7 @@ private fun ServerStatusBanner(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(
                     Icons.Outlined.Refresh,
-                    contentDescription = "刷新",
+                    contentDescription = stringResource(R.string.s333),
                     tint = Indigo,
                     modifier = Modifier.size(14.dp).clickable { onRefresh() }
                 )
@@ -390,11 +391,11 @@ private fun ServerStatusBanner(
         }
     ) {
         if (!isBootstrapped) {
-            StatusRow(color = Coral, text = "Termux 环境未就绪，请先初始化")
+            StatusRow(color = Coral, text = stringResource(R.string.s680))
         } else if (!hasActiveCore) {
-            StatusRow(color = Coral, text = "未选择服务端核心，请在「概览」页选用")
+            StatusRow(color = Coral, text = stringResource(R.string.s681))
         } else if (!isRunning) {
-            StatusRow(color = Coral, text = "服务器未运行 · 所有命令操作不可用，请先启动服务端")
+            StatusRow(color = Coral, text = stringResource(R.string.s682))
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
@@ -405,7 +406,7 @@ private fun ServerStatusBanner(
                 )
                 Spacer(Modifier.size(6.dp))
                 Text(
-                    "服务器运行中 · 在线 $onlineCount / $maxPlayers",
+                    stringResource(R.string.s683, onlineCount, maxPlayers),
                     color = Mint,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
@@ -437,9 +438,9 @@ private fun OnlineTab(
 ) {
     McCard(title = stringResource(R.string.s657)) {
         if (!isRunning) {
-            StatusRow(color = Coral, text = "服务器未运行，无在线玩家")
+            StatusRow(color = Coral, text = stringResource(R.string.s684))
         } else if (players.isEmpty()) {
-            EmptyHint("暂无玩家在线")
+            EmptyHint(stringResource(R.string.s685))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 players.forEach { name ->
@@ -498,21 +499,21 @@ private fun OnlinePlayerRow(
         }
         // 复制玩家名
         IconButton(onClick = onCopy, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Outlined.ContentCopy, contentDescription = "复制玩家名", tint = Indigo, modifier = Modifier.size(16.dp))
+            Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s687), tint = Indigo, modifier = Modifier.size(16.dp))
         }
         // 踢出玩家
         IconButton(onClick = onKick, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Outlined.Logout, contentDescription = "踢出", tint = Coral, modifier = Modifier.size(16.dp))
+            Icon(Icons.Outlined.Logout, contentDescription = stringResource(R.string.s688), tint = Coral, modifier = Modifier.size(16.dp))
         }
         // 切换游戏模式
         Box {
             IconButton(onClick = { modeMenuOpen = true }, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Outlined.VideogameAsset, contentDescription = "切换游戏模式", tint = Indigo, modifier = Modifier.size(16.dp))
+                Icon(Icons.Outlined.VideogameAsset, contentDescription = stringResource(R.string.s689), tint = Indigo, modifier = Modifier.size(16.dp))
             }
             DropdownMenu(expanded = modeMenuOpen, onDismissRequest = { modeMenuOpen = false }) {
-                listOf("生存" to 0, "创造" to 1, "冒险" to 2, "旁观" to 3).forEach { (label, mode) ->
+                listOf(R.string.s281 to 0, R.string.s282 to 1, R.string.s283 to 2, R.string.s284 to 3).forEach { (labelRes, mode) ->
                     DropdownMenuItem(
-                        text = { Text(label, fontSize = 12.sp) },
+                        text = { Text(stringResource(labelRes), fontSize = 12.sp) },
                         onClick = { modeMenuOpen = false; onSetGameMode(mode) }
                     )
                 }
@@ -537,7 +538,7 @@ private fun OpsTab(
 
     McCard(title = stringResource(R.string.s690)) {
         Text(
-            "OP 拥有管理员权限，等级越高可用命令越多。建议仅给信任的玩家。",
+            stringResource(R.string.s691),
             color = Muted,
             fontSize = 10.sp
         )
@@ -556,17 +557,17 @@ private fun OpsTab(
         Spacer(Modifier.height(10.dp))
 
         if (ops.isEmpty()) {
-            EmptyHint("暂无 OP 玩家")
+            EmptyHint(stringResource(R.string.s693))
         } else {
             val filtered = ops.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
             if (filtered.isEmpty()) {
-                EmptyHint("没有匹配的 OP 玩家")
+                EmptyHint(stringResource(R.string.s694))
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { op ->
                         PlayerListRow(
                             name = op.name,
-                            subtitle = "等级 ${op.level} · ${op.uuid.take(8)}...",
+                            subtitle = stringResource(R.string.s695, op.level, op.uuid.take(8)),
                             badgeText = "Lv.${op.level}",
                             badgeColor = Indigo,
                             onClick = { onShowDetail(op) }
@@ -595,19 +596,19 @@ private fun OpsTab(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(selectedLevel.label, color = Indigo, fontSize = 11.sp)
+                Text(stringResource(selectedLevel.labelRes), color = Indigo, fontSize = 11.sp)
             }
             DropdownMenu(expanded = levelMenuOpen, onDismissRequest = { levelMenuOpen = false }) {
                 OpLevel.values().forEach { lvl ->
                     DropdownMenuItem(
-                        text = { Text(lvl.label, fontSize = 11.sp) },
+                        text = { Text(stringResource(lvl.labelRes), fontSize = 11.sp) },
                         onClick = { selectedLevel = lvl; levelMenuOpen = false }
                     )
                 }
             }
         }
         Text(
-            "注：op 命令带等级参数需 MC 1.20.2+ 才支持，旧版服务器统一为默认 4 级",
+            stringResource(R.string.s698),
             color = Muted,
             fontSize = 9.sp
         )
@@ -627,7 +628,7 @@ private fun OpsTab(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text("添加 OP（等级 ${selectedLevel.value}）", color = Color.White, fontSize = 11.sp)
+            Text(stringResource(R.string.s700, selectedLevel.value), color = Color.White, fontSize = 11.sp)
         }
     }
 }
@@ -654,14 +655,14 @@ private fun WhitelistTab(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "白名单 ${if (whitelistEnabled) "已开启" else "已关闭"}",
+                    if (whitelistEnabled) stringResource(R.string.s272) else stringResource(R.string.s273),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (whitelistEnabled) Mint else Muted
                 )
                 Text(
-                    if (whitelistEnabled) "仅白名单内玩家可加入"
-                    else "所有玩家均可加入（开启后可限制）",
+                    if (whitelistEnabled) stringResource(R.string.s703)
+                    else stringResource(R.string.s704),
                     color = Muted,
                     fontSize = 10.sp
                 )
@@ -690,11 +691,11 @@ private fun WhitelistTab(
         Spacer(Modifier.height(10.dp))
 
         if (whitelist.isEmpty()) {
-            EmptyHint("白名单为空")
+            EmptyHint(stringResource(R.string.s706))
         } else {
             val filtered = whitelist.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
             if (filtered.isEmpty()) {
-                EmptyHint("没有匹配的白名单玩家")
+                EmptyHint(stringResource(R.string.s707))
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { w ->
@@ -758,7 +759,7 @@ private fun BannedTab(
 
     McCard(title = stringResource(R.string.s660)) {
         if (banned.isEmpty()) {
-            EmptyHint("暂无封禁玩家")
+            EmptyHint(stringResource(R.string.s710))
         } else {
             OutlinedTextField(
                 value = search,
@@ -772,15 +773,15 @@ private fun BannedTab(
             Spacer(Modifier.height(10.dp))
             val filtered = banned.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
             if (filtered.isEmpty()) {
-                EmptyHint("没有匹配的封禁玩家")
+                EmptyHint(stringResource(R.string.s712))
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { b ->
                         val isTemp = b.expires != "forever" && b.expires.isNotBlank()
                         PlayerListRow(
                             name = b.name,
-                            subtitle = if (isTemp) "限时至 ${b.expires}" else "永久封禁",
-                            badgeText = if (isTemp) "限时" else "永久",
+                            subtitle = if (isTemp) stringResource(R.string.s713, b.expires) else stringResource(R.string.s714),
+                            badgeText = if (isTemp) stringResource(R.string.s715) else stringResource(R.string.s661),
                             badgeColor = if (isTemp) Coral else CoralSoft,
                             onClick = { onShowDetail(b) }
                         )
@@ -817,12 +818,12 @@ private fun BannedTab(
                 shape = RoundedCornerShape(10.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(selectedDuration.label, color = Indigo, fontSize = 11.sp)
+                Text(stringResource(selectedDuration.labelRes), color = Indigo, fontSize = 11.sp)
             }
             DropdownMenu(expanded = durationMenuOpen, onDismissRequest = { durationMenuOpen = false }) {
                 BanDuration.values().forEach { d ->
                     DropdownMenuItem(
-                        text = { Text(d.label, fontSize = 11.sp) },
+                        text = { Text(stringResource(d.labelRes), fontSize = 11.sp) },
                         onClick = { selectedDuration = d; durationMenuOpen = false }
                     )
                 }
@@ -846,8 +847,8 @@ private fun BannedTab(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                if (selectedDuration == BanDuration.FOREVER) "永久封禁"
-                else "限时封禁（${selectedDuration.label}）",
+                if (selectedDuration == BanDuration.FOREVER) stringResource(R.string.s714)
+                else stringResource(R.string.s719, stringResource(selectedDuration.labelRes)),
                 color = Color.White,
                 fontSize = 11.sp
             )
@@ -890,22 +891,22 @@ private fun PlayerDetailDialog(
                 when (info) {
                     is DetailInfo.Op -> {
                         val op = info.entry
-                        DetailRow("玩家名", op.name)
+                        DetailRow(stringResource(R.string.s697), op.name)
                         DetailRow("UUID", op.uuid)
-                        DetailRow("OP 等级", "${op.level} / 4")
+                        DetailRow(stringResource(R.string.s721), "${op.level} / 4")
                     }
                     is DetailInfo.Whitelist -> {
                         val w = info.entry
-                        DetailRow("玩家名", w.name)
+                        DetailRow(stringResource(R.string.s697), w.name)
                         DetailRow("UUID", w.uuid)
                     }
                     is DetailInfo.Banned -> {
                         val b = info.entry
-                        DetailRow("玩家名", b.name)
+                        DetailRow(stringResource(R.string.s697), b.name)
                         DetailRow("UUID", b.uuid)
-                        DetailRow("封禁原因", b.reason.ifBlank { "未填写" })
-                        DetailRow("过期时间", b.expires.ifBlank { "永久" })
-                        if (b.source.isNotBlank()) DetailRow("来源", b.source)
+                        DetailRow(stringResource(R.string.s722), b.reason.ifBlank { stringResource(R.string.s723) })
+                        DetailRow(stringResource(R.string.s724), b.expires.ifBlank { stringResource(R.string.s661) })
+                        if (b.source.isNotBlank()) DetailRow(stringResource(R.string.s725), b.source)
                     }
                 }
 
@@ -943,9 +944,9 @@ private fun PlayerDetailDialog(
                             Text(stringResource(R.string.s730), color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
                             Text(stringResource(R.string.s731), color = Coral.copy(alpha = 0.9f), fontSize = 9.sp)
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-                                listOf("生存" to 0, "创造" to 1, "冒险" to 2, "旁观" to 3).forEach { (name, mode) ->
+                                listOf(R.string.s281 to 0, R.string.s282 to 1, R.string.s283 to 2, R.string.s284 to 3).forEach { (labelRes, mode) ->
                                     TextButton(onClick = { onSetGameMode(playerName, mode) }) {
-                                        Text(name, fontSize = 10.sp, color = Indigo)
+                                        Text(stringResource(labelRes), fontSize = 10.sp, color = Indigo)
                                     }
                                 }
                             }
@@ -1018,7 +1019,7 @@ private fun PlayerListRow(
             }
             Spacer(Modifier.size(6.dp))
         }
-        Icon(Icons.Outlined.Info, contentDescription = "详情", tint = Muted, modifier = Modifier.size(14.dp))
+        Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.s734), tint = Muted, modifier = Modifier.size(14.dp))
     }
 }
 

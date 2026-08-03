@@ -117,7 +117,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 val installed = config.installedCores
                 if (installed.isEmpty()) {
                     Text(
-                        "尚未下载任何服务端核心",
+                        stringResource(R.string.s452),
                         color = Muted,
                         fontSize = 13.sp
                     )
@@ -139,7 +139,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                     if (core.name == config.activeCoreName) {
                                         Spacer(Modifier.size(6.dp))
                                         Text(
-                                            "当前选用",
+                                            stringResource(R.string.s453),
                                             color = Mint,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold
@@ -174,7 +174,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "下载路径：home/servers/{名称}/server.jar（每个核心独立目录）",
+                    stringResource(R.string.s456),
                     color = Muted,
                     fontSize = 11.sp
                 )
@@ -286,7 +286,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "当前选择：${config.mcVersion}",
+                    stringResource(R.string.s478, config.mcVersion),
                     color = Indigo,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
@@ -326,14 +326,14 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         }
                         Spacer(Modifier.size(8.dp))
                         Text(
-                            "从官方源下载服务端 JAR",
+                            stringResource(R.string.s480),
                             color = Muted,
                             fontSize = 11.sp,
                             modifier = Modifier.weight(1f)
                         )
                     }
                     Text(
-                        "下载慢?查看解决方式 →",
+                        stringResource(R.string.s403),
                         color = Indigo,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -350,7 +350,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                 } else {
                     Text(
-                        "将下载 ${config.selectedCore.displayName} ${config.mcVersion} 到独立目录",
+                        stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
                         color = Muted,
                         fontSize = 11.sp
                     )
@@ -382,7 +382,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             Spacer(Modifier.size(8.dp))
                         }
                         Text(
-                            if (isDownloadingCore) "下载中..." else "开始下载",
+                            if (isDownloadingCore) stringResource(R.string.s485) else stringResource(R.string.s486),
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold
                         )

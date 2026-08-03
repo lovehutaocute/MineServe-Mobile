@@ -55,9 +55,9 @@ class McApplication : Application(), Configuration.Provider {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             val crashLog = buildString {
                 appendLine("========================================")
-                appendLine("崩溃时间: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())}")
-                appendLine("线程: ${thread.name}")
-                appendLine("异常: ${throwable.javaClass.name}: ${throwable.message}")
+                appendLine(getString(R.string.s3, java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())))
+                appendLine(getString(R.string.s4, thread.name))
+                appendLine(getString(R.string.s5, throwable.javaClass.name, throwable.message))
                 for (el in throwable.stackTrace.take(30)) {
                     appendLine("  at $el")
                 }
@@ -115,12 +115,12 @@ class McApplication : Application(), Configuration.Provider {
             _bootstrapError.value = null
             val ok = try {
                 termuxRuntime.bootstrap { phase, progress ->
-                    android.util.Log.i("McApplication", "bootstrap: ${phase.label} $progress%")
+                    android.util.Log.i("McApplication", "bootstrap: ${getString(phase.labelRes)} $progress%")
                     repository.updateServerState { it.copy(currentProgress = progress) }
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("McApplication", "bootstrap crashed", t)
-                _bootstrapError.value = t.message ?: "未知错误"
+                _bootstrapError.value = t.message ?: getString(R.string.s7)
                 false
             }
             if (ok) {
@@ -130,7 +130,7 @@ class McApplication : Application(), Configuration.Provider {
             } else {
                 android.util.Log.e("McApplication", "bootstrap failed")
                 if (_bootstrapError.value == null) {
-                    _bootstrapError.value = "初始化失败，请检查网络后重试"
+                    _bootstrapError.value = getString(R.string.s8)
                 }
             }
         }

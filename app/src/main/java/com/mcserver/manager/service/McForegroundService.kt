@@ -74,7 +74,7 @@ class McForegroundService : Service() {
     }
 
     private fun startForegroundInternal() {
-        val notif = buildNotification("MC 服务运行中", "点击查看实时状态")
+        val notif = buildNotification(getString(R.string.notif_title_running), getString(R.string.notif_text_running))
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             // Android 14+ 必须显式传入 FGS 类型
             startForeground(NOTIF_ID, notif, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)

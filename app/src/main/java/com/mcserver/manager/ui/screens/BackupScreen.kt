@@ -112,7 +112,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                             scope.launch {
                                 val path = vm.createSnapshot()
                                 isSnapshotting = false
-                                val msg = if (path != null) "已创建: $path" else "创建失败"
+                                val msg = if (path != null) context.getString(R.string.s329, path) else context.getString(R.string.s330)
                                 snackbarHostState.showSnackbar(msg)
                                 vm.loadSnapshots()
                             }
@@ -129,10 +129,10 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
 
             // 备份列表
             McCard(
-                title = "备份列表 (${snapshots.size})",
+                title = stringResource(R.string.s332, snapshots.size),
                 trailing = {
                     IconButton(onClick = { vm.loadSnapshots() }) {
-                        Icon(Icons.Outlined.Refresh, "刷新", tint = Indigo, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(18.dp))
                     }
                 }
             ) {
@@ -153,7 +153,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                                 },
                                 modifier = Modifier.size(32.dp)
                             ) {
-                                Icon(Icons.Outlined.FileDownload, "导出", tint = Indigo, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.FileDownload, stringResource(R.string.s335), tint = Indigo, modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = {
                                 scope.launch {
@@ -161,16 +161,16 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                                     snackbarHostState.showSnackbar(context.getString(R.string.s336))
                                 }
                             }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Outlined.Restore, "还原", tint = Indigo, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.Restore, stringResource(R.string.s337), tint = Indigo, modifier = Modifier.size(18.dp))
                             }
                             IconButton(onClick = {
                                 scope.launch {
                                     vm.deleteSnapshot(snap.name)
                                     vm.loadSnapshots()
-                                    snackbarHostState.showSnackbar("已删除 ${snap.name}")
+                                    snackbarHostState.showSnackbar(context.getString(R.string.s338, snap.name))
                                 }
                             }, modifier = Modifier.size(32.dp)) {
-                                Icon(Icons.Outlined.Delete, "删除", tint = Coral, modifier = Modifier.size(18.dp))
+                                Icon(Icons.Outlined.Delete, stringResource(R.string.s339), tint = Coral, modifier = Modifier.size(18.dp))
                             }
                         }
                     }

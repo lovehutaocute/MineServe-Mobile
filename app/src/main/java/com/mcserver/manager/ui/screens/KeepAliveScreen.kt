@@ -80,7 +80,7 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
             }
             Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
@@ -102,7 +102,7 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.size(6.dp))
                     Text(
-                        if (serviceRunning) "保活服务运行中" else "保活服务未运行",
+                        if (serviceRunning) stringResource(R.string.s544) else stringResource(R.string.s545),
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (serviceRunning) Mint else Coral
@@ -152,7 +152,7 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
             McCard(title = stringResource(R.string.s554)) {
                 Text(
                     "Android 系统对后台进程有严格限制，保活能力受系统版本与厂商策略影响。\n" +
-                        "前台服务通知常驻可显著降低被杀概率；请勿在系统设置中限制本应用后台运行。",
+                        stringResource(R.string.s556),
                     color = Muted,
                     fontSize = 11.sp,
                     lineHeight = 17.sp

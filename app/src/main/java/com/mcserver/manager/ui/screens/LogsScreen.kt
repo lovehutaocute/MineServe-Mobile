@@ -83,7 +83,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text("LOG STREAM", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -94,12 +94,12 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                 if (lines.isNotEmpty()) {
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("MCServer Logs", lines.joinToString("\n")))
-                    Toast.makeText(context, "已复制 ${lines.size} 行日志", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.s558, lines.size), Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(context, "暂无日志可复制", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, context.getString(R.string.s559), Toast.LENGTH_SHORT).show()
                 }
             }) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = "复制日志", tint = Indigo)
+                Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s560), tint = Indigo)
             }
         }
 
@@ -138,7 +138,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
         ) {
             if (lines.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("暂无日志输出\n启动 MC 服务后将在此看到实时控制台流", color = Color(0xFF8888AA), fontSize = 12.sp)
+                    Text(stringResource(R.string.s561), color = Color(0xFF8888AA), fontSize = 12.sp)
                 }
             } else {
                 // 自动滚动：仅当用户已位于底部附近时才跟随（瞬时，不打扰上翻）
@@ -196,7 +196,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                     input = ""
                 }
             }) {
-                Icon(Icons.Outlined.Send, contentDescription = "发送", tint = Indigo)
+                Icon(Icons.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
             }
         }
     }

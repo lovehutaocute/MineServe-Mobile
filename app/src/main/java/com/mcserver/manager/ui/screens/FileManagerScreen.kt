@@ -108,6 +108,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
         exportTarget = null
     }
     // 整服务器导出选择器
+    val exportServerFileName = stringResource(R.string.s490)
     val exportServerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("application/zip")
     ) { uri: Uri? -> uri?.let { vm.exportServerToUri(it) } }
@@ -158,7 +159,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     Text(stringResource(R.string.s489), fontSize = 13.sp)
                 }
                 OutlinedButton(
-                    onClick = { exportServerLauncher.launch("服务器导出.zip") },
+                    onClick = { exportServerLauncher.launch(exportServerFileName) },
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
@@ -204,11 +205,11 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
 
                     // 向上按钮
                     IconButton(onClick = { vm.navigateUp() }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Outlined.ArrowUpward, "上级目录", tint = Indigo, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.ArrowUpward, stringResource(R.string.s494), tint = Indigo, modifier = Modifier.size(18.dp))
                     }
                     // 刷新按钮
                     IconButton(onClick = { vm.refreshFiles() }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Outlined.Refresh, "刷新", tint = Indigo, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(18.dp))
                     }
                 }
 
@@ -238,7 +239,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     ) {
                         Icon(
                             Icons.AutoMirrored.Outlined.ArrowBack,
-                            contentDescription = "返回上级",
+                            contentDescription = stringResource(R.string.s495),
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.size(4.dp))
@@ -256,7 +257,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     ) {
                         Icon(
                             Icons.Outlined.Upload,
-                            contentDescription = "上传",
+                            contentDescription = stringResource(R.string.s497),
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.size(4.dp))
@@ -275,7 +276,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     ) {
                         Icon(
                             Icons.Outlined.CreateNewFolder,
-                            contentDescription = "新建文件夹",
+                            contentDescription = stringResource(R.string.s498),
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(Modifier.size(4.dp))
@@ -290,7 +291,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
             if (files.isEmpty()) {
                 McCard(title = stringResource(R.string.s500)) {
                     Text(
-                        if (currentPath.isEmpty()) "正在加载..." else "目录为空",
+                        if (currentPath.isEmpty()) stringResource(R.string.s501) else stringResource(R.string.s502),
                         color = Muted,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(vertical = 16.dp)
@@ -329,14 +330,18 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
             onDismissRequest = { showDeleteConfirm = null },
             title = { Text(stringResource(R.string.s401), fontWeight = FontWeight.Bold) },
             text = {
+                val deleteFolderPrefix = stringResource(R.string.s503)
+                val deleteFilePrefix = stringResource(R.string.s1030)
+                val folderContentMsg = stringResource(R.string.s504)
+                val irreversibleMsg = stringResource(R.string.s505)
                 Text(
                     buildString {
-                        append("即将删除${if (fileToDelete.isDirectory) "文件夹" else "文件"}：\n")
+                        append(if (fileToDelete.isDirectory) deleteFolderPrefix else deleteFilePrefix)
                         append(fileToDelete.name)
                         if (fileToDelete.isDirectory) {
-                            append("\n\n该文件夹下的所有内容将被一并删除。")
+                            append(folderContentMsg)
                         }
-                        append("\n\n此操作不可撤销。")
+                        append(irreversibleMsg)
                     },
                     color = Muted,
                     fontSize = 12.sp
@@ -443,7 +448,8 @@ private fun FileItemRow(
                     modifier = Modifier.weight(1f, fill = false)
                 )
                 // 自动功能注释（如 world【主世界存档文件夹】）
-                fileAnnotation(entry)?.let { ann ->
+                fileAnnotation(entry)?.let { resId ->
+                    val ann = stringResource(resId)
                     Spacer(Modifier.size(6.dp))
                     Text(
                         "【$ann】",
@@ -466,7 +472,7 @@ private fun FileItemRow(
         IconButton(onClick = onExport, modifier = Modifier.padding(start = 2.dp)) {
             Icon(
                 Icons.Outlined.FileDownload,
-                contentDescription = "导出",
+                contentDescription = stringResource(R.string.s335),
                 tint = Indigo,
                 modifier = Modifier.size(18.dp)
             )
@@ -479,7 +485,7 @@ private fun FileItemRow(
         ) {
             Icon(
                 Icons.Outlined.Delete,
-                contentDescription = "删除",
+                contentDescription = stringResource(R.string.s339),
                 tint = Coral,
                 modifier = Modifier.size(18.dp)
             )
@@ -494,46 +500,46 @@ private const val TUTORIAL_VIDEO_URL =
     "https://img.remit.ee/api/file/BAACAgUAAyEGAASHRsPbAAEYWwdqbtydlO6_o-rdvwpJ3O92AfEtHQACbB0AAh7GeVdh2nS2uFg_6T0E.mp4"
 
 private val fileAnnotations = mapOf(
-    "server.jar" to "服务端核心文件",
-    "server.properties" to "服务器核心配置文件",
-    "ops.json" to "OP（管理员）列表",
-    "whitelist.json" to "白名单列表",
-    "banned-players.json" to "封禁玩家列表",
-    "banned-ips.json" to "封禁 IP 列表",
-    "eula.txt" to "最终用户许可协议（EULA）",
-    "usercache.json" to "玩家 UUID 缓存",
-    "usernamecache.json" to "用户名缓存",
-    "permissions.json" to "权限配置",
-    "help.yml" to "帮助命令配置",
-    "bukkit.yml" to "Bukkit 插件服务器配置",
-    "spigot.yml" to "Spigot 服务器配置",
-    "paper.yml" to "Paper 服务器配置",
-    "commands.yml" to "命令别名配置",
-    "seedcache" to "世界种子缓存",
-    "version_history.json" to "版本历史记录",
-    "latest.log" to "最新运行日志",
-    "debug.log" to "调试日志"
+    "server.jar" to R.string.s508,
+    "server.properties" to R.string.s509,
+    "ops.json" to R.string.s510,
+    "whitelist.json" to R.string.s511,
+    "banned-players.json" to R.string.s512,
+    "banned-ips.json" to R.string.s513,
+    "eula.txt" to R.string.s514,
+    "usercache.json" to R.string.s515,
+    "usernamecache.json" to R.string.s516,
+    "permissions.json" to R.string.s517,
+    "help.yml" to R.string.s518,
+    "bukkit.yml" to R.string.s519,
+    "spigot.yml" to R.string.s520,
+    "paper.yml" to R.string.s521,
+    "commands.yml" to R.string.s522,
+    "seedcache" to R.string.s523,
+    "version_history.json" to R.string.s524,
+    "latest.log" to R.string.s525,
+    "debug.log" to R.string.s526
 )
 
 private val dirAnnotations = mapOf(
-    "world" to "主世界存档文件夹",
-    "world_nether" to "下界存档文件夹",
-    "world_the_end" to "末地存档文件夹",
-    "logs" to "服务器运行日志文件夹",
-    "log" to "服务器日志文件夹（旧版）",
-    "plugins" to "插件文件夹",
-    "config" to "插件配置文件文件夹",
-    "versions" to "服务端版本文件夹",
-    "libraries" to "服务端依赖库文件夹",
-    "crash-reports" to "崩溃报告文件夹",
-    "cache" to "缓存文件夹",
-    "generated" to "生成数据文件夹",
-    "datapacks" to "数据包文件夹",
-    "world_backup" to "世界备份文件夹"
+    "world" to R.string.s527,
+    "world_nether" to R.string.s528,
+    "world_the_end" to R.string.s529,
+    "logs" to R.string.s530,
+    "log" to R.string.s531,
+    "plugins" to R.string.s532,
+    "config" to R.string.s533,
+    "versions" to R.string.s534,
+    "libraries" to R.string.s535,
+    "crash-reports" to R.string.s536,
+    "cache" to R.string.s537,
+    "generated" to R.string.s538,
+    "datapacks" to R.string.s539,
+    "world_backup" to R.string.s540
 )
 
 /** 返回文件/文件夹的中文功能注释，未知名称返回 null */
-private fun fileAnnotation(entry: McViewModel.FileEntry): String? {
+private fun fileAnnotation(entry: McViewModel.FileEntry): Int? {
     val key = entry.name.lowercase()
     return if (entry.isDirectory) dirAnnotations[key] else fileAnnotations[key]
 }

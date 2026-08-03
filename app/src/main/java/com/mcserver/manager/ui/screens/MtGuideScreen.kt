@@ -61,7 +61,7 @@ fun MtGuideScreen(onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
             }
             Text(stringResource(R.string.s404), fontSize = 14.sp, fontWeight = FontWeight.Medium)
         }
@@ -84,18 +84,18 @@ fun MtGuideScreen(onBack: () -> Unit) {
         }
 
         McCard(title = stringResource(R.string.s568)) {
-            GuideStep("1", "安装 MT 管理器", "从官网下载并安装 MT 管理器（首次打开需同意用户协议）。")
-            GuideStep("2", "打开侧拉栏", "进入 MT 管理器主界面，向右侧滑动打开侧拉栏，或点击左上角菜单图标。")
-            GuideStep("3", "添加本地存储", "在侧拉栏中找到「添加本地存储」选项并点击。")
-            GuideStep("4", "选择本应用", "在弹出的列表中，找到并勾选「MCServerManager」，点击确定。")
-            GuideStep("5", "开始管理文件", "返回 MT 管理器主界面，在侧拉栏中会出现本应用的条目，点击即可浏览文件。")
-            GuideStep("6", "找到服务器文件", "依次进入 data → files → home → home → servers 文件夹，即可看到所有 Minecraft 服务器文件（包括插件、配置、世界存档等）。")
-            GuideStep("7", "提示", "修改服务器配置文件后需要重启服务器才能生效。不要删除 world 文件夹，否则存档会丢失。")
+            GuideStep("1", stringResource(R.string.s569), stringResource(R.string.s570))
+            GuideStep("2", stringResource(R.string.s571), stringResource(R.string.s572))
+            GuideStep("3", stringResource(R.string.s573), stringResource(R.string.s574))
+            GuideStep("4", stringResource(R.string.s575), stringResource(R.string.s576))
+            GuideStep("5", stringResource(R.string.s577), stringResource(R.string.s578))
+            GuideStep("6", stringResource(R.string.s579), stringResource(R.string.s580))
+            GuideStep("7", stringResource(R.string.s581), stringResource(R.string.s582))
         }
 
         McCard(title = stringResource(R.string.s583)) {
             Text(
-                "本应用内置了定制的 DocumentsProvider（MTDataFilesProvider），对外提供 data 目录的文件操作接口。MT 管理器通过 Android 系统标准的文件访问接口连接此 Provider，从而实现在 MT 管理器中直接读写本应用的私有数据——全程无需 Root 权限。",
+                stringResource(R.string.s584),
                 color = Muted, fontSize = 12.sp
             )
         }

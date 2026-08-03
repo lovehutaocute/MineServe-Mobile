@@ -129,7 +129,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
             }
             Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
@@ -147,7 +147,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    if (serverState.isRunning) "服务器运行中" else "服务器未运行",
+                    if (serverState.isRunning) stringResource(R.string.s587) else stringResource(R.string.s280),
                     fontSize = 12.sp,
                     color = if (serverState.isRunning) Color(0xFF2E7D32) else Muted,
                     fontWeight = FontWeight.SemiBold
@@ -176,12 +176,12 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Server", "127.0.0.1:${config.localPort}"))
                 }) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制", tint = Indigo)
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s388), tint = Indigo)
                 }
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "同一台手机上用 MC 客户端测试时使用此地址",
+                stringResource(R.string.s589),
                 color = Muted, fontSize = 10.sp
             )
 
@@ -193,7 +193,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(lanIp, fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 IconButton(onClick = { vm.refreshLanIp() }) {
-                    Icon(Icons.Outlined.Refresh, contentDescription = "刷新 IP")
+                    Icon(Icons.Outlined.Refresh, contentDescription = stringResource(R.string.s591))
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -220,12 +220,12 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = { vm.copyServerAddress(context) }) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制", tint = Indigo)
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s388), tint = Indigo)
                 }
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "在 Minecraft Java 版「多人游戏」→「直接连接」中粘贴即可加入（仅同局域网）",
+                stringResource(R.string.s594),
                 color = Muted, fontSize = 11.sp
             )
         }
@@ -307,7 +307,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "粘贴完整的 frpc.toml 配置文本，或从文件管理器导入",
+                        stringResource(R.string.s601),
                         color = Muted, fontSize = 10.sp
                     )
                 }
@@ -330,7 +330,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "bore 是纯手机端运行的轻量隧道，无需下载额外程序。在 VPS 上运行 bore server 即可。",
+                        stringResource(R.string.s604),
                         color = Muted, fontSize = 10.sp
                     )
                 }
@@ -360,12 +360,13 @@ private fun TunnelStatusCard(
     McCard(title = stringResource(R.string.s605)) {
         // 状态指示灯 + 状态文本
         Row(verticalAlignment = Alignment.CenterVertically) {
+            val unknownError = stringResource(R.string.s7)
             val (dotColor, statusText, statusColor) = when (tunnelState.status) {
-                TunnelStatus.Running -> Triple(Color(0xFF4CAF50), "运行中", Color(0xFF2E7D32))
-                TunnelStatus.Starting -> Triple(Color(0xFFFFA726), "启动中...", Color(0xFFEF6C00))
-                TunnelStatus.Failed -> Triple(Color(0xFFEF5350), "已停止（${tunnelState.errorMessage.ifBlank { "未知错误" }}）", Coral)
-                TunnelStatus.Stopped -> Triple(Color(0xFFB0B7C3), "已停止", Muted)
-                TunnelStatus.Idle -> Triple(Color(0xFFB0B7C3), "未启动", Muted)
+                TunnelStatus.Running -> Triple(Color(0xFF4CAF50), stringResource(R.string.s606), Color(0xFF2E7D32))
+                TunnelStatus.Starting -> Triple(Color(0xFFFFA726), stringResource(R.string.s379), Color(0xFFEF6C00))
+                TunnelStatus.Failed -> Triple(Color(0xFFEF5350), stringResource(R.string.s607, tunnelState.errorMessage.ifBlank { unknownError }), Coral)
+                TunnelStatus.Stopped -> Triple(Color(0xFFB0B7C3), stringResource(R.string.s608), Muted)
+                TunnelStatus.Idle -> Triple(Color(0xFFB0B7C3), stringResource(R.string.s609), Muted)
             }
             if (tunnelState.status == TunnelStatus.Starting) {
                 CircularProgressIndicator(
@@ -396,7 +397,7 @@ private fun TunnelStatusCard(
             val isActive = tunnelState.status == TunnelStatus.Running
             Spacer(Modifier.height(12.dp))
             Text(
-                if (isActive) "公网连接地址" else "隧道已断开，上次地址",
+                if (isActive) stringResource(R.string.s610) else stringResource(R.string.s611),
                 color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.height(6.dp))
@@ -417,13 +418,13 @@ private fun TunnelStatusCard(
                     modifier = Modifier.weight(1f)
                 )
                 IconButton(onClick = onCopyUrl) {
-                    Icon(Icons.Outlined.ContentCopy, contentDescription = "复制公网地址", tint = Indigo)
+                    Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s612), tint = Indigo)
                 }
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                if (isActive) "将此地址分享给玩家，在 Minecraft「直接连接」中粘贴即可"
-                else "重新启动隧道获取新地址",
+                if (isActive) stringResource(R.string.s613)
+                else stringResource(R.string.s614),
                 color = Muted, fontSize = 11.sp
             )
         }
@@ -503,7 +504,7 @@ private fun TunnelLogPreview(consoleLines: List<String>) {
         ) {
             Icon(Icons.Outlined.OpenInFull, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(Modifier.size(6.dp))
-            Text("查看全部日志 (${tunnelLogs.size} 条)", fontSize = 12.sp)
+            Text(stringResource(R.string.s617, tunnelLogs.size), fontSize = 12.sp)
         }
     }
 
@@ -512,7 +513,7 @@ private fun TunnelLogPreview(consoleLines: List<String>) {
         AlertDialog(
             onDismissRequest = { showFullLog = false },
             title = {
-                Text("隧道日志 (${tunnelLogs.size} 条)", fontWeight = FontWeight.Bold)
+                Text(stringResource(R.string.s618, tunnelLogs.size), fontWeight = FontWeight.Bold)
             },
             text = {
                 Column(
@@ -561,7 +562,7 @@ private fun GuideSection(tunnelType: TunnelType) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                "点击${if (expanded) "收起" else "展开"}详细配置指引",
+                stringResource(R.string.s622, if (expanded) stringResource(R.string.s620) else stringResource(R.string.s623)),
                 color = Indigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
                 modifier = Modifier.weight(1f)
             )
@@ -587,29 +588,29 @@ private fun GuideSection(tunnelType: TunnelType) {
 private fun FrpGuide() {
     GuideBlock(title = stringResource(R.string.s624)) {
         Text(
-            "💡 不想自建服务器？页面下方「免费 FRP 平台」卡片提供 OpenFrp / ChmlFrp / StarryFrp / SakuraFrp 等免费 frp 服务：注册账号后，把平台分配的节点地址、端口与 Token 填入上方 frpc.toml 配置，点「启动穿透」即可。",
+            stringResource(R.string.s625),
             color = Coral, fontSize = 11.sp, lineHeight = 15.sp
         )
         Spacer(Modifier.height(10.dp))
-        GuideStep("1", "啥是 frp？", "简单说就是打个「隧道」：你的手机通过 frp 连到一台有公网 IP 的服务器，别人访问那台服务器就能连到你的手机。就像在墙上凿了个洞，外面的人通过洞就能看到里面的东西。")
-        GuideStep("2", "你需要一台云服务器", "去阿里云、腾讯云或 Oracle Cloud（有免费的 ARM 实例）租一台云服务器，最便宜的就够用。关键是要有「公网 IP」。")
-        GuideStep("3", "在服务器上装 frp 服务端", "登录服务器后，去 GitHub 搜 fatedier/frp，下载对应版本，解压后编辑 frps.toml 文件：\nbindPort = 7000\nauth.method = \"token\"\nauth.token = \"随便设个密码\"\n然后运行 ./frps -c frps.toml 启动服务端。")
-        GuideStep("4", "在手机上填配置", "把服务器的公网 IP 填到上面「frp 服务端地址」，端口填 7000，Token 填你刚才设的密码（要跟服务端一模一样）。")
-        GuideStep("5", "点启动就行", "点上面的「启动穿透」按钮，程序会自动帮你装好 frp 客户端并连接服务器。首次会通过 apt 自动安装，稍等一会儿。")
-        GuideStep("6", "告诉朋友怎么连", "启动成功后，把服务器公网 IP 和端口（默认 25565）告诉朋友，在 Minecraft「多人游戏」→「直接连接」里输入 IP:25565 就能进来了。")
-        GuideStep("7", "别忘了开端口", "服务器的防火墙要放行 7000（frp 通信用）和 25565（MC 用）两个端口，不然连不上。建议设 Token 密码防别人乱连。")
+        GuideStep("1", stringResource(R.string.s626), stringResource(R.string.s627))
+        GuideStep("2", stringResource(R.string.s628), stringResource(R.string.s629))
+        GuideStep("3", stringResource(R.string.s630), stringResource(R.string.s631))
+        GuideStep("4", stringResource(R.string.s633), stringResource(R.string.s634))
+        GuideStep("5", stringResource(R.string.s635), stringResource(R.string.s636))
+        GuideStep("6", stringResource(R.string.s637), stringResource(R.string.s638))
+        GuideStep("7", stringResource(R.string.s639), stringResource(R.string.s640))
     }
 }
 
 @Composable
 private fun BoreGuide() {
     GuideBlock(title = stringResource(R.string.s641)) {
-        GuideStep("1", "bore 是啥？", "bore 是一个极简的 TCP 隧道工具，协议超级简单只有 3 种消息。手机端直接用纯 Kotlin 实现，无需下载任何程序，秒启动。")
-        GuideStep("2", "你需要一台云服务器", "跟 frp 一样，需要一台有公网 IP 的 VPS。去 GitHub 搜 ekzhang/bore，下载 bore 二进制，在服务器上运行：./bore server")
-        GuideStep("3", "填服务端地址", "把服务器的 IP 和端口（默认 7835）填到上面的输入框，格式如 your-vps.com:7835。")
-        GuideStep("4", "点启动就行", "点「启动穿透」按钮，程序直接用手机网络连接 bore 服务端。不需要 Termux，不需要下载，启动只需几秒。")
-        GuideStep("5", "把地址给朋友", "启动后状态卡片显示公网地址（serverIP:端口），复制发给朋友在 MC 直接连接粘贴即可。")
-        GuideStep("6", "优点和限制", "优点：极轻量（~300 行代码），秒启动。限制：仅 TCP，需自建服务器。适合追求低延迟和轻量体验的用户。")
+        GuideStep("1", stringResource(R.string.s642), stringResource(R.string.s643))
+        GuideStep("2", stringResource(R.string.s628), stringResource(R.string.s644))
+        GuideStep("3", stringResource(R.string.s645), stringResource(R.string.s646))
+        GuideStep("4", stringResource(R.string.s635), stringResource(R.string.s647))
+        GuideStep("5", stringResource(R.string.s648), stringResource(R.string.s649))
+        GuideStep("6", stringResource(R.string.s650), stringResource(R.string.s651))
     }
 }
 
@@ -663,7 +664,7 @@ private val freeFrpPlatforms = listOf(
 private fun FreeFrpPlatformsCard(context: Context) {
     McCard(title = stringResource(R.string.s654)) {
         Text(
-            "不想自建服务器？以下免费 frp 平台注册后即可使用：把平台提供的节点地址、端口与 Token 填入上方 frpc.toml 配置即可启动。",
+            stringResource(R.string.s655),
             color = Muted, fontSize = 10.sp, lineHeight = 14.sp
         )
         Spacer(Modifier.height(10.dp))
@@ -689,7 +690,7 @@ private fun FreeFrpPlatformsCard(context: Context) {
                 }
                 Icon(
                     Icons.AutoMirrored.Outlined.OpenInNew,
-                    contentDescription = "打开官网",
+                    contentDescription = stringResource(R.string.s656),
                     tint = Indigo,
                     modifier = Modifier.size(14.dp)
                 )

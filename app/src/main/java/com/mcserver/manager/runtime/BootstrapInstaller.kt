@@ -11,6 +11,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.zip.ZipInputStream
+import com.mcserver.manager.R
 
 
 /**
@@ -927,11 +928,11 @@ esac
         onSpeed?.invoke(downloaded, 0L)
     }
 
-    enum class InstallPhase(val label: String) {
-        DOWNLOAD_ROOTFS("下载 Linux 文件系统"),
-        EXTRACT_ROOTFS("解压文件系统"),
-        POST_SETUP("初始化配置"),
-        DONE("完成")
+    enum class InstallPhase(val labelRes: Int) {
+        DOWNLOAD_ROOTFS(R.string.s70),
+        EXTRACT_ROOTFS(R.string.s71),
+        POST_SETUP(R.string.s72),
+        DONE(R.string.s73)
     }
 
     companion object { private const val TAG = "BootstrapInstaller" }

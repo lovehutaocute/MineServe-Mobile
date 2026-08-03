@@ -170,7 +170,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         label = stringResource(R.string.s344),
                         value = when {
                             deviceStats.batteryPercent < 0 -> "--"
-                            deviceStats.isCharging -> "${deviceStats.batteryPercent}% 充电中"
+                            deviceStats.isCharging -> stringResource(R.string.s345, deviceStats.batteryPercent)
                             else -> "${deviceStats.batteryPercent}%"
                         },
                         modifier = Modifier.weight(1f)
@@ -223,8 +223,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     // 下载提示行（卡片内顶部）
                     DownloadHintHeader(
                         isBusy = true,
-                        busyText = "正在下载并解压 Termux 环境（${state.currentProgress}%）",
-                        idleText = "下载 Termux 运行环境（约 50MB）",
+                        busyText = stringResource(R.string.s352, state.currentProgress),
+                        idleText = stringResource(R.string.s353),
                         speedBps = bootstrapSpeed,
                         onShowHelp = onShowDownloadHelp
                     )
@@ -232,7 +232,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     if (bootstrapError != null) {
                         // 失败时显示错误和重试按钮
                         Text(
-                            "初始化失败",
+                            stringResource(R.string.s354),
                             color = Coral,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Bold
@@ -264,7 +264,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     } else {
                         // 初始化中
                         Text(
-                            "正在下载并解压 Termux 运行环境，请耐心等待...",
+                            stringResource(R.string.s356),
                             color = Muted,
                             fontSize = 12.sp
                         )
@@ -300,7 +300,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 title = stringResource(R.string.s357),
                 trailing = {
                     Text(
-                        "查看日志",
+                        stringResource(R.string.s358),
                         color = Indigo,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -311,17 +311,17 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 // 下载提示行（卡片内顶部）
                 DownloadHintHeader(
                     isBusy = isInstalling,
-                    busyText = "正在通过 apt 下载 JDK / wget / frp",
-                    idleText = "通过 apt 安装 openjdk / wget / frp 等依赖",
+                    busyText = stringResource(R.string.s359),
+                    idleText = stringResource(R.string.s360),
                     speedBps = installSpeed,
                     onShowHelp = onShowDownloadHelp
                 )
                 Spacer(Modifier.height(8.dp))
                 state.installSteps.forEachIndexed { idx, step ->
                     val tag = when (step.status) {
-                        com.mcserver.manager.data.StepStatus.Done -> "已完成"
-                        com.mcserver.manager.data.StepStatus.Active -> "进行中"
-                        com.mcserver.manager.data.StepStatus.Wait -> "待安装"
+                        com.mcserver.manager.data.StepStatus.Done -> stringResource(R.string.s361)
+                        com.mcserver.manager.data.StepStatus.Active -> stringResource(R.string.s362)
+                        com.mcserver.manager.data.StepStatus.Wait -> stringResource(R.string.s363)
                     }
                     StepRow(name = "${idx + 1}. ${step.step.label}", status = step.status, tag = tag)
                 }
@@ -348,9 +348,9 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     }
                     Text(
                         when {
-                            !isBootstrapped -> "环境初始化中..."
-                            isInstalling -> "安装中..."
-                            else -> "开始安装"
+                            !isBootstrapped -> stringResource(R.string.s364)
+                            isInstalling -> stringResource(R.string.s365)
+                            else -> stringResource(R.string.s366)
                         },
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
@@ -365,7 +365,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            "删除 Termux 运行环境",
+                            stringResource(R.string.s367),
                             color = Coral,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
@@ -395,12 +395,12 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                "尚未下载服务端核心",
+                                stringResource(R.string.s369),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
-                                "请切换到「下载」Tab 下载服务端核心",
+                                stringResource(R.string.s370),
                                 color = Muted,
                                 fontSize = 11.sp
                             )
@@ -412,8 +412,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     Spacer(Modifier.height(4.dp))
                     Text(
                         if (activeCore != null)
-                            "当前核心：${activeCore.name}（${activeCore.core.displayName} ${activeCore.version}）"
-                        else "尚未选择核心！请点击下方按钮选择后再启动",
+                            stringResource(R.string.s372, activeCore.name, activeCore.core.displayName, activeCore.version)
+                        else stringResource(R.string.s373),
                         color = if (activeCore != null) Mint else Coral,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -430,7 +430,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                if (activeCore != null) "切换服务器核心：${activeCore.name}" else "▼ 选择服务器核心",
+                                if (activeCore != null) stringResource(R.string.s374, activeCore.name) else stringResource(R.string.s375),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1
@@ -469,7 +469,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 title = stringResource(R.string.s377),
                 trailing = {
                     IconButton(onClick = { showStartSettings = true }) {
-                        Icon(Icons.Outlined.Settings, "启动设置", tint = Indigo, modifier = Modifier.size(18.dp))
+                        Icon(Icons.Outlined.Settings, stringResource(R.string.s378), tint = Indigo, modifier = Modifier.size(18.dp))
                     }
                 }
             ) {
@@ -493,7 +493,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             Spacer(Modifier.size(6.dp))
                         }
                         Text(
-                            if (state.isRunning && state.runningSinceMs == 0L) "启动中..." else "启动",
+                            if (state.isRunning && state.runningSinceMs == 0L) stringResource(R.string.s379) else stringResource(R.string.s380),
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -519,7 +519,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             Spacer(Modifier.size(6.dp))
                         }
                         Text(
-                            if (isStopping) "停止中..." else "停止",
+                            if (isStopping) stringResource(R.string.s381) else stringResource(R.string.s382),
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -527,13 +527,13 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (state.isRunning) "状态：运行中" else "状态：已停止",
+                    if (state.isRunning) stringResource(R.string.s383) else stringResource(R.string.s384),
                     color = if (state.isRunning) Mint else Muted,
                     fontSize = 11.sp
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    "首次启动需下载运行文件，请耐心等待",
+                    stringResource(R.string.s385),
                     color = Muted,
                     fontSize = 10.sp
                 )
@@ -549,13 +549,13 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     }
                     // 刷新局域网 IP
                     androidx.compose.material3.IconButton(onClick = { vm.refreshLanIp() }) {
-                        androidx.compose.material3.Icon(Icons.Outlined.Refresh, "刷新", tint = Indigo, modifier = Modifier.size(16.dp))
+                        androidx.compose.material3.Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(16.dp))
                     }
                     androidx.compose.material3.IconButton(onClick = {
                         val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         cm.setPrimaryClip(android.content.ClipData.newPlainText("", "${lanIp}:${config.localPort}"))
                     }) {
-                        androidx.compose.material3.Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(16.dp))
+                        androidx.compose.material3.Icon(Icons.Outlined.ContentCopy, stringResource(R.string.s388), tint = Indigo, modifier = Modifier.size(16.dp))
                     }
                 }
                 // 公网穿透
@@ -567,7 +567,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             androidx.compose.material3.Text(tunnelState.publicUrl, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Indigo, maxLines = 1)
                         }
                         androidx.compose.material3.IconButton(onClick = { vm.copyTunnelUrl(context) }) {
-                            androidx.compose.material3.Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo, modifier = Modifier.size(16.dp))
+                            androidx.compose.material3.Icon(Icons.Outlined.ContentCopy, stringResource(R.string.s388), tint = Indigo, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
@@ -578,7 +578,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 if (installedPlugins.isEmpty()) {
                     Text(stringResource(R.string.s391), color = Muted, fontSize = 11.sp)
                 } else {
-                    Text("${installedPlugins.size} 个插件已安装", fontSize = 11.sp)
+                    Text(stringResource(R.string.s392, installedPlugins.size), fontSize = 11.sp)
                 }
             }
 
@@ -593,7 +593,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         .padding(horizontal = 20.dp)
                 ) {
                     Text(
-                        if (isInstalling) "重新安装中..." else "重新安装依赖",
+                        if (isInstalling) stringResource(R.string.s393) else stringResource(R.string.s394),
                         color = Indigo,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold
@@ -614,7 +614,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(stringResource(R.string.s396), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                                 Text(
-                                    "MC 进程异常退出时自动重启（默认关闭省电）",
+                                    stringResource(R.string.s397),
                                     color = Muted,
                                     fontSize = 10.sp
                                 )
@@ -626,7 +626,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         }
                         Spacer(Modifier.height(10.dp))
                         Text(
-                            "JVM 内存上限：${config.maxHeapMb} MB（在设置页修改）",
+                            stringResource(R.string.s398, config.maxHeapMb),
                             color = Muted,
                             fontSize = 11.sp
                         )
@@ -647,7 +647,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 title = { Text(stringResource(R.string.s399), fontWeight = FontWeight.Bold) },
                 text = {
                     Text(
-                        "将删除 Termux 运行环境（包括所有已安装的依赖包和缓存），删除后会自动重新下载和初始化。此操作不可撤销。",
+                        stringResource(R.string.s400),
                         color = Muted,
                         fontSize = 12.sp
                     )
@@ -731,7 +731,7 @@ private fun DownloadHintHeader(
         }
         // 右侧：下载慢?查看解决方式
         Text(
-            "下载慢?查看解决方式 →",
+            stringResource(R.string.s403),
             color = Indigo,
             fontSize = 10.sp,
             fontWeight = FontWeight.SemiBold,

@@ -104,42 +104,42 @@ import com.mcserver.manager.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
-private enum class PluginTab(val label: String) { Installed("已安装"), Upload("本地上传") }
+private enum class PluginTab(val labelRes: Int) { Installed(R.string.s735), Upload(R.string.s736) }
 
 /** 资源类型：插件 / 模组（按核心兼容性屏蔽） */
-private enum class ResourceType(val label: String) { Plugin("插件"), Mod("模组") }
+private enum class ResourceType(val labelRes: Int) { Plugin(R.string.s737), Mod(R.string.s738) }
 
 /** 插件资源站点（点击跳转官网） */
-private data class PluginSite(val name: String, val desc: String, val url: String)
+private data class PluginSite(val name: String, val descRes: Int, val url: String)
 
 private val pluginSites = listOf(
     PluginSite(
         "SpigotMC Resources",
-        "老牌大型插件资源平台，绝大多数 Bukkit/Spigot 插件首发站点，含免费与付费资源（全英文、国内访问较慢）",
+        R.string.s739,
         "https://www.spigotmc.org/resources/"
     ),
     PluginSite(
         "Hangar（Paper 官方）",
-        "Paper 官方搭建平台，面向 Paper / Velocity / Waterfall，界面简洁、筛选完善",
+        R.string.s741,
         "https://hangar.papermc.io/"
     ),
     PluginSite(
         "Modrinth",
-        "现代化开源资源平台，收录插件/模组/数据包，下载快，可按游戏版本与加载器筛选",
+        R.string.s742,
         "https://modrinth.com/plugins"
     ),
     PluginSite(
         "BuiltByBit（原 MC-Market）",
-        "商业付费插件聚集地，也提供免费资源与成套服务端配置方案",
+        R.string.s744,
         "https://builtbybit.com"
     ),
     PluginSite(
         "CurseForge Bukkit 分区",
-        "老牌资源站点，插件总数略少于 SpigotMC Resources",
+        R.string.s746,
         "https://www.curseforge.com/minecraft/bukkit-plugins"
     )
 )
-private enum class InstalledFilter(val label: String) { All("全部"), Enabled("启用"), Disabled("禁用"), Local("本地") }
+private enum class InstalledFilter(val labelRes: Int) { All(R.string.s747), Enabled(R.string.s748), Disabled(R.string.s749), Local(R.string.s127) }
 
 /**
  * 插件管理页（重构完善版）
@@ -224,7 +224,7 @@ fun PluginsScreen(vm: McViewModel) {
                 title = stringResource(R.string.s751),
                 trailing = {
                     Text(
-                        "刷新",
+                        stringResource(R.string.s333),
                         color = Indigo,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -241,7 +241,7 @@ fun PluginsScreen(vm: McViewModel) {
             ) {
                 if (activeCore == null) {
                     Text(
-                        "尚未选择服务端核心，请在「概览」页选用",
+                        stringResource(R.string.s754),
                         color = Coral,
                         fontSize = 12.sp,
                         modifier = Modifier.padding(vertical = 6.dp)
@@ -254,7 +254,7 @@ fun PluginsScreen(vm: McViewModel) {
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "插件目录：$pluginsPath",
+                        stringResource(R.string.s755, pluginsPath),
                         color = Muted,
                         fontSize = 10.sp,
                         maxLines = 2,
@@ -270,9 +270,9 @@ fun PluginsScreen(vm: McViewModel) {
                         )
                         Spacer(Modifier.size(6.dp))
                         Text(
-                            "已安装 ${installedPlugins.size} 个插件" +
+                            stringResource(R.string.s756, installedPlugins.size) +
                                 if (installedPlugins.count { !it.isEnabled } > 0)
-                                    "（${installedPlugins.count { !it.isEnabled }} 个已禁用）"
+                                    stringResource(R.string.s757, installedPlugins.count { !it.isEnabled })
                                 else "",
                             color = Muted,
                             fontSize = 11.sp
@@ -281,13 +281,13 @@ fun PluginsScreen(vm: McViewModel) {
                     Spacer(Modifier.height(8.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text(
-                            if (coreType.supportsPlugins) "✓ 支持插件" else "✗ 不支持插件",
+                            if (coreType.supportsPlugins) stringResource(R.string.s467) else stringResource(R.string.s468),
                             color = if (coreType.supportsPlugins) Mint else Coral,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
                         Text(
-                            if (coreType.supportsMods) "✓ 支持模组" else "✗ 不支持模组",
+                            if (coreType.supportsMods) stringResource(R.string.s469) else stringResource(R.string.s470),
                             color = if (coreType.supportsMods) Mint else Coral,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
@@ -299,7 +299,7 @@ fun PluginsScreen(vm: McViewModel) {
             // ── 资源类型切换（按核心兼容性屏蔽不支持的分类） ──
             if (availableTypes.isEmpty()) {
                 Text(
-                    "当前核心（${coreType.displayName}）不支持插件与模组",
+                    stringResource(R.string.s758, coreType.displayName),
                     color = Coral,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -325,7 +325,7 @@ fun PluginsScreen(vm: McViewModel) {
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                t.label,
+                                stringResource(t.labelRes),
                                 color = if (resourceType == t) Color.White else Muted,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
@@ -350,7 +350,7 @@ fun PluginsScreen(vm: McViewModel) {
                         PluginTab.Installed -> installedPlugins.size
                         else -> 0
                     }
-                    val label = if (count > 0) "${tab.label} $count" else tab.label
+                    val label = if (count > 0) "${stringResource(tab.labelRes)} $count" else stringResource(tab.labelRes)
                     Box(
                         modifier = Modifier
                             .weight(1f)
@@ -411,9 +411,9 @@ fun PluginsScreen(vm: McViewModel) {
             McCard(title = stringResource(R.string.s759)) {
                 Text(
                     if (isServerRunning)
-                        "服务器运行中，可发送 reload 指令重新加载所有插件"
+                        stringResource(R.string.s760)
                     else
-                        "服务器未运行，热重载按钮不可用。请先在「概览」页启动服务端",
+                        stringResource(R.string.s761),
                     color = if (isServerRunning) Muted else Coral,
                     fontSize = 11.sp
                 )
@@ -434,7 +434,7 @@ fun PluginsScreen(vm: McViewModel) {
                     Icon(Icons.Outlined.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.size(6.dp))
                     Text(
-                        if (isServerRunning) "发送 reload 指令" else "服务器未运行",
+                        if (isServerRunning) stringResource(R.string.s763) else stringResource(R.string.s280),
                         color = Color.White,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -443,7 +443,7 @@ fun PluginsScreen(vm: McViewModel) {
 
             // 底部配置提示
             Text(
-                "插件相关配置请前往对应配置文件夹内修改配置文件。",
+                stringResource(R.string.s764),
                 color = Muted,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(horizontal = 20.dp)
@@ -453,7 +453,7 @@ fun PluginsScreen(vm: McViewModel) {
             Spacer(Modifier.height(10.dp))
             McCard(title = stringResource(R.string.s765)) {
                 Text(
-                    "优质插件/模组下载平台，点击跳转官网",
+                    stringResource(R.string.s766),
                     color = Muted,
                     fontSize = 10.sp
                 )
@@ -483,7 +483,7 @@ fun PluginsScreen(vm: McViewModel) {
                         }
                         Icon(
                             Icons.AutoMirrored.Outlined.OpenInNew,
-                            contentDescription = "打开",
+                            contentDescription = stringResource(R.string.s767),
                             tint = Indigo,
                             modifier = Modifier.size(14.dp)
                         )
@@ -513,7 +513,7 @@ fun PluginsScreen(vm: McViewModel) {
             title = { Text(stringResource(R.string.s768), fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "即将删除模组：\n${mod.baseName}\n\n此操作不可撤销。",
+                    stringResource(R.string.s769, mod.baseName),
                     color = Muted,
                     fontSize = 12.sp
                 )
@@ -558,11 +558,11 @@ private fun InstalledTab(
 
     McCard(title = stringResource(R.string.s390)) {
         if (!activeCoreExists) {
-            EmptyHint("请先在「概览」页选择服务端核心")
+            EmptyHint(stringResource(R.string.s770))
             return@McCard
         }
         if (installed.isEmpty()) {
-            EmptyHint("当前核心尚未安装任何插件，可前往「精选推荐」或「本地上传」安装")
+            EmptyHint(stringResource(R.string.s771))
             return@McCard
         }
 
@@ -622,7 +622,7 @@ private fun InstalledTab(
         }
 
         if (filtered.isEmpty()) {
-            EmptyHint("没有符合筛选条件的插件")
+            EmptyHint(stringResource(R.string.s773))
             return@McCard
         }
 
@@ -714,7 +714,7 @@ private fun InstalledPluginRow(
                 .clickable { onShowDetail() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Outlined.Info, contentDescription = "详情", tint = Indigo, modifier = Modifier.size(14.dp))
+            Icon(Icons.Outlined.Info, contentDescription = stringResource(R.string.s734), tint = Indigo, modifier = Modifier.size(14.dp))
         }
         // 启用/禁用开关
         Switch(
@@ -732,7 +732,7 @@ private fun InstalledPluginRow(
                 .clickable { onDelete() },
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Outlined.Delete, contentDescription = "删除", tint = Coral, modifier = Modifier.size(14.dp))
+            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.s339), tint = Coral, modifier = Modifier.size(14.dp))
         }
     }
 }
@@ -764,7 +764,7 @@ private fun CuratedTab(
                     Spacer(Modifier.size(4.dp))
                 }
                 Text(
-                    if (isCheckingUpdates) "检测中..." else "检查更新",
+                    if (isCheckingUpdates) stringResource(R.string.s776) else stringResource(R.string.s777),
                     color = Indigo,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -776,7 +776,7 @@ private fun CuratedTab(
         }
     ) {
         Text(
-            "内置 8 款常用插件，自动从 GitHub Releases 跟随最新版本下载",
+            stringResource(R.string.s778),
             color = Muted,
             fontSize = 10.sp
         )
@@ -790,7 +790,7 @@ private fun CuratedTab(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                if (coreType.supportsMods) "✓ 本核心支持模组" else "✗ 本核心不支持模组",
+                if (coreType.supportsMods) stringResource(R.string.s781) else stringResource(R.string.s782),
                 color = if (coreType.supportsMods) Mint else Coral,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
@@ -826,7 +826,7 @@ private fun CuratedTab(
     val context = LocalContext.current
     McCard(title = stringResource(R.string.s765)) {
         Text(
-            "优质插件/模组下载平台，点击跳转官网",
+            stringResource(R.string.s766),
             color = Muted,
             fontSize = 10.sp
         )
@@ -855,7 +855,7 @@ private fun CuratedTab(
                 }
                 Icon(
                     Icons.AutoMirrored.Outlined.OpenInNew,
-                    contentDescription = "打开",
+                    contentDescription = stringResource(R.string.s767),
                     tint = Indigo,
                     modifier = Modifier.size(14.dp)
                 )
@@ -907,15 +907,15 @@ private fun CuratedPluginRow(
                     )
                     if (isInstalled) {
                         Spacer(Modifier.size(6.dp))
-                        BadgeChip(text = "已安装", color = Mint, bg = MintSoft)
+                        BadgeChip(text = stringResource(R.string.s735), color = Mint, bg = MintSoft)
                     }
                     if (hasUpdate) {
                         Spacer(Modifier.size(4.dp))
-                        BadgeChip(text = "有更新", color = Coral, bg = CoralSoft)
+                        BadgeChip(text = stringResource(R.string.s784), color = Coral, bg = CoralSoft)
                     }
                 }
                 Text(
-                    "作者：${curated.author}",
+                    stringResource(R.string.s785, curated.author),
                     color = Muted,
                     fontSize = 10.sp
                 )
@@ -939,12 +939,14 @@ private fun CuratedPluginRow(
                     ) {
                         Icon(Icons.Outlined.Update, contentDescription = null, tint = Indigo, modifier = Modifier.size(10.dp))
                         Spacer(Modifier.size(3.dp))
+                        val latestLabel = stringResource(R.string.s786)
+                        val currentLabel = stringResource(R.string.s787)
                         Text(
                             buildString {
-                                append("最新: ")
+                                append(latestLabel)
                                 append(updateInfo.latestVersion)
                                 if (updateInfo.installedVersion != null) {
-                                    append("  ·  当前: ")
+                                    append(currentLabel)
                                     append(updateInfo.installedVersion)
                                 }
                             },
@@ -989,7 +991,7 @@ private fun CuratedPluginRow(
             }
             Spacer(Modifier.height(6.dp))
             Text(
-                "下载中，请耐心等待...",
+                stringResource(R.string.s788),
                 color = Muted,
                 fontSize = 10.sp
             )
@@ -1046,17 +1048,17 @@ private fun UploadTab(
 
     McCard(title = stringResource(R.string.s792)) {
         if (!activeCoreExists) {
-            EmptyHint("请先在「概览」页选择服务端核心")
+            EmptyHint(stringResource(R.string.s770))
             return@McCard
         }
         Text(
-            "支持上传 Bukkit / Spigot / Paper 服务端插件（.jar 格式）",
+            stringResource(R.string.s793),
             color = Muted,
             fontSize = 11.sp
         )
         Spacer(Modifier.height(4.dp))
         Text(
-            "上传后会自动复制到当前核心的 plugins/ 目录，需要 reload 或重启服务器后生效",
+            stringResource(R.string.s794),
             color = Muted,
             fontSize = 10.sp
         )
@@ -1076,7 +1078,7 @@ private fun UploadTab(
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Icon(Icons.Outlined.CloudUpload, contentDescription = "上传", tint = Indigo, modifier = Modifier.size(36.dp))
+                Icon(Icons.Outlined.CloudUpload, contentDescription = stringResource(R.string.s497), tint = Indigo, modifier = Modifier.size(36.dp))
                 Spacer(Modifier.size(8.dp))
                 Text(stringResource(R.string.s795), color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.size(2.dp))
@@ -1099,7 +1101,7 @@ private fun UploadTab(
         Text(stringResource(R.string.s798), color = Indigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
         Spacer(Modifier.height(4.dp))
         Text(
-            "粘贴 .jar 文件的直链下载 URL（如 SpigotMC、Modrinth 手动复制的直链）",
+            stringResource(R.string.s799),
             color = Muted,
             fontSize = 10.sp
         )
@@ -1194,13 +1196,13 @@ private fun DeletePluginDialog(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    "大小：${plugin.sizeText}  ·  修改：${plugin.lastModifiedText}",
+                    stringResource(R.string.s805, plugin.sizeText, plugin.lastModifiedText),
                     color = Muted,
                     fontSize = 10.sp
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "删除后无法恢复，如需保留可改为禁用。",
+                    stringResource(R.string.s806),
                     color = Coral,
                     fontSize = 10.sp
                 )
@@ -1218,9 +1220,9 @@ private fun DeletePluginDialog(
                         Text(stringResource(R.string.s807), fontSize = 12.sp)
                         Text(
                             if (plugin.meta?.name != null)
-                                "将删除 plugins/${plugin.meta.name}/ 下的配置和数据"
+                                stringResource(R.string.s808, plugin.meta.name)
                             else
-                                "将删除插件同名目录下的配置和数据",
+                                stringResource(R.string.s809),
                             color = Muted,
                             fontSize = 10.sp
                         )
@@ -1258,35 +1260,35 @@ private fun PluginDetailDialog(
         },
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                DetailRow("文件名", plugin.fileName)
-                DetailRow("显示名", plugin.baseName)
+                DetailRow(stringResource(R.string.s811), plugin.fileName)
+                DetailRow(stringResource(R.string.s812), plugin.baseName)
                 if (meta != null) {
-                    DetailRow("插件名", meta.name)
-                    DetailRow("版本", meta.version)
-                    DetailRow("主类", meta.mainClass.ifEmpty { "—" })
-                    DetailRow("作者", meta.author)
-                    DetailRow("API 版本", meta.apiVersion.ifEmpty { "—" })
+                    DetailRow(stringResource(R.string.s813), meta.name)
+                    DetailRow(stringResource(R.string.s814), meta.version)
+                    DetailRow(stringResource(R.string.s815), meta.mainClass.ifEmpty { "—" })
+                    DetailRow(stringResource(R.string.s816), meta.author)
+                    DetailRow(stringResource(R.string.s817), meta.apiVersion.ifEmpty { "—" })
                     if (meta.description.isNotBlank()) {
-                        DetailRow("描述", meta.description)
+                        DetailRow(stringResource(R.string.s818), meta.description)
                     }
                     if (meta.depends.isNotEmpty()) {
-                        DetailRow("依赖", meta.depends.joinToString(", "))
+                        DetailRow(stringResource(R.string.s819), meta.depends.joinToString(", "))
                     }
                     if (meta.softDepends.isNotEmpty()) {
-                        DetailRow("软依赖", meta.softDepends.joinToString(", "))
+                        DetailRow(stringResource(R.string.s820), meta.softDepends.joinToString(", "))
                     }
                 } else {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "未能解析 plugin.yml 元信息（可能非标准插件或格式不兼容）",
+                        stringResource(R.string.s821),
                         color = Muted,
                         fontSize = 10.sp
                     )
                 }
-                DetailRow("文件大小", plugin.sizeText)
-                DetailRow("修改时间", plugin.lastModifiedText)
-                DetailRow("来源", plugin.sourceTag)
-                DetailRow("状态", if (plugin.isEnabled) "启用" else "已禁用")
+                DetailRow(stringResource(R.string.s822), plugin.sizeText)
+                DetailRow(stringResource(R.string.s823), plugin.lastModifiedText)
+                DetailRow(stringResource(R.string.s725), plugin.sourceTag)
+                DetailRow(stringResource(R.string.s824), if (plugin.isEnabled) stringResource(R.string.s748) else stringResource(R.string.s237))
             }
         },
         confirmButton = {
@@ -1356,7 +1358,7 @@ private fun ModsTab(
     var modrinthQuery by remember { mutableStateOf("") }
     var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
     var sortIndex by remember { mutableStateOf(0) }
-    val sortOptions = listOf("downloads" to "按下载量", "relevance" to "按相关性", "newest" to "按最新")
+    val sortOptions = listOf("downloads" to stringResource(R.string.s825), "relevance" to stringResource(R.string.s826), "newest" to stringResource(R.string.s827))
     // 本地上传模组选择器
     val filePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -1366,7 +1368,7 @@ private fun ModsTab(
     McCard(title = stringResource(R.string.s828)) {
         if (mods.isEmpty()) {
             Text(
-                "暂无已安装模组",
+                stringResource(R.string.s829),
                 color = Muted,
                 fontSize = 12.sp,
                 modifier = Modifier.padding(vertical = 8.dp)
@@ -1394,21 +1396,22 @@ private fun ModsTab(
                         Spacer(Modifier.size(10.dp))
                         Column(modifier = Modifier.weight(1f)) {
                             Text(mod.baseName, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val statusText = if (mod.isEnabled) stringResource(R.string.s238) else stringResource(R.string.s237)
                             Text(
-                                "${mod.sizeText} · ${if (mod.isEnabled) "已启用" else "已禁用"}",
+                                "${mod.sizeText} · $statusText",
                                 color = Muted,
                                 fontSize = 10.sp
                             )
                         }
                         TextButton(onClick = { onToggle(mod.fileName) }) {
                             Text(
-                                if (mod.isEnabled) "禁用" else "启用",
+                                if (mod.isEnabled) stringResource(R.string.s749) else stringResource(R.string.s748),
                                 color = if (mod.isEnabled) Coral else Mint,
                                 fontSize = 11.sp
                             )
                         }
                         IconButton(onClick = { onDelete(mod) }) {
-                            Icon(Icons.Outlined.Delete, contentDescription = "删除", tint = Coral, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Outlined.Delete, contentDescription = stringResource(R.string.s339), tint = Coral, modifier = Modifier.size(18.dp))
                         }
                     }
                 }
@@ -1433,7 +1436,7 @@ private fun ModsTab(
     @OptIn(ExperimentalLayoutApi::class)
     McCard(title = stringResource(R.string.s831)) {
         Text(
-            "从 Modrinth 开放平台搜索并一键安装模组",
+            stringResource(R.string.s832),
             color = Muted,
             fontSize = 10.sp
         )
@@ -1512,15 +1515,16 @@ private fun ModsTab(
                     Spacer(Modifier.size(8.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(hit.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val downloadsText = formatModrinthDownloads(hit.downloads)
                         Text(
-                            "${hit.author} · ${formatModrinthDownloads(hit.downloads)}",
+                            "${hit.author} · $downloadsText",
                             color = Muted,
                             fontSize = 10.sp
                         )
                         // 当前核心不匹配红字提醒
                         if (hit.categories.isNotEmpty() && coreLoader !in hit.categories) {
                             Text(
-                                "⚠ 该模组不匹配当前核心（${coreType.displayName}）",
+                                stringResource(R.string.s836, coreType.displayName),
                                 color = Coral,
                                 fontSize = 9.sp
                             )
@@ -1542,10 +1546,11 @@ private fun ModsTab(
 }
 
 /** Modrinth 下载量格式化 */
+@Composable
 private fun formatModrinthDownloads(d: Long): String = when {
-    d >= 1_000_000 -> String.format("%.1fM 下载", d / 1_000_000.0)
-    d >= 1_000 -> String.format("%.1fK 下载", d / 1_000.0)
-    else -> "$d 下载"
+    d >= 1_000_000 -> String.format(stringResource(R.string.s838), d / 1_000_000.0)
+    d >= 1_000 -> String.format(stringResource(R.string.s839), d / 1_000.0)
+    else -> stringResource(R.string.s840, d)
 }
 
 /** Modrinth 模组图标（网络加载，失败显示占位） */

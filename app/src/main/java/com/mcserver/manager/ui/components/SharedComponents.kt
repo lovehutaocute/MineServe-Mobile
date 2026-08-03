@@ -161,7 +161,7 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
             if (isStarting) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "服务端启动通常需要 30 秒~数分钟，日志见「MC 终端」...",
+                    stringResource(R.string.s321),
                     color = Color.White.copy(alpha = 0.7f),
                     fontSize = 10.sp
                 )

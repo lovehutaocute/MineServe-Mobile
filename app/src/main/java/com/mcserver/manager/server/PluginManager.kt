@@ -3,6 +3,7 @@ package com.mcserver.manager.server
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.mcserver.manager.R
 import com.mcserver.manager.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -162,7 +163,7 @@ class PluginManager(
         try {
             downloadTo(url, target, onProgress)
             if (!target.exists() || target.length() < 1024) {
-                throw RuntimeException("下载文件过小或为空（${target.length()} bytes），可能 URL 失效")
+                throw RuntimeException(context.getString(R.string.s128, target.length()))
             }
             backup?.takeIf { it.exists() }?.delete()
             target
@@ -184,7 +185,7 @@ class PluginManager(
             val target = File(pluginsDir, safeName)
 
             val input = context.contentResolver.openInputStream(uri)
-                ?: throw RuntimeException("无法打开文件 Uri: $uri")
+                ?: throw RuntimeException(context.getString(R.string.s129, uri.toString()))
             input.use { ins ->
                 FileOutputStream(target).use { fos ->
                     ins.copyTo(fos, bufferSize = 64 * 1024)
@@ -192,7 +193,7 @@ class PluginManager(
             }
             if (target.length() < 1024) {
                 target.delete()
-                throw RuntimeException("文件过小，可能上传失败")
+                throw RuntimeException(context.getString(R.string.s130))
             }
             target.name
         }
@@ -290,7 +291,7 @@ class PluginManager(
                         CuratedUpdateInfo(c, latestVer, releaseUrl, installedVersion, hasUpdate)
                     } catch (e: Exception) {
                         Log.w(TAG, "checkUpdates failed for ${c.id}: ${e.message}")
-                        CuratedUpdateInfo(c, "未知", c.homepage, installedVersion, false)
+                        CuratedUpdateInfo(c, context.getString(R.string.s131), c.homepage, installedVersion, false)
                     }
                 }
             }.map { it.await() }
@@ -306,7 +307,7 @@ class PluginManager(
                     val installed = installedList.find {
                         it.baseName.equals(c.targetFileName.removeSuffix(JAR_EXT), ignoreCase = true)
                     }
-                    CuratedUpdateInfo(c, "未知", c.homepage, installed?.meta?.version, false)
+                    CuratedUpdateInfo(c, context.getString(R.string.s131), c.homepage, installed?.meta?.version, false)
                 }
             }
         }
@@ -691,7 +692,7 @@ class PluginManager(
         try {
             downloadTo(url, target, onProgress)
             if (!target.exists() || target.length() < 1024) {
-                throw RuntimeException("下载文件过小或为空（${target.length()} bytes），可能 URL 失效")
+                throw RuntimeException(context.getString(R.string.s128, target.length()))
             }
             backup?.takeIf { it.exists() }?.delete()
             target
@@ -708,7 +709,7 @@ class PluginManager(
             val safeName = ensureJarExtension(queryFileName(uri) ?: fallbackName)
             val target = File(dir, safeName)
             val input = context.contentResolver.openInputStream(uri)
-                ?: throw RuntimeException("无法打开文件 Uri: $uri")
+                ?: throw RuntimeException(context.getString(R.string.s129, uri.toString()))
             input.use { ins ->
                 FileOutputStream(target).use { fos ->
                     ins.copyTo(fos, bufferSize = 64 * 1024)
@@ -716,7 +717,7 @@ class PluginManager(
             }
             if (target.length() < 1024) {
                 target.delete()
-                throw RuntimeException("文件过小，可能上传失败")
+                throw RuntimeException(context.getString(R.string.s130))
             }
             target.name
         }

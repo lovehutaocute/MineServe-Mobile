@@ -73,7 +73,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "返回")
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
             }
             Text(stringResource(R.string.s404), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
         }
@@ -82,7 +82,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
         // 介绍
         McCard(title = stringResource(R.string.s406)) {
             Text(
-                "本应用需要从 GitHub 下载运行环境（约 50MB）和服务端核心（约 50MB）。GitHub 服务器在国外，国内访问可能很慢甚至失败。下面提供几种解决方案，按推荐顺序排列。",
+                stringResource(R.string.s407),
                 color = Muted, fontSize = 12.sp
             )
         }
@@ -91,92 +91,92 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
         HelpSolutionCard(
             icon = Icons.Outlined.Dns,
             iconColor = Indigo,
-            tag = "推荐",
+            tag = stringResource(R.string.s408),
             tagColor = Mint,
             title = stringResource(R.string.s409),
-            description = "本应用内置 7 个 GitHub 镜像源（gh-proxy.com、ghproxy.net 等），可自动加速 GitHub 下载。切换后重新初始化即可生效。"
+            description = stringResource(R.string.s410)
         ) {
-            HelpStep("1", "进入「设置」标签页")
-            HelpStep("2", "找到「下载源」选项")
-            HelpStep("3", "选择一个镜像源（推荐 gh-proxy.com 或 ghfast.top）")
-            HelpStep("4", "回到「概览」页，点击「删除 Termux 运行环境」")
-            HelpStep("5", "等待重新初始化，下载速度会明显提升")
+            HelpStep("1", stringResource(R.string.s411))
+            HelpStep("2", stringResource(R.string.s412))
+            HelpStep("3", stringResource(R.string.s413))
+            HelpStep("4", stringResource(R.string.s414))
+            HelpStep("5", stringResource(R.string.s415))
         }
 
         // 方案2：切换 apt 软件源
         HelpSolutionCard(
             icon = Icons.Outlined.Public,
             iconColor = Indigo,
-            tag = "推荐",
+            tag = stringResource(R.string.s408),
             tagColor = Mint,
             title = stringResource(R.string.s416),
-            description = "JDK、wget、frp 等依赖包从 Termux 官方源下载，国内可能很慢。切换到国内镜像可大幅提速。"
+            description = stringResource(R.string.s417)
         ) {
-            HelpStep("1", "进入「设置」标签页")
-            HelpStep("2", "找到「软件源（apt）」选项")
-            HelpStep("3", "选择国内镜像（推荐清华 TUNA 或阿里云）")
-            HelpStep("4", "回到「概览」页，删除运行环境并重新初始化")
+            HelpStep("1", stringResource(R.string.s411))
+            HelpStep("2", stringResource(R.string.s418))
+            HelpStep("3", stringResource(R.string.s419))
+            HelpStep("4", stringResource(R.string.s420))
         }
 
         // 方案3：切换网络
         HelpSolutionCard(
             icon = Icons.Outlined.Wifi,
             iconColor = Indigo,
-            tag = "免费",
+            tag = stringResource(R.string.s421),
             tagColor = Mint,
             title = stringResource(R.string.s422),
-            description = "不同运营商对 GitHub 的路由质量差异很大，切换网络可能立竿见影。"
+            description = stringResource(R.string.s423)
         ) {
-            HelpStep("1", "尝试切换 WiFi 和手机数据")
-            HelpStep("2", "如果用 WiFi，尝试切换到 5G/4G 数据网络")
-            HelpStep("3", "不同运营商的基站路由不同，移动/联通/电信可都试试")
-            HelpStep("4", "凌晨或非高峰时段下载通常更快")
+            HelpStep("1", stringResource(R.string.s424))
+            HelpStep("2", stringResource(R.string.s425))
+            HelpStep("3", stringResource(R.string.s426))
+            HelpStep("4", stringResource(R.string.s427))
         }
 
         // 方案4：使用 VPN/代理
         HelpSolutionCard(
             icon = Icons.Outlined.VpnKey,
             iconColor = Coral,
-            tag = "进阶",
+            tag = stringResource(R.string.s428),
             tagColor = Coral,
             title = stringResource(R.string.s429),
-            description = "使用代理工具加速 GitHub 访问。这是最彻底但需要额外工具的方案。"
+            description = stringResource(R.string.s430)
         ) {
-            HelpStep("1", "在手机上启动代理工具（支持全局或分应用代理）")
-            HelpStep("2", "确保代理节点延迟较低（推荐日本、新加坡、美国节点）")
-            HelpStep("3", "回到本应用重新下载或初始化")
-            HelpStep("4", "注意：部分代理工具可能拦截大文件下载，建议切换为 PAC 模式或放行本应用")
+            HelpStep("1", stringResource(R.string.s431))
+            HelpStep("2", stringResource(R.string.s432))
+            HelpStep("3", stringResource(R.string.s433))
+            HelpStep("4", stringResource(R.string.s434))
         }
 
         // 方案5：手动下载
         HelpSolutionCard(
             icon = Icons.Outlined.Sync,
             iconColor = Coral,
-            tag = "手动",
+            tag = stringResource(R.string.s435),
             tagColor = Coral,
             title = stringResource(R.string.s436),
-            description = "如果手机网络实在不行，可以用电脑下载后通过文件管理器传到手机。"
+            description = stringResource(R.string.s437)
         ) {
-            HelpStep("1", "在电脑浏览器打开 GitHub release 页面下载所需文件")
-            HelpStep("2", "Termux 环境 ZIP 放到 app 内部存储的 files/home/ 目录")
-            HelpStep("3", "服务端核心 JAR 放到 files/home/home/servers/{核心名}/ 目录")
-            HelpStep("4", "重启应用，环境会自动识别已存在的文件跳过下载")
+            HelpStep("1", stringResource(R.string.s438))
+            HelpStep("2", stringResource(R.string.s439))
+            HelpStep("3", stringResource(R.string.s440))
+            HelpStep("4", stringResource(R.string.s441))
         }
 
         // 测速小贴士
         McCard(title = stringResource(R.string.s442)) {
             Text(
-                "在下载过程中，本应用会实时显示下载速度（如 \"2.35 MB/s\"）。一般来说：",
+                stringResource(R.string.s443),
                 color = Muted, fontSize = 12.sp
             )
             Spacer(Modifier.height(8.dp))
-            SpeedRow("5+ MB/s", "极快（直连或优质代理）", Mint)
-            SpeedRow("1-5 MB/s", "较快（镜像源加速）", Mint)
-            SpeedRow("0.5-1 MB/s", "一般（正常国内访问）", Indigo)
-            SpeedRow("< 0.5 MB/s", "偏慢，建议切换下载源", Coral)
+            SpeedRow("5+ MB/s", stringResource(R.string.s445), Mint)
+            SpeedRow("1-5 MB/s", stringResource(R.string.s446), Mint)
+            SpeedRow("0.5-1 MB/s", stringResource(R.string.s447), Indigo)
+            SpeedRow("< 0.5 MB/s", stringResource(R.string.s448), Coral)
             Spacer(Modifier.height(8.dp))
             Text(
-                "提示：如果速度低于 100 KB/s 或长时间卡住，说明当前网络访问 GitHub 困难，请尝试上述方案。",
+                stringResource(R.string.s449),
                 color = Muted, fontSize = 11.sp
             )
         }
