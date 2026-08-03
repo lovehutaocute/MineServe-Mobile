@@ -1075,4 +1075,8 @@
     <string name="s1054" formatted="false">Join Group</string>
     <string name="s1055">Added OP for %1$s (default level)</string>
     <string name="s1056">Set OP for %1$s (level %2$s), effective after restart</string>
+    <string name="s1057">Current mirror: %1$s</string>
+    <string name="s1058">Switch to next mirror</string>
+    <string name="s1059">Current default OP level: %1$s</string>
+    <string name="s1060">Not configured (default 4)</string>
 </resources>

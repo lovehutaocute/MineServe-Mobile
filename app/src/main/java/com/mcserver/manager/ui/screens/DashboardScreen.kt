@@ -103,6 +103,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
         state.installSteps.all { it.status == com.mcserver.manager.data.StepStatus.Done }
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
+    val currentMirrorIndex by vm.currentMirrorIndex.collectAsState()
     val installSpeed by vm.installSpeed.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -282,6 +283,28 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             color = Muted,
                             fontSize = 10.sp
                         )
+                        // 当前镜像源 + 切换按钮（仅下载阶段显示）
+                        if (currentMirrorIndex >= 0) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    stringResource(R.string.s1057, vm.mirrorSources.getOrElse(currentMirrorIndex) { "" }),
+                                    color = Muted,
+                                    fontSize = 10.sp,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                OutlinedButton(
+                                    onClick = { vm.switchBootstrapMirror() },
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                                ) {
+                                    Text(stringResource(R.string.s1058), fontSize = 10.sp, color = Indigo)
+                                }
+                            }
+                        }
                         // 显示实时日志
                         Spacer(Modifier.height(8.dp))
                         consoleLines.takeLast(5).forEach { line ->

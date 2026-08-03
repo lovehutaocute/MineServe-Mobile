@@ -42,6 +42,17 @@ class McApplication : Application(), Configuration.Provider {
     private val _bootstrapSpeed = MutableStateFlow(0L)
     val bootstrapSpeed: StateFlow<Long> = _bootstrapSpeed.asStateFlow()
 
+    /** 当前 bootstrap 使用的镜像源索引（-1 表示未在下载中） */
+    val currentMirrorIndex: StateFlow<Int> get() = termuxRuntime.installer.currentMirrorIndex
+
+    /** 镜像源名称列表 */
+    val mirrorSources: List<String> get() = termuxRuntime.installer.mirrorSources
+
+    /** 请求停止当前镜像源下载并切换到下一个 */
+    fun switchBootstrapMirror() {
+        termuxRuntime.installer.requestStopAndSwitch()
+    }
+
     /** 上次崩溃日志路径（APP 内文件管理器可访问） */
     val crashLogFile: java.io.File
         get() = java.io.File(filesDir, "home/crash_log.txt")

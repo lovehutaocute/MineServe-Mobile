@@ -74,6 +74,15 @@ class McViewModel(
     /** bootstrap 下载速度（bytes/s） */
     val bootstrapSpeed: StateFlow<Long> = McApplication.get().bootstrapSpeed
 
+    /** bootstrap 当前镜像源索引 */
+    val currentMirrorIndex: StateFlow<Int> = McApplication.get().currentMirrorIndex
+
+    /** 镜像源名称列表 */
+    val mirrorSources: List<String> get() = McApplication.get().mirrorSources
+
+    /** 请求切换到下一个镜像源 */
+    fun switchBootstrapMirror() = McApplication.get().switchBootstrapMirror()
+
     /** apt 安装下载速度（bytes/s） */
     private val _installSpeed = MutableStateFlow(0L)
     val installSpeed: StateFlow<Long> = _installSpeed.asStateFlow()
@@ -1078,6 +1087,10 @@ class McViewModel(
     private val _whitelistEnabled = MutableStateFlow(false)
     val whitelistEnabled: StateFlow<Boolean> = _whitelistEnabled.asStateFlow()
 
+    /** 当前 server.properties 配置的默认 OP 等级（null 表示未配置，使用 MC 默认 4） */
+    private val _defaultOpLevel = MutableStateFlow<Int?>(null)
+    val defaultOpLevel: StateFlow<Int?> = _defaultOpLevel.asStateFlow()
+
     /** 在线玩家名列表（从日志解析） */
     private val _onlinePlayerNames: MutableStateFlow<List<String>> by lazy { MutableStateFlow(emptyList()) }
     val onlinePlayerNames: StateFlow<List<String>> by lazy { _onlinePlayerNames.asStateFlow() }
@@ -1174,6 +1187,8 @@ class McViewModel(
                     // 同步白名单开关状态（从 server.properties 读取）
                     val props = propertiesManager.readProperties(dirName)
                     _whitelistEnabled.value = props["white-list"]?.equals("true", ignoreCase = true) == true
+                    // 同步默认 OP 等级（op-permission-level）
+                    _defaultOpLevel.value = props["op-permission-level"]?.toIntOrNull()
                 }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s265, e.message))

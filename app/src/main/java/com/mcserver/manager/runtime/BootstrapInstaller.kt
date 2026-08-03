@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
@@ -49,6 +52,41 @@ class BootstrapInstaller(private val context: Context) {
 
     /** 速度回调（已下载字节, 速度 bytes/s） */
     var onSpeed: ((Long, Long) -> Unit)? = null
+
+    /** 镜像源列表（公开供 UI 显示名称） */
+    val mirrorSources: List<String> = listOf(
+        "GitHub 直连",
+        "gh-proxy.com",
+        "mirror.ghproxy.com",
+        "ghproxy.net",
+        "github.moeyy.xyz",
+        "gh.api.99988866.xyz",
+        "ghfast.top"
+    )
+
+    /** 镜像源 URL 前缀列表 */
+    private val mirrorUrls: List<String> = listOf(
+        "https://github.com/termux/termux-packages/releases/download",
+        "https://gh-proxy.com/https://github.com/termux/termux-packages/releases/download",
+        "https://mirror.ghproxy.com/https://github.com/termux/termux-packages/releases/download",
+        "https://ghproxy.net/https://github.com/termux/termux-packages/releases/download",
+        "https://github.moeyy.xyz/https://github.com/termux/termux-packages/releases/download",
+        "https://gh.api.99988866.xyz/https://github.com/termux/termux-packages/releases/download",
+        "https://ghfast.top/https://github.com/termux/termux-packages/releases/download"
+    )
+
+    /** 当前正在使用的镜像源索引（-1 表示未在下载中） */
+    private val _currentMirrorIndex = MutableStateFlow(-1)
+    val currentMirrorIndex: StateFlow<Int> = _currentMirrorIndex.asStateFlow()
+
+    /** 停止下载并切换到下一个镜像源的请求标志 */
+    @Volatile
+    private var stopAndSwitchRequested: Boolean = false
+
+    /** 请求停止当前镜像源下载并切换到下一个 */
+    fun requestStopAndSwitch() {
+        stopAndSwitchRequested = true
+    }
 
     private fun log(msg: String) {
         Log.i(TAG, msg)
@@ -327,29 +365,28 @@ class BootstrapInstaller(private val context: Context) {
         tmpDir.mkdirs()
         val version = "bootstrap-2026.05.24-r1%2Bapt.android-7"
         val arch = termuxArch
-
-        // 多镜像源列表，逐个尝试直到成功
-        val mirrors = listOf(
-            "https://github.com/termux/termux-packages/releases/download",
-            "https://gh-proxy.com/https://github.com/termux/termux-packages/releases/download",
-            "https://mirror.ghproxy.com/https://github.com/termux/termux-packages/releases/download",
-            "https://ghproxy.net/https://github.com/termux/termux-packages/releases/download",
-            "https://github.moeyy.xyz/https://github.com/termux/termux-packages/releases/download",
-            "https://gh.api.99988866.xyz/https://github.com/termux/termux-packages/releases/download",
-            "https://ghfast.top/https://github.com/termux/termux-packages/releases/download"
-        )
         val fileName = "bootstrap-$arch.zip"
 
+        stopAndSwitchRequested = false
         log("下载 Termux 运行环境 (~30MB)...")
         var lastError: Exception? = null
-        for ((idx, mirror) in mirrors.withIndex()) {
+        for ((idx, mirror) in mirrorUrls.withIndex()) {
+            _currentMirrorIndex.value = idx
             val url = "$mirror/$version/$fileName"
-            val label = if (idx == 0) "GitHub 直连" else "镜像${idx}"
+            val label = mirrorSources[idx]
             log("尝试 $label: ${url.take(80)}...")
             try {
                 rootfsFile.delete()
                 httpDownload(url, rootfsFile, 15..45, onProgress) { msg ->
                     log(msg)
+                }
+                // 检查是否被用户请求停止切换
+                if (stopAndSwitchRequested) {
+                    stopAndSwitchRequested = false
+                    rootfsFile.delete()
+                    log("用户请求切换镜像源，跳过 $label")
+                    lastError = RuntimeException("用户切换镜像源")
+                    continue
                 }
                 // 下载成功，校验
                 log("校验文件完整性...")
@@ -362,13 +399,19 @@ class BootstrapInstaller(private val context: Context) {
                     }
                 }
                 log("校验通过")
+                _currentMirrorIndex.value = -1
                 return
             } catch (e: Exception) {
                 log("$label 失败: ${e.message}")
                 lastError = e
                 rootfsFile.delete()
+                // 如果是用户主动请求切换，重置标志继续下一个
+                if (stopAndSwitchRequested) {
+                    stopAndSwitchRequested = false
+                }
             }
         }
+        _currentMirrorIndex.value = -1
         throw RuntimeException("所有镜像源均下载失败: ${lastError?.message}")
     }
 

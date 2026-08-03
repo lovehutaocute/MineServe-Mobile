@@ -1074,4 +1074,8 @@
     <string name="s1054">加入群聊</string>
     <string name="s1055">已为 %1$s 添加 OP（默认等级）</string>
     <string name="s1056">已为 %1$s 设置 OP（等级 %2$s），重启后生效</string>
+    <string name="s1057">当前镜像源：%1$s</string>
+    <string name="s1058">切换到下个镜像源</string>
+    <string name="s1059">当前配置默认 OP 等级：%1$s</string>
+    <string name="s1060">未配置（默认 4）</string>
 </resources>

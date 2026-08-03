@@ -123,6 +123,7 @@ fun PlayersScreen(
     val whitelist by vm.whitelist.collectAsState()
     val banned by vm.bannedPlayers.collectAsState()
     val whitelistEnabled by vm.whitelistEnabled.collectAsState()
+    val defaultOpLevel by vm.defaultOpLevel.collectAsState()
     val onlinePlayers by vm.onlinePlayerNames.collectAsState()
     val playerHistory by vm.playerHistory.collectAsState()
     val config by vm.config.collectAsState()
@@ -247,6 +248,7 @@ fun PlayersScreen(
                 PlayerListTab.Ops -> OpsTab(
                     ops = ops,
                     isRunning = isRunning,
+                    defaultOpLevel = defaultOpLevel,
                     onOpAddDefault = { vm.opPlayer(it) },
                     onOpAdd = { name, level -> vm.opPlayerWithLevel(name, level) },
                     onNavigateProperties = onNavigateProperties,
@@ -537,6 +539,7 @@ private fun OnlinePlayerRow(
 private fun OpsTab(
     ops: List<PlayerManager.OpEntry>,
     isRunning: Boolean,
+    defaultOpLevel: Int?,
     onOpAddDefault: (String) -> Unit,
     onOpAdd: (String, Int) -> Unit,
     onNavigateProperties: () -> Unit,
@@ -614,11 +617,19 @@ private fun OpsTab(
                 onCheckedChange = { useDefaultLevel = it },
                 colors = CheckboxDefaults.colors(checkedColor = Indigo)
             )
-            Text(
-                stringResource(R.string.s1031),
-                fontSize = 11.sp,
-                modifier = Modifier.weight(1f)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.s1031),
+                    fontSize = 11.sp
+                )
+                // 显示当前配置的默认 OP 等级
+                Text(
+                    if (defaultOpLevel != null) stringResource(R.string.s1059, defaultOpLevel)
+                    else stringResource(R.string.s1060),
+                    color = Muted,
+                    fontSize = 10.sp
+                )
+            }
             Text(
                 stringResource(R.string.s1032),
                 color = Indigo,
