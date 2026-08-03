@@ -30,6 +30,7 @@ import com.mcserver.manager.ui.screens.DownloadScreen
 import com.mcserver.manager.ui.screens.FileManagerScreen
 import com.mcserver.manager.ui.screens.KeepAliveScreen
 import com.mcserver.manager.ui.screens.MtGuideScreen
+import com.mcserver.manager.ui.screens.OpLevelGuideScreen
 import com.mcserver.manager.ui.screens.LogsScreen
 import com.mcserver.manager.ui.screens.NetworkScreen
 import com.mcserver.manager.ui.screens.PlayersScreen
@@ -41,7 +42,7 @@ import com.mcserver.manager.ui.theme.IndigoSoft
 import com.mcserver.manager.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -107,6 +108,11 @@ fun McApp() {
                         SubPage.DownloadHelp -> DownloadHelpScreen(vm = vm, onBack = { subPage = null })
                         SubPage.MtGuide -> MtGuideScreen(onBack = { subPage = null })
                         SubPage.KeepAlive -> KeepAliveScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.OpLevelGuide -> OpLevelGuideScreen(
+                            onBack = { subPage = null },
+                            onNavigateProperties = { subPage = SubPage.Properties },
+                            onNavigatePlugins = { tab = McTab.Plugins; subPage = null }
+                        )
                         null -> {}
                     }
                 }
@@ -120,7 +126,11 @@ fun McApp() {
                         vm = vm,
                         onShowDownloadHelp = { subPage = SubPage.DownloadHelp }
                     )
-                    McTab.Players -> PlayersScreen(vm = vm)
+                    McTab.Players -> PlayersScreen(
+                        vm = vm,
+                        onNavigateProperties = { subPage = SubPage.Properties },
+                        onNavigateOpGuide = { subPage = SubPage.OpLevelGuide }
+                    )
                     McTab.Plugins -> PluginsScreen(vm = vm)
                     McTab.Files -> FileManagerScreen(vm = vm, onOpenMtGuide = { subPage = SubPage.MtGuide })
                     McTab.Network -> NetworkScreen(vm = vm, onBack = {})

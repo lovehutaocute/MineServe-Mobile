@@ -69,6 +69,7 @@ import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
 import com.mcserver.manager.ui.PillButton
 import com.mcserver.manager.ui.ProgressTrack
+import com.mcserver.manager.ui.QqGroupCard
 import com.mcserver.manager.ui.SegPill
 import com.mcserver.manager.ui.StepRow
 import com.mcserver.manager.ui.theme.Coral
@@ -600,6 +601,8 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     )
                 }
             }
+            // QQ 交流群入口
+            QqGroupCard()
             Spacer(Modifier.height(16.dp))
         }
 

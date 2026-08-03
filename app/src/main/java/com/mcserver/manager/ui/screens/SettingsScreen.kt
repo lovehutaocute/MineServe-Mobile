@@ -40,6 +40,7 @@ import com.mcserver.manager.data.DownloadMirror
 import com.mcserver.manager.ui.HeaderBlock
 import com.mcserver.manager.ui.McCard
 import com.mcserver.manager.ui.McViewModel
+import com.mcserver.manager.ui.QqGroupCard
 import com.mcserver.manager.ui.SegPill
 import com.mcserver.manager.ui.DebouncedTextField
 import com.mcserver.manager.ui.SubPage
@@ -224,6 +225,9 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 )
             }
         }
+
+        // QQ 交流群入口
+        QqGroupCard()
         Spacer(Modifier.height(16.dp))
     }
 }

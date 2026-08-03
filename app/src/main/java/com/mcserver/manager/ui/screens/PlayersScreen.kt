@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.VideogameAsset
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -111,7 +113,11 @@ private enum class OpLevel(val labelRes: Int, val value: Int) {
  *  - 服务器未运行时显示醒目状态横幅
  */
 @Composable
-fun PlayersScreen(vm: McViewModel) {
+fun PlayersScreen(
+    vm: McViewModel,
+    onNavigateProperties: () -> Unit = {},
+    onNavigateOpGuide: () -> Unit = {}
+) {
     val serverState by vm.serverState.collectAsState()
     val ops by vm.ops.collectAsState()
     val whitelist by vm.whitelist.collectAsState()
@@ -241,7 +247,10 @@ fun PlayersScreen(vm: McViewModel) {
                 PlayerListTab.Ops -> OpsTab(
                     ops = ops,
                     isRunning = isRunning,
+                    onOpAddDefault = { vm.opPlayer(it) },
                     onOpAdd = { name, level -> vm.opPlayerWithLevel(name, level) },
+                    onNavigateProperties = onNavigateProperties,
+                    onNavigateOpGuide = onNavigateOpGuide,
                     onShowDetail = { detailPlayer = DetailInfo.Op(it) }
                 )
                 PlayerListTab.Whitelist -> WhitelistTab(
@@ -528,11 +537,16 @@ private fun OnlinePlayerRow(
 private fun OpsTab(
     ops: List<PlayerManager.OpEntry>,
     isRunning: Boolean,
+    onOpAddDefault: (String) -> Unit,
     onOpAdd: (String, Int) -> Unit,
+    onNavigateProperties: () -> Unit,
+    onNavigateOpGuide: () -> Unit,
     onShowDetail: (PlayerManager.OpEntry) -> Unit
 ) {
     var search by remember { mutableStateOf("") }
     var opName by remember { mutableStateOf("") }
+    // 默认勾选"使用配置文件默认等级"——无需重启，实时生效
+    var useDefaultLevel by remember { mutableStateOf(true) }
     var selectedLevel by remember { mutableStateOf(OpLevel.L4) }
     var levelMenuOpen by remember { mutableStateOf(false) }
 
@@ -588,30 +602,78 @@ private fun OpsTab(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(10.dp)
         )
-        Spacer(Modifier.height(6.dp))
-        // 等级选择
-        Box {
-            OutlinedButton(
-                onClick = { levelMenuOpen = true },
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(selectedLevel.labelRes), color = Indigo, fontSize = 11.sp)
-            }
-            DropdownMenu(expanded = levelMenuOpen, onDismissRequest = { levelMenuOpen = false }) {
-                OpLevel.values().forEach { lvl ->
-                    DropdownMenuItem(
-                        text = { Text(stringResource(lvl.labelRes), fontSize = 11.sp) },
-                        onClick = { selectedLevel = lvl; levelMenuOpen = false }
-                    )
+        Spacer(Modifier.height(8.dp))
+
+        // ── 勾选框：使用配置文件默认 OP 等级（无需重启） ──
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = useDefaultLevel,
+                onCheckedChange = { useDefaultLevel = it },
+                colors = CheckboxDefaults.colors(checkedColor = Indigo)
+            )
+            Text(
+                stringResource(R.string.s1031),
+                fontSize = 11.sp,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                stringResource(R.string.s1032),
+                color = Indigo,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.clickable { onNavigateProperties() }
+            )
+        }
+
+        // ── 手动指定等级模式 ──
+        if (!useDefaultLevel) {
+            Spacer(Modifier.height(6.dp))
+            // 等级选择
+            Box {
+                OutlinedButton(
+                    onClick = { levelMenuOpen = true },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(selectedLevel.labelRes), color = Indigo, fontSize = 11.sp)
+                }
+                DropdownMenu(expanded = levelMenuOpen, onDismissRequest = { levelMenuOpen = false }) {
+                    OpLevel.values().forEach { lvl ->
+                        DropdownMenuItem(
+                            text = { Text(stringResource(lvl.labelRes), fontSize = 11.sp) },
+                            onClick = { selectedLevel = lvl; levelMenuOpen = false }
+                        )
+                    }
                 }
             }
+            // 红色提示 + 蓝色"不想重启？"
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    stringResource(R.string.s1033),
+                    color = Coral,
+                    fontSize = 10.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    stringResource(R.string.s1034),
+                    color = Indigo,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.clickable { onNavigateOpGuide() }
+                )
+            }
+            Text(
+                stringResource(R.string.s1036),
+                color = Muted,
+                fontSize = 9.sp
+            )
         }
-        Text(
-            stringResource(R.string.s698),
-            color = Muted,
-            fontSize = 9.sp
-        )
         Spacer(Modifier.height(8.dp))
         if (!isRunning) {
             Text(stringResource(R.string.s699), color = Coral, fontSize = 10.sp)
@@ -619,7 +681,11 @@ private fun OpsTab(
         Button(
             onClick = {
                 if (opName.isNotBlank()) {
-                    onOpAdd(opName.trim(), selectedLevel.value)
+                    if (useDefaultLevel) {
+                        onOpAddDefault(opName.trim())
+                    } else {
+                        onOpAdd(opName.trim(), selectedLevel.value)
+                    }
                     opName = ""
                 }
             },
@@ -628,7 +694,12 @@ private fun OpsTab(
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(stringResource(R.string.s700, selectedLevel.value), color = Color.White, fontSize = 11.sp)
+            Text(
+                if (useDefaultLevel) stringResource(R.string.s1035)
+                else stringResource(R.string.s700, selectedLevel.value),
+                color = Color.White,
+                fontSize = 11.sp
+            )
         }
     }
 }

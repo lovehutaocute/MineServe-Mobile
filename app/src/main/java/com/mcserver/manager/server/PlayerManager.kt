@@ -4,6 +4,7 @@ import com.mcserver.manager.runtime.TermuxRuntime
 import java.io.File
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.builtins.ListSerializer
 
 /**
  * 玩家管理：通过 MC 的 JSON 文件读取玩家数据，通过控制台命令管理玩家。
@@ -95,15 +96,42 @@ class PlayerManager(private val termux: TermuxRuntime) {
     }
 
     /**
-     * 添加 OP。
-     * 发送 `op $name`（不带 level 参数）：MC 的 op 命令带等级参数是 1.20.2+
-     * 才支持的，旧版会报 Usage 错误导致添加失败；与手动控制台命令保持一致。
-     * @param level 兼容参数（仅新版服务器支持指定等级，旧版默认 4 级）
-     * @return true 表示已发送
+     * 添加 OP 并指定等级。
+     *
+     * 实现策略：原版 MC 的 `/op` 命令不支持 level 参数（新 OP 等级由 server.properties
+     * 的 op-permission-level 决定，默认 4）。因此先发送 `op $name` 添加 OP，
+     * 再直接修改 ops.json 中该玩家的 level 字段。
+     *
+     * 注意：ops.json 的 level 修改需重启服务器才能生效到权限系统（运行中的 OP
+     * 权限已由 op 命令按默认等级授予）。
+     *
+     * @param name 玩家名
+     * @param level OP 等级 (1-4)
+     * @param dirName 服务端核心目录名
+     * @return true 表示已发送命令并尝试修改 ops.json
      */
-    fun opPlayerWithLevel(name: String, level: Int): Boolean {
-        // 不发送 deop：先撤后加在旧版上会导致"撤销成功、添加失败"的副作用
-        return sendCmd("op $name")
+    fun opPlayerWithLevel(name: String, level: Int, dirName: String): Boolean {
+        if (!termux.isMcRunning()) return false
+        // 1. 发送 op 命令添加 OP（等级为 server.properties 默认值，通常 4）
+        termux.sendCommand("op $name")
+        // 2. 等待 MC 回写 ops.json（含 UUID）
+        try { Thread.sleep(800) } catch (_: InterruptedException) {}
+        // 3. 修改 ops.json 中该玩家的 level 字段
+        try {
+            val opsFile = File(serverDir(dirName), "ops.json")
+            val ops = readOps(dirName).toMutableList()
+            val idx = ops.indexOfFirst { it.name.equals(name, ignoreCase = true) }
+            if (idx >= 0) {
+                ops[idx] = ops[idx].copy(level = level)
+            } else {
+                // MC 尚未回写（极端时序），添加临时条目（UUID 留空，重启后 MC 会补全）
+                ops.add(OpEntry(name = name, uuid = "", level = level))
+            }
+            opsFile.writeText(json.encodeToString(ListSerializer(OpEntry.serializer()), ops))
+        } catch (_: Exception) {
+            // ops.json 修改失败不影响 op 命令发送结果
+        }
+        return true
     }
 
     /** 取消 OP */

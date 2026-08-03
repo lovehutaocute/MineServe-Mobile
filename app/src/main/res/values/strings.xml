@@ -1045,4 +1045,33 @@
     <string name="s1028">MCServerManager 意见反馈</string>
     <string name="s1029">发送邮件反馈（167245484@qq.com）</string>
     <string name="s1030">即将删除文件：\n</string>
+    <!-- OP 等级选择 -->
+    <string name="s1031">使用配置文件默认 OP 等级（无需重启服务器）</string>
+    <string name="s1032">前往配置</string>
+    <string name="s1033">下次重启服务器后生效</string>
+    <string name="s1034">不想重启？</string>
+    <string name="s1035">添加 OP（默认等级）</string>
+    <string name="s1036">手动指定等级将写入 ops.json，需重启服务器才能生效到权限系统</string>
+    <!-- OP 等级指引页 -->
+    <string name="s1037">OP 等级指引</string>
+    <string name="s1038">关于 OP 等级</string>
+    <string name="s1039">原版 Minecraft 的 /op 命令不支持指定等级，新 OP 的等级由 server.properties 中的 op-permission-level 决定（默认 4）。如需为不同玩家设置不同等级，可选择以下方案：</string>
+    <string name="s1040">方案一：使用配置默认等级</string>
+    <string name="s1041">勾选"使用配置文件默认 OP 等级"，所有新 OP 将使用 server.properties 中 op-permission-level 的值。修改该值需重启服务器。</string>
+    <string name="s1042">前往 server.properties 配置</string>
+    <string name="s1043">方案二：安装权限管理插件</string>
+    <string name="s1044">安装 LuckPerms 等权限管理插件，可实现细粒度权限控制，无需重启即可调整玩家权限。</string>
+    <string name="s1045">前往插件管理</string>
+    <string name="s1046">OP 等级说明</string>
+    <string name="s1047">等级 1：仅绕过出生点保护，无额外命令</string>
+    <string name="s1048">等级 2：单人作弊命令（/gamemode、/give、/tp 等）</string>
+    <string name="s1049">等级 3：多人管理命令（/op、/deop、/kick、/ban 等）</string>
+    <string name="s1050">等级 4：全部命令（含 /stop、/save-all 等，默认等级）</string>
+    <!-- QQ 交流群 -->
+    <string name="s1051">QQ 交流群</string>
+    <string name="s1052">群号：593682033</string>
+    <string name="s1053">点击加入 QQ 交流群，获取最新动态、问题反馈与使用帮助</string>
+    <string name="s1054">加入群聊</string>
+    <string name="s1055">已为 %1$s 添加 OP（默认等级）</string>
+    <string name="s1056">已为 %1$s 设置 OP（等级 %2$s），重启后生效</string>
 </resources>

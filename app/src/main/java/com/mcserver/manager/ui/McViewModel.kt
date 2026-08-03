@@ -1203,14 +1203,22 @@ class McViewModel(
     fun opPlayer(name: String) {
         if (name.isBlank()) return
         val sent = playerManager.opPlayer(name)
-        afterCmd(sent, "已为 $name 添加 OP")
+        afterCmd(sent, str(R.string.s1055, name))
     }
 
-    /** 设置 OP 并指定等级（1-4） */
+    /** 设置 OP 并指定等级（1-4）。手动指定等级需重启服务器才生效到权限系统。 */
     fun opPlayerWithLevel(name: String, level: Int) {
         if (name.isBlank()) return
-        val sent = playerManager.opPlayerWithLevel(name, level)
-        afterCmd(sent, "已为 $name 设置 OP（等级 $level）")
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit(str(R.string.s266))
+            return
+        }
+        viewModelScope.launch {
+            val sent = withContext(Dispatchers.IO) {
+                playerManager.opPlayerWithLevel(name, level, dirName)
+            }
+            afterCmd(sent, str(R.string.s1056, name, level))
+        }
     }
 
     fun deopPlayer(name: String) {

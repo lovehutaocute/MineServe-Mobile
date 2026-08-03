@@ -1046,4 +1046,33 @@
     <string name="s1028" formatted="false">MCServerManager Feedback</string>
     <string name="s1029" formatted="false">Send email feedback (167245484@qq.com)</string>
     <string name="s1030" formatted="false">Delete file:\n</string>
+    <!-- OP level selection -->
+    <string name="s1031" formatted="false">Use default OP level from config (no restart needed)</string>
+    <string name="s1032" formatted="false">Go to config</string>
+    <string name="s1033" formatted="false">Takes effect after next server restart</string>
+    <string name="s1034" formatted="false">Don\'t want to restart?</string>
+    <string name="s1035" formatted="false">Add OP (default level)</string>
+    <string name="s1036" formatted="false">Manually specifying a level writes to ops.json, which requires a server restart to take effect</string>
+    <!-- OP level guide page -->
+    <string name="s1037" formatted="false">OP Level Guide</string>
+    <string name="s1038" formatted="false">About OP Levels</string>
+    <string name="s1039" formatted="false">Vanilla Minecraft\'s /op command doesn\'t support specifying a level. The new OP\'s level is determined by op-permission-level in server.properties (default 4). To set different levels for different players, choose:</string>
+    <string name="s1040" formatted="false">Option 1: Use default config level</string>
+    <string name="s1041" formatted="false">Check "Use default OP level from config", all new OPs will use the op-permission-level value from server.properties. Changing this value requires a server restart.</string>
+    <string name="s1042" formatted="false">Go to server.properties config</string>
+    <string name="s1043" formatted="false">Option 2: Install permission plugin</string>
+    <string name="s1044" formatted="false">Install permission management plugins like LuckPerms for fine-grained permission control without restarting.</string>
+    <string name="s1045" formatted="false">Go to plugins</string>
+    <string name="s1046" formatted="false">OP Level Description</string>
+    <string name="s1047" formatted="false">Level 1: Bypass spawn protection only, no extra commands</string>
+    <string name="s1048" formatted="false">Level 2: Singleplayer cheat commands (/gamemode, /give, /tp, etc.)</string>
+    <string name="s1049" formatted="false">Level 3: Multiplayer admin commands (/op, /deop, /kick, /ban, etc.)</string>
+    <string name="s1050" formatted="false">Level 4: All commands (including /stop, /save-all, etc., default level)</string>
+    <!-- QQ group -->
+    <string name="s1051" formatted="false">QQ Group</string>
+    <string name="s1052" formatted="false">Group: 593682033</string>
+    <string name="s1053" formatted="false">Click to join the QQ group for latest updates, feedback, and help</string>
+    <string name="s1054" formatted="false">Join Group</string>
+    <string name="s1055">Added OP for %1$s (default level)</string>
+    <string name="s1056">Set OP for %1$s (level %2$s), effective after restart</string>
 </resources>

@@ -1,5 +1,7 @@
 package com.mcserver.manager.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.res.stringResource
 import com.mcserver.manager.R
 import androidx.compose.foundation.background
@@ -17,6 +19,8 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -37,6 +41,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -438,4 +443,50 @@ fun DebouncedTextField(
         keyboardOptions = keyboardOptions,
         shape = shape
     )
+}
+
+/** QQ 交流群跳转链接 */
+private const val QQ_GROUP_URL =
+    "https://qun.qq.com/universal-share/share?ac=1&authKey=ISbTtN7IFJ0ItNdgzSlZ68hWxg136HpWhwOjj%2BRcl55agd85N3DCzBU82z7U8dQT&busi_data=eyJncm91cENvZGUiOiI1OTM2ODIwMzMiLCJ0b2tlbiI6ImJBS1d3WHRabHRBNUJXcHE5d1EzK01SbUZsVXg5ajM4SVdCeGhBZTVBQXNhMGlpck5DWE04azFKWWhSVW1JbTYiLCJ1aW4iOiIxNjcyNDU0ODQifQ%3D%3D&data=mDeXPqhlgK8JWPqiG2MpojgJuRaMiLLUN_czFSB2Yuhhl2mi9r-v-f6C6DzXxyXQY_Nog12BLMt6kJ8aanRlfg&svctype=4&tempid=h5_group_info"
+
+/**
+ * QQ 交流群入口卡片：显示群号并提供一键加群按钮。
+ */
+@Composable
+fun QqGroupCard() {
+    val context = LocalContext.current
+    McCard(title = stringResource(R.string.s1051)) {
+        Text(
+            stringResource(R.string.s1052),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = Indigo
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            stringResource(R.string.s1053),
+            color = Muted,
+            fontSize = 11.sp
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = {
+                try {
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(QQ_GROUP_URL)))
+                } catch (_: Exception) {
+                    // 无浏览器时静默
+                }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                stringResource(R.string.s1054),
+                color = Color.White,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
 }
