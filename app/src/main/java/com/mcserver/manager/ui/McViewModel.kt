@@ -1281,8 +1281,10 @@ class McViewModel(
     fun setGameMode(name: String, mode: Int) {
         if (name.isBlank()) return
         val sent = playerManager.setGameMode(name, mode)
-        val modeName = when (mode) { 0 -> "生存"; 1 -> "创造"; 2 -> "冒险"; 3 -> "旁观"; else -> "未知" }
-        afterCmd(sent, "已将 $name 设为$modeName 模式", refresh = false)
+        val modeNameRes = when (mode.coerceIn(0, 3)) {
+            0 -> R.string.s281; 1 -> R.string.s282; 2 -> R.string.s283; 3 -> R.string.s284; else -> R.string.s281
+        }
+        afterCmd(sent, str(R.string.s285, name, str(modeNameRes)), refresh = false)
     }
 
     /** 给玩家经验 */

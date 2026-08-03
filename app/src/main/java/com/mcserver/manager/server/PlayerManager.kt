@@ -198,11 +198,13 @@ class PlayerManager(private val termux: TermuxRuntime) {
      * @param mode 0=生存 1=创造 2=冒险 3=旁观
      */
     fun setGameMode(name: String, mode: Int): Boolean {
-        val m = mode.coerceIn(0, 3)
-        // 兼容新旧语法：MC 1.13+ 为 `gamemode <模式> <玩家>`，旧版为 `gamemode <玩家> <模式>`。
-        // 同时发送两条保证任一生效（错误的一条 MC 仅提示 usage，不影响另一条）。
-        sendCmd("gamemode $m $name")
-        return sendCmd("gamemode $name $m")
+        val modeName = when (mode.coerceIn(0, 3)) {
+            0 -> "survival"; 1 -> "creative"; 2 -> "adventure"; 3 -> "spectator"; else -> "survival"
+        }
+        // MC 1.13+ 语法：gamemode <模式名> [玩家]
+        // 旧版 pre-1.13 兼容：gamemode <玩家> <模式名>
+        sendCmd("gamemode $modeName $name")
+        return sendCmd("gamemode $name $modeName")
     }
 
     /**
