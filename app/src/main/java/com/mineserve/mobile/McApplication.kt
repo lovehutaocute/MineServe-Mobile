@@ -8,6 +8,7 @@ import android.os.Build
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.mineserve.mobile.data.ServerRepository
+import com.mineserve.mobile.data.UsageTracker
 import com.mineserve.mobile.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
@@ -104,6 +105,9 @@ class McApplication : Application(), Configuration.Provider {
         repository = ServerRepository(this, termuxRuntime)
         createNotificationChannel()
         WorkManager.initialize(this, workManagerConfiguration)
+
+        // 累计使用人数统计：设备标识上报（每天一次，失败静默）
+        UsageTracker.maybePulse(this)
 
         // 设置 bootstrap 日志回调，推送到 consoleFlow
         termuxRuntime.setBootstrapLogCallback { msg ->

@@ -1,0 +1,24 @@
+<!--
+  MineServe Mobile 累计使用人数展示片段
+  把 <script> 部分粘贴到你的网页任意位置，并把 WORKER_URL 换成你的 Worker 域名
+  例如：const WORKER_URL = "https://mineserve-usage.example.workers.dev";
+-->
+<div id="msm-usage" style="font: 15px/1.6 -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif; color: #334155;">
+  累计使用人数：<b style="color: #4f46e5;">加载中…</b>
+</div>
+<script>
+(function () {
+  const WORKER_URL = "https://REPLACE_WITH_YOUR_WORKER.workers.dev"; // ← 替换为你的 Worker 域名
+  const el = document.getElementById("msm-usage");
+  if (!el) return;
+  fetch(WORKER_URL + "/stats", { cache: "no-store" })
+    .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then(function (d) {
+      var n = (d.total || 0).toLocaleString("zh-CN");
+      el.innerHTML = '累计使用人数：<b style="color:#4f46e5;">' + n + ' 位用户</b>';
+    })
+    .catch(function () {
+      el.innerHTML = '累计使用人数：<b style="color:#4f46e5;">--</b>';
+    });
+})();
+</script>

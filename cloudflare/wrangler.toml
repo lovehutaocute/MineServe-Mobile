@@ -1,0 +1,14 @@
+name = "mineserve-usage"
+main = "worker.js"
+compatibility_date = "2025-01-01"
+
+# 需要先创建 KV namespace，把生成的 id 填到这里：
+#   npx wrangler kv namespace create COUNTS
+#   （或 Cloudflare 仪表盘 → Workers & Pages → KV → 创建命名空间）
+[[kv_namespaces]]
+binding = "COUNTS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# 部署：
+#   npx wrangler deploy
+# 部署后 workers.dev 域名形如：https://mineserve-usage.<你的子域>.workers.dev
