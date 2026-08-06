@@ -7,7 +7,7 @@ compatibility_date = "2025-01-01"
 #   （或 Cloudflare 仪表盘 → Workers & Pages → KV → 创建命名空间）
 [[kv_namespaces]]
 binding = "COUNTS"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "626e69d94e9b41e88cc671386af0e71d"
 
 # 部署：
 #   npx wrangler deploy
