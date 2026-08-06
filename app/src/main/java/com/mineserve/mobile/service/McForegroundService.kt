@@ -156,14 +156,14 @@ class McForegroundService : Service() {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
-                "MCServerManager::McWake"
+                "MineServeMobile::McWake"
             ).apply { acquire(60 * 60 * 1000L) }
         }
         if (keepWifi) {
             val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             wifiLock = wm.createWifiLock(
                 WifiManager.WIFI_MODE_FULL_HIGH_PERF,
-                "MCServerManager::McWifi"
+                "MineServeMobile::McWifi"
             ).apply { acquire() }
         }
     }

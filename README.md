@@ -1,4 +1,4 @@
-# JavaMC GO
+# MineServe Mobile
 
 <div align="center">
 
@@ -10,7 +10,7 @@
 
 </div>
 
-JavaMC GO is a native Android app that runs a Minecraft Java Edition server on your phone, with support for **9 server cores**, multi-core switching, plugin & mod management, Modrinth integration, built-in tunneling, automatic backups, crash reports, keep-alive protection, and a no-root data bridge for MT Manager.
+MineServe Mobile is a native Android app that runs a Minecraft Java Edition server on your phone, with support for **9 server cores**, multi-core switching, plugin & mod management, Modrinth integration, built-in tunneling, automatic backups, crash reports, keep-alive protection, and a no-root data bridge for MT Manager.
 
 ## ✨ Features
 
@@ -154,7 +154,7 @@ From the [Releases page](../../releases):
 
 ```bash
 git clone <repo-url>
-cd MCServerManager
+cd MineServeMobile
 ./gradlew.bat assembleRelease
 ```
 

@@ -12,7 +12,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.mineserve.mobile.service.McForegroundService
 import com.mineserve.mobile.ui.McApp
-import com.mineserve.mobile.ui.theme.MCServerManagerTheme
+import com.mineserve.mobile.ui.theme.MineServeMobileTheme
 
 class MainActivity : ComponentActivity() {
 
@@ -25,7 +25,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         ensureNotificationPermission()
         setContent {
-            MCServerManagerTheme {
+            MineServeMobileTheme {
                 McApp()
             }
         }

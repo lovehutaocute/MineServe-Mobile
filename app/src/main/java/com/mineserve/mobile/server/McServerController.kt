@@ -370,7 +370,7 @@ class McServerController(
         try {
             conn.connectTimeout = 15_000
             conn.readTimeout = 15_000
-            conn.setRequestProperty("User-Agent", "MCServerManager/1.0 (Android)")
+            conn.setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
             val code = conn.responseCode
             if (code !in 200..299) throw RuntimeException("HTTP $code")
             return conn.inputStream.bufferedReader().use { it.readText() }

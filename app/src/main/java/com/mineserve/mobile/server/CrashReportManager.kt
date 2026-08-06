@@ -62,7 +62,7 @@ class CrashReportManager(private val termux: TermuxRuntime) {
             val sb = StringBuilder()
             // ── 头部 ──
             sb.appendLine("====================================")
-            sb.appendLine("MCServerManager 崩溃报告")
+            sb.appendLine("MineServeMobile 崩溃报告")
             sb.appendLine("时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(now)}")
             sb.appendLine("退出码: $exitCode")
             sb.appendLine("进程状态: 异常退出")

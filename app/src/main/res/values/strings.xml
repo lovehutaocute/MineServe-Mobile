@@ -1,7 +1,7 @@
 <resources>
-    <string name="app_name">JavaMC GO</string>
+    <string name="app_name">MineServe Mobile</string>
     <string name="notif_channel_id">mc_server_runtime</string>
-    <string name="notif_channel_name">MC 服务运行时</string>
+    <string name="notif_channel_name">MineServe 服务运行时</string>
     <string name="notif_channel_desc">显示 Minecraft 服务器运行状态，关闭通知会导致服务被系统杀死</string>
     <string name="notif_title_running">MC 服务运行中</string>
     <string name="notif_text_running">点击查看实时状态</string>
@@ -103,7 +103,7 @@
     <string name="s86">cleanupOldSnapshots: 删除失败 %1$s</string>
     <string name="s87">cleanupOldSnapshots: 删除异常 %1$s: %2$s</string>
     <string name="s88">cleanupOldSnapshots: 已清理 %1$s 个旧快照（保留 %2$s 个）</string>
-    <string name="s89">MCServerManager 崩溃报告</string>
+    <string name="s89">MineServeMobile 崩溃报告</string>
     <string name="s90">时间: %1$s</string>
     <string name="s91">退出码: %1$s</string>
     <string name="s92">进程状态: 异常退出</string>
@@ -590,7 +590,7 @@
     <string name="s573">添加本地存储</string>
     <string name="s574">在侧拉栏中找到「添加本地存储」选项并点击。</string>
     <string name="s575">选择本应用</string>
-    <string name="s576">在弹出的列表中，找到并勾选「MCServerManager」，点击确定。</string>
+    <string name="s576">在弹出的列表中，找到并勾选「MineServeMobile」，点击确定。</string>
     <string name="s577">开始管理文件</string>
     <string name="s578">返回 MT 管理器主界面，在侧拉栏中会出现本应用的条目，点击即可浏览文件。</string>
     <string name="s579">找到服务器文件</string>
@@ -1042,7 +1042,7 @@
     <string name="s1025">基于 Termux 开源组件二次封装，proot-distro 无 root 运行。</string>
     <string name="s1026">意见反馈</string>
     <string name="s1027">遇到问题或有建议？欢迎发送邮件反馈，我们会尽快处理。</string>
-    <string name="s1028">MCServerManager 意见反馈</string>
+    <string name="s1028">MineServeMobile 意见反馈</string>
     <string name="s1029">发送邮件反馈（167245484@qq.com）</string>
     <string name="s1030">即将删除文件：\n</string>
     <!-- OP 等级选择 -->

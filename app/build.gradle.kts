@@ -5,6 +5,11 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// 正式包名（影响 APK 输出文件名）
+base {
+    archivesName.set("MineServeMobile")
+}
+
 android {
     namespace = "com.mineserve.mobile"
     compileSdk = 34

@@ -899,7 +899,7 @@ esac
         conn.connectTimeout = 10_000
         conn.readTimeout = 30_000
         conn.instanceFollowRedirects = true
-        conn.setRequestProperty("User-Agent", "MCServerManager/1.0")
+        conn.setRequestProperty("User-Agent", "MineServeMobile/1.0")
         // 支持断点续传
         val existing = if (target.exists()) target.length() else 0L
         if (existing > 0) {

@@ -1,4 +1,4 @@
-# JavaMC GO
+# MineServe Mobile
 
 <div align="center">
 
@@ -10,7 +10,7 @@
 
 </div>
 
-JavaMC GO 是一款 Android 原生应用，可在手机上直接运行 Minecraft Java 版服务端，支持 **9 类服务端核心**、多核心切换管理、插件与模组管理、Modrinth 对接、内置内网穿透、自动备份、崩溃报告、后台保活，以及免 Root 数据桥接（MT 管理器）。
+MineServe Mobile 是一款 Android 原生应用，可在手机上直接运行 Minecraft Java 版服务端，支持 **9 类服务端核心**、多核心切换管理、插件与模组管理、Modrinth 对接、内置内网穿透、自动备份、崩溃报告、后台保活，以及免 Root 数据桥接（MT 管理器）。
 
 ## ✨ 特性
 
@@ -52,7 +52,7 @@ JavaMC GO 是一款 Android 原生应用，可在手机上直接运行 Minecraft
 
 ```bash
 git clone <repo-url>
-cd MCServerManager
+cd MineServeMobile
 ./gradlew.bat assembleRelease
 ```
 

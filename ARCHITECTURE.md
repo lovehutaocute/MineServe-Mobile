@@ -1,10 +1,10 @@
-# 技术架构文档（JavaMC GO）
+# 技术架构文档（MineServe Mobile）
 
-> 原名 MCServerManager，现已更名为 **JavaMC GO**。
+> 原名 MineServeMobile，现已更名为 **MineServe Mobile**。
 
 ## 1. 总体架构
 
-JavaMC GO 是一个 Android 原生应用，核心目标是在**无 root** 的 Android 手机上运行 Minecraft Java 版服务端。关键技术挑战是 Android 10+ 的 W^X（Write XOR Execute）策略禁止从 app data 目录执行二进制文件，而 Minecraft 服务端需要 Java 运行环境。
+MineServe Mobile 是一个 Android 原生应用，核心目标是在**无 root** 的 Android 手机上运行 Minecraft Java 版服务端。关键技术挑战是 Android 10+ 的 W^X（Write XOR Execute）策略禁止从 app data 目录执行二进制文件，而 Minecraft 服务端需要 Java 运行环境。
 
 ### 架构分层
 

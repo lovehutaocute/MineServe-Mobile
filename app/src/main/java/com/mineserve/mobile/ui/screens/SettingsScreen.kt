@@ -207,7 +207,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 onClick = {
                     try {
                         val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:167245484@qq.com"))
-                        intent.putExtra(Intent.EXTRA_SUBJECT, "MCServerManager 意见反馈")
+                        intent.putExtra(Intent.EXTRA_SUBJECT, "MineServeMobile 意见反馈")
                         context.startActivity(intent)
                     } catch (e: Exception) {
                         // 设备无邮件客户端时静默

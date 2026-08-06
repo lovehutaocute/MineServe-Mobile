@@ -28,7 +28,7 @@ private val McColorScheme = lightColorScheme(
 )
 
 @Composable
-fun MCServerManagerTheme(
+fun MineServeMobileTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
