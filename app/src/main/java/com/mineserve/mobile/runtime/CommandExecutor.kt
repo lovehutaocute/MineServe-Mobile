@@ -1,0 +1,201 @@
+package com.mineserve.mobile.runtime
+
+import android.os.FileObserver
+import android.util.Log
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import java.io.BufferedReader
+import java.io.File
+import java.io.InputStreamReader
+import java.io.RandomAccessFile
+
+/**
+ * 命令执行器（Termux 原生模式，不依赖 proot）：
+ *  - 直接用 rootfs 里的 bash 执行命令
+ *  - 设置 LD_LIBRARY_PATH 指向 rootfs/lib
+ *  - 日志通过文件监视实现（替代 LocalSocket）
+ */
+class CommandExecutor(private val installer: BootstrapInstaller) {
+
+    private val _consoleFlow = MutableSharedFlow<String>(
+        replay = 256,
+        extraBufferCapacity = 2048
+    )
+    val consoleFlow: SharedFlow<String> = _consoleFlow.asSharedFlow()
+
+    private var logWatcher: FileObserver? = null
+    private var lastLogPos: Long = 0L
+
+    fun emit(line: String) {
+        _consoleFlow.tryEmit(line)
+    }
+
+    /** 使用 Android 系统 sh 执行，避免 app_data_file 执行限制 */
+    private fun buildExecCommand(command: List<String>): List<String> {
+        val sh = "/system/bin/sh"
+        val prefix = installer.rootDir.absolutePath
+        // 显式设置 PATH 和 LD_LIBRARY_PATH，确保 /system/bin/sh 能找到 Termux 命令
+        // ProcessBuilder.environment() 在某些 Android 版本上可能不正确传递 PATH
+        // LD_LIBRARY_PATH 需包含 usr/lib/（Termux compat 实际解压路径），否则 proot 找不到 libtalloc.so.2
+        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        val envSetup = "export PATH='$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsrLib:/system/lib64'; " +
+            "export PREFIX='$prefix'; " +
+            "export HOME='$prefix/home'; " +
+            "export TMPDIR='$prefix/tmp'; "
+        val cmdStr = command.joinToString(" ") { arg ->
+            if (arg.any { it == ' ' || it == '\'' || it == '"' || it == '$' }) {
+                "'${arg.replace("'", "'\\''")}'"
+            } else arg
+        }
+        return listOf(sh, "-c", envSetup + cmdStr)
+    }
+
+    /** Termux 环境变量 */
+    fun termuxEnv(): Map<String, String> {
+        val prefix = installer.rootDir.absolutePath
+        val caBundle = "$prefix/etc/ssl/certs/ca-certificates.crt"
+        // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，库实际落在 usr/lib/
+        // 必须加入 LD_LIBRARY_PATH，否则 proot 找不到 libtalloc.so.2
+        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        return mapOf(
+            "HOME" to "$prefix/home",
+            "PATH" to "$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
+            "TMPDIR" to "$prefix/tmp",
+            "LD_LIBRARY_PATH" to "$prefix/lib:$compatUsrLib:/system/lib64",
+            "PREFIX" to "$prefix",
+            "TERM" to "xterm-256color",
+            "LANG" to "en_US.UTF-8",
+            "COLORTERM" to "true",
+            "APT_CONFIG" to "$prefix/etc/apt/apt.conf",
+            "DPKG_ADMINDIR" to "$prefix/var/lib/dpkg",
+            "DPKG_CONFIGDIR" to "$prefix/etc/dpkg/dpkg.cfg.d",
+            "DEBIAN_FRONTEND" to "noninteractive",
+            // SSL 证书：让 apt 的 https 方法驱动、curl、wget 等能找到 CA 证书
+            "SSL_CERT_FILE" to caBundle,
+            "CURL_CA_BUNDLE" to caBundle,
+            "REQUESTS_CA_BUNDLE" to caBundle,
+            "SSL_CERT_DIR" to "$prefix/etc/ssl/certs",
+            "GIT_SSL_CAINFO" to caBundle
+        )
+    }
+
+    /** 一次性命令，阻塞等待完成 */
+    fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execOnce: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            // stdin 重定向到 /dev/null，避免 apt-get/dpkg 等命令阻塞等待用户输入
+            redirectInput(File("/dev/null"))
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        val process = pb.start()
+        // 确保关闭进程的 stdin（某些情况下 redirectInput 不生效）
+        process.outputStream.close()
+        BufferedReader(InputStreamReader(process.inputStream)).useLines { seq ->
+            seq.forEach { line ->
+                _consoleFlow.tryEmit(line)
+                // 同时输出到 logcat 便于调试
+                Log.d(TAG, "  | $line")
+            }
+        }
+        return process.waitFor()
+    }
+
+    /**
+     * 后台长期命令（如 tmux new-session -d）。
+     * 输出流入 consoleFlow 供 UI 订阅
+     */
+    fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execStream[$tag]: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        val process = pb.start()
+        Thread({
+            BufferedReader(InputStreamReader(process.inputStream)).use { r ->
+                var line = r.readLine()
+                while (line != null) {
+                    _consoleFlow.tryEmit("[$tag] $line")
+                    line = r.readLine()
+                }
+            }
+        }, "exec-$tag-reader").start()
+        return process
+    }
+
+    /**
+     * 启动长驻进程但不启动 reader 线程。
+     * 调用方需自行读取 [Process.getInputStream] 并处理输出。
+     * 用于 TunnelManager 等需要解析进程输出（提取公网 URL）的场景。
+     */
+    fun execRaw(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execRaw[$tag]: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            // stdin 重定向到 /dev/null，防止 ngrok/cloudflared 读 stdin 阻塞
+            redirectInput(File("/dev/null"))
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        return pb.start()
+    }
+
+    /**
+     * 启动日志文件监视：当 MC 服务器日志文件更新时，读取新行推送到 consoleFlow。
+     * 替代之前的 ConsoleSocketServer 方案，更简单可靠。
+     */
+    fun startLogWatcher(logFile: File) {
+        stopLogWatcher()
+        if (!logFile.exists()) {
+            logFile.parentFile?.mkdirs()
+            logFile.createNewFile()
+        }
+        lastLogPos = logFile.length()
+
+        logWatcher = object : FileObserver(logFile.absolutePath, MODIFY or MOVED_TO) {
+            override fun onEvent(event: Int, path: String?) {
+                try {
+                    val len = logFile.length()
+                    if (len < lastLogPos) {
+                        lastLogPos = 0
+                    }
+                    if (len > lastLogPos) {
+                        RandomAccessFile(logFile, "r").use { raf ->
+                            raf.seek(lastLogPos)
+                            val data = ByteArray((len - lastLogPos).toInt())
+                            raf.readFully(data)
+                            String(data).split("\n").forEach { line ->
+                                if (line.isNotBlank()) {
+                                    _consoleFlow.tryEmit(line)
+                                }
+                            }
+                        }
+                        lastLogPos = len
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "logWatcher error: ${e.message}")
+                }
+            }
+        }
+        logWatcher?.startWatching()
+        Log.i(TAG, "logWatcher started on ${logFile.absolutePath}")
+    }
+
+    fun stopLogWatcher() {
+        logWatcher?.stopWatching()
+        logWatcher = null
+    }
+
+    companion object { private const val TAG = "CommandExecutor" }
+}

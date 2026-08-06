@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.mcserver.manager"
+    namespace = "com.mineserve.mobile"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.mcserver.manager"
+        applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
         versionCode = 1
