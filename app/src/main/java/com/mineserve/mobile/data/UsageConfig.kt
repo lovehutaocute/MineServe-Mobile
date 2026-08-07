@@ -6,5 +6,5 @@ package com.mineserve.mobile.data
  *   https://mineserve-usage.your-subdomain.workers.dev
  */
 object UsageConfig {
-    const val WORKER_BASE_URL = "https://mineserve-usage.hvhvhhbv.workers.dev"
+    const val WORKER_BASE_URL = "https://mcc.xn--fjqu03a.top"
 }
