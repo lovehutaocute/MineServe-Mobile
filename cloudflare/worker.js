@@ -45,7 +45,39 @@ const PAGE_TEMPLATE = `<!DOCTYPE html>
     <div class="num"><b id="total">__TOTAL__</b></div>
     <div class="label"><span class="pulse"></span>位用户正在使用 MineServe Mobile 运行服务器</div>
     <div class="meta">更新于 __UPDATED__ · 数据由 Cloudflare Workers 统计</div>
+    <div style="margin-top:16px;">
+      <button onclick="resetData()"
+        style="background:transparent;color:#f87171;border:1px solid rgba(248,113,113,.4);
+        border-radius:8px;padding:6px 16px;font-size:12px;cursor:pointer;">清空数据</button>
+    </div>
+    <div id="resetMsg" style="margin-top:8px;font-size:12px;color:#94a3b8;"></div>
   </div>
+  <script>
+    function resetData() {
+      if (!confirm("确认清空全部累计使用人数统计？此操作不可恢复！")) return;
+      var code = prompt("请输入确认码（默认 RESET-CONFIRM，可在 Worker 代码中修改）：", "RESET-CONFIRM");
+      if (!code) return;
+      fetch("/reset", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: code })
+      }).then(function (r) { return r.json(); }).then(function (d) {
+        var msg = document.getElementById("resetMsg");
+        if (d.ok) {
+          msg.textContent = "已清空 " + (d.cleared || 0) + " 条设备记录";
+          msg.style.color = "#22c55e";
+          document.getElementById("total").textContent = "0";
+        } else {
+          msg.textContent = "清空失败：" + (d.error || "未知错误");
+          msg.style.color = "#f87171";
+        }
+      }).catch(function () {
+        var msg = document.getElementById("resetMsg");
+        msg.textContent = "网络错误，清空失败";
+        msg.style.color = "#f87171";
+      });
+    }
+  </script>
 </body>
 </html>`;
 
@@ -87,6 +119,31 @@ export default {
     if (path === '/stats') {
       const total = parseInt((await env.COUNTS.get('total')) || '0', 10);
       return json({ total });
+    }
+
+    // 清空统计数据（防误触：需确认码，可修改 RESET_CODE）
+    if (path === '/reset') {
+      if (request.method !== 'POST') {
+        return json({ ok: false, error: 'Method Not Allowed' }, 405);
+      }
+      const RESET_CODE = 'RESET-CONFIRM';
+      let body = {};
+      try { body = await request.json(); } catch (e) {}
+      if (!body || body.code !== RESET_CODE) {
+        return json({ ok: false, error: 'invalid code' }, 403);
+      }
+      let deleted = 0;
+      let cursor;
+      do {
+        const page = await env.COUNTS.list({ prefix: 'seen:', cursor });
+        for (const k of page.keys) {
+          await env.COUNTS.delete(k.name);
+          deleted++;
+        }
+        cursor = page.cursor;
+      } while (cursor);
+      await env.COUNTS.delete('total');
+      return json({ ok: true, cleared: deleted, total: 0 });
     }
 
     // 设备上报（幂等：同一设备只计一次）

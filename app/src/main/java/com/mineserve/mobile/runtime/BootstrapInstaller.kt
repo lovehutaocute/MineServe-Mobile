@@ -897,7 +897,7 @@ esac
         target.parentFile?.mkdirs()
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         conn.connectTimeout = 10_000
-        conn.readTimeout = 30_000
+        conn.readTimeout = 15_000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "MineServeMobile/1.0")
         // 支持断点续传

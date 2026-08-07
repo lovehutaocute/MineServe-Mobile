@@ -1094,5 +1094,7 @@
     <string name="update_checking">Checking for updates…</string>
     <string name="update_available">New version %1$s available</string>
     <string name="update_check_failed">Check failed (network error)</string>
+    <string name="mirror_switch_requested">Switch mirror requested</string>
+    <string name="mirror_switching">Switching…</string>
 </resources>
 

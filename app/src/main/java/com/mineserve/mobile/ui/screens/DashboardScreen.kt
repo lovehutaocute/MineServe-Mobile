@@ -77,6 +77,7 @@ import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
 import com.mineserve.mobile.ui.theme.Muted
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -112,6 +113,9 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     var showStartSettings by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
+    var switchInProgress by remember { mutableStateOf(false) }
+    // Snackbar 文案需在 Composable 上下文取值（onClick 内不可调用 @Composable）
+    val mirrorSwitchMsg = stringResource(R.string.mirror_switch_requested)
 
     // 收集 errorFlow 和 messageFlow，显示 Snackbar
     LaunchedEffect(Unit) {
@@ -297,11 +301,24 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedButton(
-                                    onClick = { vm.switchBootstrapMirror() },
+                                    onClick = {
+                                        if (switchInProgress) return@OutlinedButton
+                                        switchInProgress = true
+                                        vm.switchBootstrapMirror()
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(mirrorSwitchMsg)
+                                            delay(1500)
+                                            switchInProgress = false
+                                        }
+                                    },
+                                    enabled = !switchInProgress,
                                     shape = RoundedCornerShape(8.dp),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
-                                    Text(stringResource(R.string.s1058), fontSize = 10.sp, color = Indigo)
+                                    Text(
+                                        stringResource(if (switchInProgress) R.string.mirror_switching else R.string.s1058),
+                                        fontSize = 10.sp, color = Indigo
+                                    )
                                 }
                             }
                         }
