@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.util.Log
 import com.mineserve.mobile.R
+import com.mineserve.mobile.data.MultiThreadDownloader
 import com.mineserve.mobile.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -581,49 +582,9 @@ class PluginManager(
         url: String,
         target: File,
         onProgress: (Long, Long, Long) -> Unit
-    ) {
-        var connection: HttpURLConnection? = null
-        try {
-            connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                instanceFollowRedirects = true
-                connectTimeout = 30_000
-                readTimeout = 60_000
-                setRequestProperty("User-Agent", "McServerManager/1.0 (Android)")
-            }
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                throw RuntimeException("HTTP $responseCode 下载失败: $url")
-            }
-            val total = connection.contentLengthLong
-            var downloaded = 0L
-            var lastSpeedBytes = 0L
-            var lastSpeedTime = System.currentTimeMillis()
-
-            connection.inputStream.use { input ->
-                FileOutputStream(target).use { fos ->
-                    val buffer = ByteArray(64 * 1024)
-                    while (true) {
-                        val read = input.read(buffer)
-                        if (read <= 0) break
-                        fos.write(buffer, 0, read)
-                        downloaded += read
-
-                        val now = System.currentTimeMillis()
-                        if (now - lastSpeedTime >= 500) {
-                            val elapsedSec = (now - lastSpeedTime) / 1000.0
-                            val speed = if (elapsedSec > 0) {
-                                ((downloaded - lastSpeedBytes) / elapsedSec).toLong()
-                            } else 0L
-                            onProgress(downloaded, total, speed)
-                            lastSpeedBytes = downloaded
-                            lastSpeedTime = now
-                        }
-                    }
-                }
-            }
-            onProgress(downloaded, total, 0L)
-        } finally {
-            connection?.disconnect()
+    ) = kotlinx.coroutines.runBlocking {
+        MultiThreadDownloader.download(url, target, onProgress) { logMsg ->
+            Log.i(TAG, "download: $logMsg")
         }
     }
 
@@ -772,13 +733,19 @@ class PluginManager(
 
     private val modrinthJson = Json { ignoreUnknownKeys = true }
 
-    /** 搜索 Modrinth 模组（按加载器过滤，最多 20 条） */
-    /**
-     * 搜索 Modrinth 模组（多加载器 OR 过滤 + 排序，最多 20 条）
-     * @param loaders 加载器列表（fabric/forge/quilt/neoforge 等），空表示不限
+    /** 搜索 Modrinth 模组/插件（多加载器 OR 过滤 + 版本筛选 + 排序，最多 20 条）
+     * @param loaders 加载器列表（fabric/forge/quilt/neoforge/bukkit/paper 等），空表示不限
+     * @param mcVersion MC 游戏版本筛选（不匹配即返回空），空表示不限
+     * @param projectType 项目类型：mod / plugin
      * @param sort 排序：relevance/downloads/newest
      */
-    fun searchModrinth(query: String, loaders: List<String>, sort: String): List<ModrinthHit> {
+    fun searchModrinth(
+        query: String,
+        loaders: List<String>,
+        sort: String,
+        projectType: String = "mod",
+        mcVersion: String = ""
+    ): List<ModrinthHit> {
         if (query.isBlank()) return emptyList()
         return try {
             val facets = buildString {
@@ -791,7 +758,10 @@ class PluginManager(
                     }
                     append("],")
                 }
-                append("[\"project_type:mod\"]")
+                if (mcVersion.isNotBlank()) {
+                    append("[\"versions:$mcVersion\"],")
+                }
+                append("[\"project_type:$projectType\"]")
                 append("]")
             }
             val urlStr = "https://api.modrinth.com/v2/search?query=${java.net.URLEncoder.encode(query, "UTF-8")}" +
@@ -803,6 +773,56 @@ class PluginManager(
             emptyList()
         }
     }
+
+    /** 拉取 Modrinth 支持的 MC 游戏版本列表（过滤 rc/pre/snapshot，取最新 N 个） */
+    private val gameVersionCache = ConcurrentHashMap<String, Pair<Long, List<String>>>()
+
+    fun fetchModrinthGameVersions(limit: Int = 40): List<String> {
+        val now = System.currentTimeMillis()
+        val cached = gameVersionCache["all"]
+        if (cached != null && now - cached.first < 10 * 60 * 1000L) {
+            return cached.second
+        }
+        val versions = try {
+            val body = fetchModrinthText("https://api.modrinth.com/v2/tag/game_version")
+            val raw = modrinthJson.decodeFromString<List<ModrinthGameVersion>>(body).map { it.version }
+            raw.filter { v ->
+                v.matches(Regex("\\d+\\.\\d+(\\.\\d+)?")) &&
+                    !v.contains("rc", ignoreCase = true) &&
+                    !v.contains("pre", ignoreCase = true) &&
+                    !v.contains("snapshot", ignoreCase = true)
+            }
+                .distinct()
+                .sortedWith(compareByDescending { versionKey(it) })
+                .take(limit)
+        } catch (e: Exception) {
+            DEFAULT_GAME_VERSIONS
+        }
+        if (versions.isNotEmpty()) gameVersionCache["all"] = now to versions
+        return versions
+    }
+
+    /** MC 版本 → 可比较排序键（1.20.4 → 1040200） */
+    private fun versionKey(v: String): Long {
+        val parts = v.split(".").map { it.toIntOrNull() ?: 0 }
+        return when (parts.size) {
+            1 -> parts[0] * 1_000_000L
+            2 -> parts[0] * 1_000_000L + parts[1] * 1_000L
+            else -> parts[0] * 1_000_000L + parts[1] * 1_000L + parts[2]
+        }
+    }
+
+    @Serializable
+    private data class ModrinthGameVersion(val version: String = "")
+
+    private val DEFAULT_GAME_VERSIONS = listOf(
+        "1.21.9", "1.21.8", "1.21.7", "1.21.6", "1.21.5", "1.21.4", "1.21.3", "1.21.2", "1.21.1", "1.21",
+        "1.20.6", "1.20.5", "1.20.4", "1.20.3", "1.20.2", "1.20.1", "1.20",
+        "1.19.4", "1.19.3", "1.19.2", "1.19.1", "1.19",
+        "1.18.2", "1.18.1", "1.18",
+        "1.17.1", "1.17",
+        "1.16.5", "1.16.4", "1.16.3", "1.16.2", "1.16.1", "1.16"
+    )
 
     /** 拉取 Modrinth 全部可用加载器列表 */
     fun fetchModrinthLoaders(): List<String> {

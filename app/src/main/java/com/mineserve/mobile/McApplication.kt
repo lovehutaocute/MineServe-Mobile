@@ -7,6 +7,7 @@ import android.content.Context
 import android.os.Build
 import androidx.work.Configuration
 import androidx.work.WorkManager
+import com.mineserve.mobile.data.DownloadPrefs
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.UsageTracker
 import com.mineserve.mobile.runtime.TermuxRuntime
@@ -103,6 +104,9 @@ class McApplication : Application(), Configuration.Provider {
             } catch (_: Exception) {}
             defaultHandler?.uncaughtException(thread, throwable)
         }
+
+        // 初始化多线程下载设置持有器（供各下载模块读取）
+        DownloadPrefs.init(this)
 
         termuxRuntime = TermuxRuntime(this)
 

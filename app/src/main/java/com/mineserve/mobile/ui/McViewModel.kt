@@ -516,10 +516,27 @@ class McViewModel(
     fun setAutoRestart(v: Boolean) = updateConfig { it.copy(autoRestartOnCrash = v) }
     fun setKeepWifiLock(v: Boolean) = updateConfig { it.copy(keepWifiLock = v) }
     fun setKeepCpuWakelock(v: Boolean) = updateConfig { it.copy(keepCpuWakelock = v) }
-    fun setDownloadMirror(mirror: com.mineserve.mobile.data.DownloadMirror) =
-        updateConfig { it.copy(downloadMirror = mirror) }
     fun setAptMirror(mirror: com.mineserve.mobile.data.AptMirror) =
         updateConfig { it.copy(aptMirror = mirror) }
+    fun setDownloadMirror(mirror: com.mineserve.mobile.data.DownloadMirror) =
+        updateConfig { it.copy(downloadMirror = mirror) }
+
+    /** 多线程下载是否启用（内置下载模块开关，默认启用） */
+    fun isMultiThreadDownloadEnabled(): Boolean = com.mineserve.mobile.data.DownloadPrefs.isEnabled()
+
+    /** 下载线程数 */
+    fun downloadThreadCount(): Int = com.mineserve.mobile.data.DownloadPrefs.threadCount()
+
+    /** 切换多线程下载开关 */
+    fun setMultiThreadDownloadEnabled(enabled: Boolean) {
+        com.mineserve.mobile.data.DownloadPrefs.setEnabled(enabled)
+        _messageFlow.tryEmit(if (enabled) "已启用多线程下载" else "已关闭多线程下载（改用单流下载）")
+    }
+
+    /** 设置下载线程数 */
+    fun setDownloadThreadCount(count: Int) {
+        com.mineserve.mobile.data.DownloadPrefs.setThreadCount(count)
+    }
 
     fun installDependencies() {
         if (!isBootstrapped.value) {
@@ -801,10 +818,25 @@ class McViewModel(
     private val _modrinthLoaders = MutableStateFlow<List<String>>(emptyList())
     val modrinthLoaders: StateFlow<List<String>> = _modrinthLoaders.asStateFlow()
 
+    /** Modrinth 支持的 MC 游戏版本（供版本筛选下拉） */
+    private val _modrinthGameVersions = MutableStateFlow<List<String>>(emptyList())
+    val modrinthGameVersions: StateFlow<List<String>> = _modrinthGameVersions.asStateFlow()
+
+    /** 模组筛选选中的游戏版本（默认当前服务器版本） */
+    private val _selectedModVersion = MutableStateFlow("")
+    val selectedModVersion: StateFlow<String> = _selectedModVersion.asStateFlow()
+
     /** 当前核心对应的 Modrinth 加载器名 */
     private fun modrinthLoader(core: com.mineserve.mobile.data.ServerCore): String =
         if (core == com.mineserve.mobile.data.ServerCore.Fabric || core == com.mineserve.mobile.data.ServerCore.Quilt) "fabric"
         else "forge"
+
+    /** 当前激活核心的 MC 版本（用于版本匹配判断） */
+    private fun currentServerVersion(): String {
+        val cfg = config.value
+        return cfg.installedCores.find { it.name == cfg.activeCoreName }?.version
+            ?: cfg.mcVersion
+    }
 
     /** 加载 Modrinth 可用加载器列表 */
     fun loadModrinthLoaders() {
@@ -813,11 +845,26 @@ class McViewModel(
         }
     }
 
-    /** 搜索 Modrinth 模组（多加载器 + 排序） */
-    fun searchModrinthMods(query: String, loaders: List<String>, sort: String) {
+    /** 加载 Modrinth 游戏版本列表；默认选中当前服务器版本 */
+    fun loadModrinthGameVersions() {
+        viewModelScope.launch {
+            val versions = withContext(Dispatchers.IO) { pluginManager.fetchModrinthGameVersions() }
+            _modrinthGameVersions.value = versions
+            val serverVer = currentServerVersion()
+            _selectedModVersion.value = serverVer.takeIf { it.isNotBlank() && it in versions } ?: versions.firstOrNull().orEmpty()
+        }
+    }
+
+    /** 切换模组筛选的 MC 版本 */
+    fun setSelectedModVersion(v: String) {
+        _selectedModVersion.value = v
+    }
+
+    /** 搜索 Modrinth 模组（多加载器 + 版本筛选 + 排序） */
+    fun searchModrinthMods(query: String, loaders: List<String>, sort: String, mcVersion: String) {
         viewModelScope.launch {
             _modrinthResults.value = withContext(Dispatchers.IO) {
-                pluginManager.searchModrinth(query, loaders, sort)
+                pluginManager.searchModrinth(query, loaders, sort, projectType = "mod", mcVersion = mcVersion)
             }
             if (_modrinthResults.value.isEmpty()) {
                 _messageFlow.tryEmit(str(R.string.s223))
@@ -825,8 +872,8 @@ class McViewModel(
         }
     }
 
-    /** 一键安装 Modrinth 模组（解析最新 release 直链并下载到 mods/） */
-    fun installModrinthMod(hit: PluginManager.ModrinthHit) {
+    /** 一键安装 Modrinth 模组（解析指定版本 release 直链并下载到 mods/） */
+    fun installModrinthMod(hit: PluginManager.ModrinthHit, mcVersion: String) {
         if (!isBootstrapped.value) {
             _errorFlow.tryEmit(str(R.string.s192))
             return
@@ -836,7 +883,6 @@ class McViewModel(
             return
         }
         val loader = modrinthLoader(config.value.selectedCore)
-        val mcVersion = config.value.mcVersion
         viewModelScope.launch {
             try {
                 val url = withContext(Dispatchers.IO) {
@@ -848,6 +894,75 @@ class McViewModel(
                 refreshMods()
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s226, e.message))
+            }
+        }
+    }
+
+    // ── Modrinth 插件获取（插件页复用同一下载模块） ───────────────
+
+    private val _pluginModrinthResults = MutableStateFlow<List<PluginManager.ModrinthHit>>(emptyList())
+    val pluginModrinthResults: StateFlow<List<PluginManager.ModrinthHit>> = _pluginModrinthResults.asStateFlow()
+
+    private val _pluginModrinthLoaders = MutableStateFlow<List<String>>(emptyList())
+    val pluginModrinthLoaders: StateFlow<List<String>> = _pluginModrinthLoaders.asStateFlow()
+
+    private val _selectedPluginVersion = MutableStateFlow("")
+    val selectedPluginVersion: StateFlow<String> = _selectedPluginVersion.asStateFlow()
+
+    fun loadPluginModrinthLoaders() {
+        viewModelScope.launch {
+            _pluginModrinthLoaders.value = withContext(Dispatchers.IO) { pluginManager.fetchModrinthLoaders() }
+        }
+    }
+
+    fun loadPluginModrinthVersions() {
+        viewModelScope.launch {
+            val versions = withContext(Dispatchers.IO) { pluginManager.fetchModrinthGameVersions() }
+            if (_pluginModrinthResults.value.isEmpty()) {
+                val serverVer = currentServerVersion()
+                _selectedPluginVersion.value = serverVer.takeIf { it.isNotBlank() && it in versions } ?: versions.firstOrNull().orEmpty()
+            }
+        }
+    }
+
+    fun setSelectedPluginVersion(v: String) {
+        _selectedPluginVersion.value = v
+    }
+
+    /** 插件页搜索 Modrinth 插件（project_type=plugin，布局与模组页统一） */
+    fun searchModrinthPlugin(query: String, loaders: List<String>, sort: String, mcVersion: String) {
+        viewModelScope.launch {
+            _pluginModrinthResults.value = withContext(Dispatchers.IO) {
+                pluginManager.searchModrinth(query, loaders, sort, projectType = "plugin", mcVersion = mcVersion)
+            }
+            if (_pluginModrinthResults.value.isEmpty()) {
+                _messageFlow.tryEmit(str(R.string.s223))
+            }
+        }
+    }
+
+    /** 安装 Modrinth 插件到 plugins/ 目录 */
+    fun installModrinthPlugin(hit: PluginManager.ModrinthHit, mcVersion: String) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit(str(R.string.s192))
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit(str(R.string.s212))
+            return
+        }
+        val loader = "bukkit"
+        viewModelScope.launch {
+            try {
+                val url = withContext(Dispatchers.IO) {
+                    pluginManager.resolveModrinthDownload(hit.slug, mcVersion, loader)
+                } ?: throw RuntimeException("该插件不支持所选 MC 版本/加载器")
+                val fileName = "${hit.slug}.jar"
+                withContext(Dispatchers.IO) { pluginManager.installFromUrl(url, fileName, dirName) }
+                _messageFlow.tryEmit(str(R.string.s229, hit.title))
+                refreshInstalledPlugins()
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.s230, e.message))
             }
         }
     }

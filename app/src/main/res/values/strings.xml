@@ -1113,5 +1113,16 @@
     <string name="hero_online">在线</string>
     <string name="hero_memory">内存</string>
     <string name="hero_uptime">运行时长</string>
+    <string name="s1061">版本</string>
+    <string name="s1062">暂无版本</string>
+    <string name="s1063" formatted="false">所选版本 %1$s 与当前服务器版本 %2$s 不匹配，可能无法加载</string>
+    <string name="s1064">下载设置</string>
+    <string name="s1065">多线程下载加速</string>
+    <string name="s1066">使用内置多线程分片下载模块并行下载（环境包 / 服务端核心 / 模组 / 插件），默认启用；无需 Root，基于 HTTP Range 分段下载后合并</string>
+    <string name="s1067">下载线程数</string>
+    <string name="s1068">插件获取（Modrinth）</string>
+    <string name="s1069">从 Modrinth 开放平台搜索并一键安装插件</string>
+    <string name="s1070">搜索插件，如 EssentialsX</string>
+    <string name="s1071">该插件不兼容所选加载器 (bukkit)</string>
 </resources>
 

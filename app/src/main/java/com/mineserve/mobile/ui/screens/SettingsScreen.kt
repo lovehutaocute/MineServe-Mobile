@@ -27,6 +27,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -124,6 +126,36 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                         text = mirror.displayName,
                         selected = config.aptMirror == mirror,
                         onClick = { vm.setAptMirror(mirror) }
+                    )
+                }
+            }
+        }
+
+        // 多线程下载设置（内置下载加速模块）
+        McCard(title = stringResource(R.string.s1064)) {
+            val enabledState = remember { mutableStateOf(vm.isMultiThreadDownloadEnabled()) }
+            val threadState = remember { mutableStateOf(vm.downloadThreadCount()) }
+            SettingToggle(
+                title = stringResource(R.string.s1065),
+                subtitle = stringResource(R.string.s1066),
+                checked = enabledState.value,
+                onChange = {
+                    enabledState.value = it
+                    vm.setMultiThreadDownloadEnabled(it)
+                }
+            )
+            Spacer(Modifier.height(10.dp))
+            Text(stringResource(R.string.s1067), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.height(6.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(2, 4, 8).forEach { count ->
+                    SegPill(
+                        text = "${count} 线程",
+                        selected = threadState.value == count && enabledState.value,
+                        onClick = {
+                            threadState.value = count
+                            vm.setDownloadThreadCount(count)
+                        }
                     )
                 }
             }

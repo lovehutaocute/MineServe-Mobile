@@ -2,6 +2,8 @@ package com.mineserve.mobile.runtime
 
 import android.content.Context
 import android.util.Log
+import com.mineserve.mobile.data.DownloadPrefs
+import com.mineserve.mobile.data.MultiThreadDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -382,11 +384,30 @@ class BootstrapInstaller(private val context: Context) {
             log("尝试 $label: ${url.take(80)}...")
             try {
                 rootfsFile.delete()
-                Log.i(TAG, "[下载] 调用 httpDownload, url=${url.take(100)}")
-                httpDownload(url, rootfsFile, 15..45, onProgress) { msg ->
-                    log(msg)
+                Log.i(TAG, "[下载] 开始下载（多线程=${DownloadPrefs.isEnabled()}），url=${url.take(100)}")
+                if (DownloadPrefs.isEnabled()) {
+                    // 多线程分片下载（内置模块），保留镜像源切换与 SHA256 校验
+                    kotlinx.coroutines.runBlocking {
+                        MultiThreadDownloader.download(
+                            url = url,
+                            target = rootfsFile,
+                            onProgress = { downloaded, total, speedBps ->
+                                if (total > 0) {
+                                    // 将 0-100% 映射到整体进度的 15..45 区间（与单流保持一致）
+                                    val pct = 15 + (30 * downloaded / total).toInt()
+                                    onProgress(pct.coerceIn(15, 45))
+                                }
+                                onSpeed?.invoke(downloaded, speedBps)
+                            },
+                            onLog = ::log
+                        )
+                    }
+                } else {
+                    httpDownload(url, rootfsFile, 15..45, onProgress) { msg ->
+                        log(msg)
+                    }
                 }
-                Log.i(TAG, "[下载] httpDownload 正常返回, 已下载 ${rootfsFile.length()} 字节")
+                Log.i(TAG, "[下载] 下载返回, 已下载 ${rootfsFile.length()} 字节")
                 // 检查是否被用户请求停止切换
                 if (stopAndSwitchRequested) {
                     Log.w(TAG, "[切换] httpDownload 返回后检测到 stopAndSwitchRequested=true, 跳过 $label")

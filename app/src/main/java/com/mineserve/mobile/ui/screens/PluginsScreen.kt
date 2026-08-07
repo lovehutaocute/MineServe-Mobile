@@ -162,6 +162,11 @@ fun PluginsScreen(vm: McViewModel) {
     val mods by vm.mods.collectAsState()
     val modrinthResults by vm.modrinthResults.collectAsState()
     val modrinthLoaders by vm.modrinthLoaders.collectAsState()
+    val modrinthGameVersions by vm.modrinthGameVersions.collectAsState()
+    val selectedModVersion by vm.selectedModVersion.collectAsState()
+    val pluginModrinthResults by vm.pluginModrinthResults.collectAsState()
+    val pluginModrinthLoaders by vm.pluginModrinthLoaders.collectAsState()
+    val selectedPluginVersion by vm.selectedPluginVersion.collectAsState()
     val downloadProgress by vm.pluginDownloadProgress.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -197,11 +202,19 @@ fun PluginsScreen(vm: McViewModel) {
     LaunchedEffect(coreType) {
         resourceType = availableTypes.firstOrNull() ?: ResourceType.Plugin
     }
-    // 进入模组分类时刷新模组列表 + 加载 Modrinth 加载器列表
+    // 进入模组分类时刷新模组列表 + 加载 Modrinth 加载器与游戏版本
     LaunchedEffect(isBootstrapped, config.activeCoreName, resourceType) {
         if (isBootstrapped && config.activeCoreName != null && resourceType == ResourceType.Mod) {
             vm.refreshMods()
             vm.loadModrinthLoaders()
+            vm.loadModrinthGameVersions()
+        }
+    }
+    // 进入插件分类时加载插件 Modrinth 资源
+    LaunchedEffect(isBootstrapped, config.activeCoreName, resourceType) {
+        if (isBootstrapped && config.activeCoreName != null && resourceType == ResourceType.Plugin) {
+            vm.loadPluginModrinthLoaders()
+            vm.loadPluginModrinthVersions()
         }
     }
     val pluginsPath = vm.currentPluginsPath()
@@ -397,14 +410,36 @@ fun PluginsScreen(vm: McViewModel) {
                     curatedMods = vm.curatedMods,
                     activeCoreExists = activeCore != null,
                     coreType = coreType,
+                    currentServerVersion = activeCore?.version ?: config.mcVersion,
                     modrinthResults = modrinthResults,
                     modrinthLoaders = modrinthLoaders,
+                    modrinthGameVersions = modrinthGameVersions,
+                    selectedModVersion = selectedModVersion,
+                    onSetModVersion = { vm.setSelectedModVersion(it) },
                     onToggle = { vm.toggleModEnabled(it) },
                     onDelete = { pendingModDelete = it },
                     onUpload = { uri -> vm.installModFromUri(uri) },
                     onInstallCurated = { vm.installCuratedMod(it) },
-                    onSearchModrinth = { query, loaders, sort -> vm.searchModrinthMods(query, loaders, sort) },
-                    onInstallModrinth = { vm.installModrinthMod(it) }
+                    onSearchModrinth = { query, loaders, sort, version ->
+                        vm.searchModrinthMods(query, loaders, sort, version)
+                    },
+                    onInstallModrinth = { hit, version -> vm.installModrinthMod(hit, version) }
+                )
+            }
+
+            // ── 插件页 Modrinth 资源检索（与模组页布局统一） ──
+            if (resourceType == ResourceType.Plugin) {
+                PluginModrinthCard(
+                    results = pluginModrinthResults,
+                    loaders = pluginModrinthLoaders,
+                    gameVersions = modrinthGameVersions,
+                    selectedVersion = selectedPluginVersion,
+                    currentServerVersion = activeCore?.version ?: config.mcVersion,
+                    onSetVersion = { vm.setSelectedPluginVersion(it) },
+                    onSearch = { query, loaders, sort, version ->
+                        vm.searchModrinthPlugin(query, loaders, sort, version)
+                    },
+                    onInstall = { hit, version -> vm.installModrinthPlugin(hit, version) }
                 )
             }
 
@@ -1323,19 +1358,24 @@ private fun BadgeChip(text: String, color: Color, bg: Color) {
 // ── 模组分类 ──────────────────────────────────────────────────────
 
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun ModsTab(
     mods: List<PluginManager.ModEntry>,
     curatedMods: List<PluginManager.CuratedMod>,
     activeCoreExists: Boolean,
     coreType: ServerCore,
+    currentServerVersion: String,
     modrinthResults: List<PluginManager.ModrinthHit>,
     modrinthLoaders: List<String>,
+    modrinthGameVersions: List<String>,
+    selectedModVersion: String,
+    onSetModVersion: (String) -> Unit,
     onToggle: (String) -> Unit,
     onDelete: (PluginManager.ModEntry) -> Unit,
     onUpload: (Uri) -> Unit,
     onInstallCurated: (PluginManager.CuratedMod) -> Unit,
-    onSearchModrinth: (String, List<String>, String) -> Unit,
-    onInstallModrinth: (PluginManager.ModrinthHit) -> Unit
+    onSearchModrinth: (String, List<String>, String, String) -> Unit,
+    onInstallModrinth: (PluginManager.ModrinthHit, String) -> Unit
 ) {
     var modrinthQuery by remember { mutableStateOf("") }
     var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
@@ -1415,7 +1455,6 @@ private fun ModsTab(
 
     // ── Modrinth 模组获取 ──
     var sortMenuOpen by remember { mutableStateOf(false) }
-    @OptIn(ExperimentalLayoutApi::class)
     McCard(title = stringResource(R.string.s831)) {
         Text(
             stringResource(R.string.s832),
@@ -1450,15 +1489,58 @@ private fun ModsTab(
                     }
                 }
             }
-            Spacer(Modifier.size(6.dp))
+Spacer(Modifier.size(6.dp))
             Button(
-                onClick = { onSearchModrinth(modrinthQuery.trim(), selectedLoaders.toList(), sortOptions[sortIndex].first) },
+                onClick = { onSearchModrinth(modrinthQuery.trim(), selectedLoaders.toList(), sortOptions[sortIndex].first, selectedModVersion) },
                 enabled = modrinthQuery.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(stringResource(R.string.s834), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             }
+        }
+        // 版本筛选 ｜ 加载器 下拉（布局参考：版本下拉框｜加载器下拉框）
+        var versionMenuOpen by remember { mutableStateOf(false) }
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.s1061), color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(6.dp))
+            Box {
+                OutlinedButton(
+                    onClick = { versionMenuOpen = true },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        if (selectedModVersion.isNotBlank()) selectedModVersion else "--",
+                        fontSize = 11.sp,
+                        color = Indigo,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                DropdownMenu(expanded = versionMenuOpen, onDismissRequest = { versionMenuOpen = false }) {
+                    if (modrinthGameVersions.isEmpty()) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.s1062), fontSize = 11.sp) }, onClick = { versionMenuOpen = false })
+                    }
+                    modrinthGameVersions.forEach { v ->
+                        DropdownMenuItem(
+                            text = { Text(v, fontSize = 11.sp, color = if (v == currentServerVersion) Indigo else Muted) },
+                            onClick = { onSetModVersion(v); versionMenuOpen = false }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            Text(stringResource(R.string.s835), color = Muted, fontSize = 10.sp)
+        }
+        if (selectedModVersion.isNotBlank() && selectedModVersion != currentServerVersion && currentServerVersion.isNotBlank()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.s1063, selectedModVersion, currentServerVersion),
+                color = Coral,
+                fontSize = 10.sp,
+fontWeight = FontWeight.SemiBold
+            )
         }
         // 加载器多选筛选
         if (modrinthLoaders.isNotEmpty()) {
@@ -1510,12 +1592,202 @@ private fun ModsTab(
                                 color = Coral,
                                 fontSize = 9.sp
                             )
+                        }
+                        // 选中版本与当前服务器版本不匹配红字提示（模组条目下方）
+                        if (selectedModVersion.isNotBlank() && currentServerVersion.isNotBlank() && selectedModVersion != currentServerVersion) {
+                            Text(
+                                stringResource(R.string.s1063, selectedModVersion, currentServerVersion),
+                                color = Coral,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
                         } else if (hit.description.isNotBlank()) {
                             Text(hit.description, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
                     Button(
-                        onClick = { onInstallModrinth(hit) },
+                        onClick = { onInstallModrinth(hit, selectedModVersion) },
+                        colors = ButtonDefaults.buttonColors(containerColor = Mint),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(stringResource(R.string.s837), color = Color.White, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 插件页 Modrinth 资源检索（布局与模组页统一） */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PluginModrinthCard(
+    results: List<PluginManager.ModrinthHit>,
+    loaders: List<String>,
+    gameVersions: List<String>,
+    selectedVersion: String,
+    currentServerVersion: String,
+    onSetVersion: (String) -> Unit,
+    onSearch: (String, List<String>, String, String) -> Unit,
+    onInstall: (PluginManager.ModrinthHit, String) -> Unit
+) {
+    var query by remember { mutableStateOf("") }
+    var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
+    var sortIndex by remember { mutableStateOf(0) }
+    val sortOptions = listOf("downloads" to stringResource(R.string.s825), "relevance" to stringResource(R.string.s826), "newest" to stringResource(R.string.s827))
+    var sortMenuOpen by remember { mutableStateOf(false) }
+    var versionMenuOpen by remember { mutableStateOf(false) }
+    // 插件页统一使用 Modrinth 插件库（project_type=plugin，加载器以 bukkit/paper 为主）
+    val coreLoader = "bukkit"
+
+    McCard(title = stringResource(R.string.s1068)) {
+        Text(
+            stringResource(R.string.s1069),
+            color = Muted,
+            fontSize = 10.sp
+        )
+        Spacer(Modifier.height(6.dp))
+        // 搜索框 + 排序 + 搜索按钮
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                placeholder = { Text(stringResource(R.string.s1070), fontSize = 11.sp) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(10.dp)
+            )
+            Spacer(Modifier.size(6.dp))
+            Box {
+                OutlinedButton(
+                    onClick = { sortMenuOpen = true },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(sortOptions[sortIndex].second, fontSize = 11.sp, color = Indigo)
+                }
+                DropdownMenu(expanded = sortMenuOpen, onDismissRequest = { sortMenuOpen = false }) {
+                    sortOptions.forEachIndexed { i, (_, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label, fontSize = 12.sp) },
+                            onClick = { sortIndex = i; sortMenuOpen = false }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(6.dp))
+            Button(
+                onClick = { onSearch(query.trim(), selectedLoaders.toList(), sortOptions[sortIndex].first, selectedVersion) },
+                enabled = query.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(stringResource(R.string.s834), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            }
+        }
+        // 版本筛选 ｜ 加载器 下拉
+        Spacer(Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.s1061), color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.size(6.dp))
+            Box {
+                OutlinedButton(
+                    onClick = { versionMenuOpen = true },
+                    shape = RoundedCornerShape(10.dp)
+                ) {
+                    Text(
+                        if (selectedVersion.isNotBlank()) selectedVersion else "--",
+                        fontSize = 11.sp,
+                        color = Indigo,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                DropdownMenu(expanded = versionMenuOpen, onDismissRequest = { versionMenuOpen = false }) {
+                    if (gameVersions.isEmpty()) {
+                        DropdownMenuItem(text = { Text(stringResource(R.string.s1062), fontSize = 11.sp) }, onClick = { versionMenuOpen = false })
+                    }
+                    gameVersions.forEach { v ->
+                        DropdownMenuItem(
+                            text = { Text(v, fontSize = 11.sp, color = if (v == currentServerVersion) Indigo else Muted) },
+                            onClick = { onSetVersion(v); versionMenuOpen = false }
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.size(8.dp))
+            Text(stringResource(R.string.s835), color = Muted, fontSize = 10.sp)
+        }
+        if (selectedVersion.isNotBlank() && currentServerVersion.isNotBlank() && selectedVersion != currentServerVersion) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                stringResource(R.string.s1063, selectedVersion, currentServerVersion),
+                color = Coral,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        // 加载器多选筛选
+        if (loaders.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(stringResource(R.string.s835), color = Muted, fontSize = 10.sp)
+            Spacer(Modifier.height(4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                loaders.filter { it != "bukkit" && it != "paper" || it in selectedLoaders }.take(14).forEach { loader ->
+                    val selected = loader in selectedLoaders
+                    FilterChip(
+                        selected = selected,
+                        onClick = {
+                            selectedLoaders = if (selected) selectedLoaders - loader else selectedLoaders + loader
+                        },
+                        label = { Text(loader, fontSize = 10.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = IndigoSoft,
+                            selectedLabelColor = Indigo
+                        )
+                    )
+                }
+            }
+        }
+        // 结果列表（条目下方红字提示版本不匹配）
+        if (results.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            results.forEach { hit ->
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ModrinthIcon(hit.icon_url)
+                    Spacer(Modifier.size(8.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(hit.title, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        val downloadsText = formatModrinthDownloads(hit.downloads)
+                        Text(
+                            "${hit.author} · $downloadsText",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                        if (hit.categories.isNotEmpty() && coreLoader !in hit.categories) {
+                            Text(
+                                stringResource(R.string.s1071, coreLoader),
+                                color = Coral,
+                                fontSize = 9.sp
+                            )
+                        }
+                        if (selectedVersion.isNotBlank() && currentServerVersion.isNotBlank() && selectedVersion != currentServerVersion) {
+                            Text(
+                                stringResource(R.string.s1063, selectedVersion, currentServerVersion),
+                                color = Coral,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        } else if (hit.description.isNotBlank()) {
+                            Text(hit.description, color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Button(
+                        onClick = { onInstall(hit, selectedVersion) },
                         colors = ButtonDefaults.buttonColors(containerColor = Mint),
                         shape = RoundedCornerShape(8.dp)
                     ) {

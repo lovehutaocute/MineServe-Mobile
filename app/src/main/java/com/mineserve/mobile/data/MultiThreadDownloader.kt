@@ -1,0 +1,274 @@
+package com.mineserve.mobile.data
+
+import android.util.Log
+import java.io.File
+import java.io.FileOutputStream
+import java.io.RandomAccessFile
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * 内置多线程下载模块（基于 HTTP Range 分段并行，开源思路：分块下载 + 合并）。
+ *
+ * 特性：
+ *  - 探测 Content-Length 后按线程数切分 [start,end) 区间，每线程一个 Range 请求并行下载到 .part 文件
+ *  - 全部片段就绪后顺序合并为最终文件，删除临时片段
+ *  - 服务端不支持 Range / 未知大小 / 小文件时自动降级为单流下载
+ *  - 统一的进度回调 (已下载, 总字节, 速度 bytes/s) 与日志回调，与各业务层签名一致
+ *
+ * 调用方通过 [DownloadPrefs] 控制开关与线程数；也可显式传参覆盖。
+ */
+object MultiThreadDownloader {
+
+    private const val TAG = "MultiThreadDownloader"
+
+    /** 小于该尺寸不启用多线程（收益低），走单流 */
+    private const val MIN_MULTI_BYTES = 1 * 1024 * 1024L
+
+    /** 单流下载时的缓冲区 */
+    private const val BUFFER = 64 * 1024
+
+    /** 每个分片的最小尺寸，避免分片过多 */
+    private const val MIN_CHUNK_BYTES = 256 * 1024L
+
+    /**
+     * 下载 url 到 target。自动读取 [DownloadPrefs] 开关与线程数。
+     *
+     * @param onProgress (已下载, 总字节, 速度 bytes/s)；总字节未知为 -1
+     * @param onLog 可选日志回调（失败/降级提示等）
+     */
+    suspend fun download(
+        url: String,
+        target: File,
+        onProgress: (Long, Long, Long) -> Unit = { _, _, _ -> },
+        onLog: ((String) -> Unit)? = null
+    ) {
+        val enabled = DownloadPrefs.isEnabled()
+        val threads = DownloadPrefs.threadCount()
+        download(url, target, threads, enabled, onProgress, onLog)
+    }
+
+    /**
+     * 下载 url 到 target，显式指定线程数与开关（覆盖 [DownloadPrefs]）。
+     */
+    suspend fun download(
+        url: String,
+        target: File,
+        threads: Int,
+        enabled: Boolean,
+        onProgress: (Long, Long, Long) -> Unit = { _, _, _ -> },
+        onLog: ((String) -> Unit)? = null
+    ) {
+        val threadCount = threads.coerceAtLeast(1)
+        val total = probeLength(url)
+        if (!enabled || threadCount <= 1 || total <= 0 || total < MIN_MULTI_BYTES) {
+            if (!enabled) onLog?.invoke("多线程下载未启用，使用单流下载")
+            if (total in 1 until MIN_MULTI_BYTES) onLog?.invoke("文件较小，使用单流下载")
+            singleStream(url, target, total, onProgress)
+            return
+        }
+
+        // 计算分片数量（受最小分片尺寸约束）
+        val chunkCount = minOf(threadCount, ((total + MIN_CHUNK_BYTES - 1) / MIN_CHUNK_BYTES).toInt())
+        val ranges = buildRanges(total, chunkCount)
+        target.parentFile?.mkdirs()
+        onLog?.invoke("多线程下载：$chunkCount 线程，总大小 ${total / 1024 / 1024}MB")
+
+        val pool: ExecutorService = Executors.newFixedThreadPool(chunkCount)
+        val done = AtomicLong(0L)
+        val errors = java.util.concurrent.ConcurrentLinkedQueue<Exception>()
+        val started = System.currentTimeMillis()
+
+        try {
+            ranges.forEach { range ->
+                pool.execute {
+                    try {
+                        downloadRange(url, target, range.first, range.second, onProgress, done)
+                    } catch (e: Exception) {
+                        errors.add(e)
+                        Log.w(TAG, "range ${range.first}-${range.second} failed: ${e.message}")
+                    }
+                }
+            }
+            // 等待所有分片完成
+            pool.shutdown()
+            while (!pool.awaitTermination(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                reportSpeed(done.get(), started, onProgress)
+            }
+            if (!errors.isEmpty()) {
+                throw RuntimeException("多线程分片下载失败: ${errors.peek()?.message ?: "未知错误"}")
+            }
+
+            // 合并分片为最终文件
+            mergeRanges(target, ranges)
+            onProgress(target.length(), total, 0L)
+        } finally {
+            pool.shutdownNow()
+            ranges.forEach { (start, _) ->
+                val part = partFile(target, start)
+                if (part.exists()) part.delete()
+            }
+        }
+    }
+
+    // ── 分片辅助 ──────────────────────────────────────────────
+
+    private fun buildRanges(total: Long, count: Int): List<Pair<Long, Long>> {
+        val chunk = total / count
+        val ranges = mutableListOf<Pair<Long, Long>>()
+        var start = 0L
+        for (i in 0 until count) {
+            val end = if (i == count - 1) total - 1 else start + chunk - 1
+            ranges.add(start to end)
+            start = end + 1
+        }
+        return ranges
+    }
+
+    private fun partFile(target: File, start: Long): File =
+        File(target.parentFile, "${target.name}.part$start")
+
+    /** 探测 Content-Length（Range: bytes=0-0 + Content-Range 响应头） */
+    private fun probeLength(urlStr: String): Long {
+        var conn: HttpURLConnection? = null
+        return try {
+            conn = openConn(urlStr).apply {
+                setRequestProperty("Range", "bytes=0-0")
+            }
+            val code = conn.responseCode
+            if (code == 206) {
+                // Content-Range: bytes 0-0/12345
+                val cr = conn.getHeaderField("Content-Range") ?: return -1L
+                val slash = cr.lastIndexOf('/')
+                if (slash < 0) return -1L
+                cr.substring(slash + 1).trim().toLongOrNull() ?: -1L
+            } else if (code in 200..299) {
+                conn.contentLengthLong
+            } else {
+                -1L
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "probeLength failed: ${e.message}")
+            -1L
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /** 下载单个分片 [start,end]（含端点），追加写入 .part 文件 */
+    private fun downloadRange(
+        urlStr: String,
+        target: File,
+        start: Long,
+        end: Long,
+        onProgress: (Long, Long, Long) -> Unit,
+        done: AtomicLong
+    ) {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = openConn(urlStr).apply {
+                setRequestProperty("Range", "bytes=$start-$end")
+            }
+            val code = conn.responseCode
+            if (code != 206) {
+                throw RuntimeException("Range 请求返回 HTTP $code")
+            }
+            val part = partFile(target, start)
+            part.parentFile?.mkdirs()
+            val output = RandomAccessFile(part, "rw")
+            try {
+                val buf = ByteArray(BUFFER)
+                conn.inputStream.use { input ->
+                    while (true) {
+                        val read = input.read(buf)
+                        if (read <= 0) break
+                        output.write(buf, 0, read)
+                        done.addAndGet(read.toLong())
+                    }
+                }
+            } finally {
+                output.close()
+            }
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    /** 顺序合并分片到目标文件 */
+    private fun mergeRanges(target: File, ranges: List<Pair<Long, Long>>) {
+        FileOutputStream(target).use { out ->
+            ranges.forEach { (start, _) ->
+                val part = partFile(target, start)
+                if (!part.exists()) {
+                    throw RuntimeException("分片缺失: ${part.name}")
+                }
+                part.inputStream().use { input ->
+                    val buf = ByteArray(BUFFER)
+                    while (true) {
+                        val read = input.read(buf)
+                        if (read <= 0) break
+                        out.write(buf, 0, read)
+                    }
+                }
+            }
+        }
+    }
+
+    /** 每 500ms 报告一次总速度 */
+    private fun reportSpeed(downloaded: Long, started: Long, onProgress: (Long, Long, Long) -> Unit) {
+        val elapsed = (System.currentTimeMillis() - started) / 1000.0
+        val speed = if (elapsed > 0) (downloaded / elapsed).toLong() else 0L
+        onProgress(downloaded, -1L, speed)
+    }
+
+    /** 单流下载（Range 不支持 / 未启用 / 小文件时的降级路径） */
+    private fun singleStream(urlStr: String, target: File, total: Long, onProgress: (Long, Long, Long) -> Unit) {
+        var conn: HttpURLConnection? = null
+        try {
+            conn = openConn(urlStr)
+            val code = conn.responseCode
+            if (code !in 200..299) {
+                throw RuntimeException("HTTP $code 下载失败: $urlStr")
+            }
+            val actualTotal = if (total > 0) total else conn.contentLengthLong
+            target.parentFile?.mkdirs()
+            var downloaded = 0L
+            var lastSpeedBytes = 0L
+            var lastSpeedTime = System.currentTimeMillis()
+            conn.inputStream.use { input ->
+                FileOutputStream(target).use { fos ->
+                    val buffer = ByteArray(BUFFER)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        fos.write(buffer, 0, read)
+                        downloaded += read
+                        val now = System.currentTimeMillis()
+                        if (now - lastSpeedTime >= 500) {
+                            val elapsedSec = (now - lastSpeedTime) / 1000.0
+                            val speed = if (elapsedSec > 0) ((downloaded - lastSpeedBytes) / elapsedSec).toLong() else 0L
+                            onProgress(downloaded, actualTotal, speed)
+                            lastSpeedBytes = downloaded
+                            lastSpeedTime = now
+                        }
+                    }
+                }
+            }
+            onProgress(downloaded, actualTotal, 0L)
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
+    private fun openConn(urlStr: String): HttpURLConnection {
+        return (URL(urlStr).openConnection() as HttpURLConnection).apply {
+            instanceFollowRedirects = true
+            connectTimeout = 30_000
+            readTimeout = 60_000
+            setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
+        }
+    }
+}

@@ -1114,5 +1114,16 @@
     <string name="hero_online">Online</string>
     <string name="hero_memory">Memory</string>
     <string name="hero_uptime">Uptime</string>
+    <string name="s1061">Version</string>
+    <string name="s1062">No versions</string>
+    <string name="s1063" formatted="false">Selected version %1$s does not match current server version %2$s, may fail to load</string>
+    <string name="s1064">Download settings</string>
+    <string name="s1065">Multi-thread download</string>
+    <string name="s1066">Use the built-in multi-thread chunk download engine for parallel downloads (environment, server core, mods, plugins), on by default. No root needed; splits via HTTP Range and merges.</string>
+    <string name="s1067">Download threads</string>
+    <string name="s1068">Find plugins (Modrinth)</string>
+    <string name="s1069">Search and install plugins from the Modrinth open platform</string>
+    <string name="s1070">Search plugin, e.g. EssentialsX</string>
+    <string name="s1071">This plugin is not compatible with the bukkit loader</string>
 </resources>
 

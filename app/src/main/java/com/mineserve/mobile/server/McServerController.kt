@@ -4,6 +4,7 @@ import android.util.Log
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.InstalledCore
 import com.mineserve.mobile.data.McConfig
+import com.mineserve.mobile.data.MultiThreadDownloader
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.StepStatus
@@ -19,7 +20,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
-import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -491,66 +491,17 @@ class McServerController(
         outFile.parentFile?.mkdirs()
 
         var lastError: Exception? = null
-        // 重试 3 次
+        // 重试 3 次（多线程模块内部已处理分片失败重试，外层再做整体重试）
         repeat(3) { attempt ->
-            val conn = URL(url).openConnection() as HttpURLConnection
             try {
-                conn.connectTimeout = 30_000
-                conn.readTimeout = 60_000
-                conn.instanceFollowRedirects = true
-                conn.setRequestProperty("User-Agent", "MineServeMobile/1.0 (https://github.com/MineServe-Mobile)")
-
-                val code = conn.responseCode
-                if (code != 200) {
-                    val errBody = try { conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(200) } catch (_: Exception) { null }
-                    Log.w(TAG, "downloadCoreTo attempt ${attempt + 1}: HTTP $code, body=$errBody")
-                    termux.emitLog("[download] 第 ${attempt + 1} 次尝试失败: HTTP $code")
-                    throw RuntimeException("HTTP $code: ${conn.responseMessage}")
-                }
-
-                val totalBytes = conn.contentLengthLong
-                var downloadedBytes = 0L
-                var lastProgressLog = 0L
-                val startTime = System.currentTimeMillis()
-                var lastSpeedCalcTime = startTime
-                var lastSpeedCalcBytes = 0L
-
-                conn.inputStream.use { input ->
-                    FileOutputStream(outFile).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val read = input.read(buffer)
-                            if (read <= 0) break
-                            output.write(buffer, 0, read)
-                            downloadedBytes += read
-
-                            val now = System.currentTimeMillis()
-                            // 每 500ms 回调一次进度（避免过于频繁刷新 UI）
-                            if (now - lastSpeedCalcTime >= 500) {
-                                val elapsedSec = (now - lastSpeedCalcTime) / 1000.0
-                                val speedBytesPerSec = if (elapsedSec > 0) {
-                                    ((downloadedBytes - lastSpeedCalcBytes) / elapsedSec).toLong()
-                                } else 0L
-                                onProgress(downloadedBytes, totalBytes, speedBytesPerSec)
-                                lastSpeedCalcTime = now
-                                lastSpeedCalcBytes = downloadedBytes
-                            }
-
-                            // 每 5MB 输出一次进度日志
-                            if (downloadedBytes - lastProgressLog >= 5 * 1024 * 1024) {
-                                lastProgressLog = downloadedBytes
-                                val percent = if (totalBytes > 0) "${(downloadedBytes * 100 / totalBytes)}%" else "?%"
-                                val speedMB = if (System.currentTimeMillis() > startTime) {
-                                    String.format("%.2f", downloadedBytes / 1024.0 / 1024.0 / ((System.currentTimeMillis() - startTime) / 1000.0))
-                                } else "0"
-                                termux.emitLog("[download] 进度: $percent (${downloadedBytes / 1024 / 1024}MB / ${totalBytes / 1024 / 1024}MB, ${speedMB}MB/s)")
-                            }
-                        }
-                    }
-                }
-
-                // 下载完成时回调最终进度
-                onProgress(outFile.length(), totalBytes, 0L)
+                MultiThreadDownloader.download(
+                    url = url,
+                    target = outFile,
+                    onProgress = { downloaded, totalBytes, speedBytesPerSec ->
+                        onProgress(downloaded, totalBytes, speedBytesPerSec)
+                    },
+                    onLog = { msg -> termux.emitLog("[download] $msg") }
+                )
 
                 // 校验文件大小
                 val fileSize = outFile.length()
@@ -558,19 +509,16 @@ class McServerController(
                     throw RuntimeException("下载文件过小 ($fileSize 字节)，可能下载失败")
                 }
                 termux.emitLog("[download] 下载完成: ${fileSize / 1024 / 1024}MB")
-
                 Log.i(TAG, "downloadCoreTo: success, saved to $jarPath (${fileSize} bytes)")
-                return@withContext
-            } catch (e: Exception) {
+                return@withContext} catch (e: Exception) {
                 Log.w(TAG, "downloadCoreTo attempt ${attempt + 1} failed: ${e.message}")
                 termux.emitLog("[download] 第 ${attempt + 1} 次失败: ${e.message}")
                 lastError = e
+                outFile.delete()
                 if (attempt < 2) {
                     termux.emitLog("[download] 等待 ${1500L * (attempt + 1)}ms 后重试...")
                     try { Thread.sleep(1500L * (attempt + 1)) } catch (_: InterruptedException) {}
                 }
-            } finally {
-                conn.disconnect()
             }
         }
         throw RuntimeException("下载失败（已重试3次）: ${lastError?.message}")
