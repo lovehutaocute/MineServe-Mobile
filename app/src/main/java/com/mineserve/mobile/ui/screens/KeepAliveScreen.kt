@@ -2,6 +2,15 @@ package com.mineserve.mobile.ui.screens
 
 import androidx.compose.ui.res.stringResource
 import com.mineserve.mobile.R
+import androidx.compose.ui.platform.LocalContext
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import android.widget.Toast
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -58,8 +67,10 @@ import kotlinx.coroutines.delay
 @Composable
 fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
     val config by vm.config.collectAsState()
+    val context = LocalContext.current
     var bootAuto by remember { mutableStateOf(vm.isBootAutoStart()) }
     var keepAlive by remember { mutableStateOf(vm.isKeepAliveEnabled()) }
+    var pixelKeep by remember { mutableStateOf(vm.isPixelKeepAlive()) }
     var serviceRunning by remember { mutableStateOf(McForegroundService.isRunning) }
 
     // 轮询服务运行状态
@@ -135,6 +146,35 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                     checked = config.autoRestartOnCrash,
                     onChange = { vm.setAutoRestart(it) }
                 )
+                Spacer(Modifier.height(8.dp))
+                KeepAliveToggle(
+                    title = stringResource(R.string.ui_pixel_title),
+                    subtitle = stringResource(R.string.ui_pixel_hint),
+                    checked = pixelKeep,
+                    onChange = { vm.setPixelKeepAlive(it); pixelKeep = it }
+                )
+            }
+
+            // 厂商系统优化：电池优化豁免 + 自启动引导
+            McCard(title = stringResource(R.string.ui_battery_title)) {
+                Text(stringResource(R.string.ui_battery_hint), color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { requestIgnoreBatteryOptimizations(context) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(stringResource(R.string.ui_battery_btn), color = Color.White, fontSize = 12.sp) }
+            }
+            McCard(title = stringResource(R.string.ui_autostart_title)) {
+                Text(stringResource(R.string.ui_autostart_hint), color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Button(
+                    onClick = { openManufacturerAutostart(context) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(stringResource(R.string.ui_autostart_btn), color = Color.White, fontSize = 12.sp) }
             }
 
             // 说明
@@ -167,5 +207,60 @@ private fun KeepAliveToggle(
             Text(subtitle, color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
         }
         Switch(checked = checked, onCheckedChange = onChange)
+    }
+}
+
+/** 引导关闭电池优化（Android 12+ 优先跳专项页，失败兜底应用详情） */
+private fun requestIgnoreBatteryOptimizations(context: Context) {
+    try {
+        val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (pm.isIgnoringBatteryOptimizations(context.packageName)) {
+            Toast.makeText(context, context.getString(R.string.ui_battery_ok), Toast.LENGTH_SHORT).show()
+            return
+        }
+        val intent = Intent(
+            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            Uri.parse("package:" + context.packageName)
+        )
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        try {
+            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        } catch (_: Exception) {
+            try {
+                context.startActivity(
+                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName))
+                )
+            } catch (_: Exception) {}
+        }
+    }
+}
+
+/** 按厂商跳转自启动设置页（小米/华为/荣耀/OPPO/vivo，其余走应用详情） */
+private fun openManufacturerAutostart(context: Context) {
+    val m = (Build.MANUFACTURER ?: "").lowercase()
+    val intent = when {
+        m.contains("xiaomi") -> Intent().setComponent(
+            ComponentName("com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity")
+        )
+        m.contains("huawei") || m.contains("honor") -> Intent().setComponent(
+            ComponentName("com.huawei.systemmanager", "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity")
+        )
+        m.contains("oppo") || m.contains("realme") -> Intent().setComponent(
+            ComponentName("com.coloros.safecenter", "com.coloros.safecenter.permission.startup.StartupAppListActivity")
+        )
+        m.contains("vivo") -> Intent().setComponent(
+            ComponentName("com.vivo.permissionmanager", "com.vivo.permissionmanager.activity.BgStartUpManagerActivity")
+        )
+        else -> Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName))
+    }
+    try {
+        context.startActivity(intent)
+    } catch (_: Exception) {
+        try {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + context.packageName))
+            )
+        } catch (_: Exception) {}
     }
 }

@@ -11,7 +11,7 @@
     <string name="tab_plugins">插件与模组</string>
     <string name="tab_files">文件</string>
     <string name="tab_network">网络</string>
-    <string name="tab_backup">备份</string>
+    <string name="tab_backup">世界与备份</string>
     <string name="tab_config">配置</string>
     <string name="tab_settings">设置</string>
 
@@ -1124,5 +1124,19 @@
     <string name="s1069">从 Modrinth 开放平台搜索并一键安装插件</string>
     <string name="s1070">搜索插件，如 EssentialsX</string>
     <string name="s1071">该插件不兼容所选加载器 (bukkit)</string>
+    <string name="ui_loader_selected">已选 %1$d 个</string>
+<string name="ui_world_delete">删除世界文件夹</string>
+<string name="ui_world_delete_hint">永久删除当前核心的 world / world_nether / world_the_end，不可恢复，建议先创建备份</string>
+<string name="ui_world_deleted">已删除 %1$d 个世界文件夹</string>
+<string name="ui_world_delete_failed">删除世界文件夹失败</string>
+<string name="ui_battery_title">电池优化豁免</string>
+<string name="ui_battery_hint">引导系统关闭对该应用的电池优化，避免后台被杀</string>
+<string name="ui_battery_btn">去设置电池优化</string>
+<string name="ui_battery_ok">当前已豁免电池优化</string>
+<string name="ui_autostart_title">自启动引导</string>
+<string name="ui_autostart_hint">引导开启系统自启动权限（不同厂商入口不同，按机型自动跳转）</string>
+<string name="ui_autostart_btn">去开启自启动</string>
+<string name="ui_pixel_title">一像素保活</string>
+<string name="ui_pixel_hint">1×1 透明窗口常驻，配合前台服务提升存活率（受系统版本与厂商策略影响，效果尽力而为）</string>
 </resources>
 

@@ -16,7 +16,7 @@ object DownloadPrefs {
 
     /** 默认：多线程下载内置并默认启用 */
     const val DEFAULT_ENABLED = true
-    const val DEFAULT_THREADS = 4
+    const val DEFAULT_THREADS = 32
 
     @Volatile
     private var appContext: Context? = null
@@ -42,7 +42,7 @@ object DownloadPrefs {
     /** 下载线程数（默认 4） */
     fun threadCount(): Int {
         val p = prefs() ?: return DEFAULT_THREADS
-        return p.getInt(KEY_THREADS, DEFAULT_THREADS).coerceIn(1, 16)
+        return p.getInt(KEY_THREADS, DEFAULT_THREADS).coerceIn(1, 32)
     }
 
     fun setEnabled(enabled: Boolean) {
@@ -50,6 +50,6 @@ object DownloadPrefs {
     }
 
     fun setThreadCount(count: Int) {
-        prefs()?.edit()?.putInt(KEY_THREADS, count.coerceIn(1, 16))?.apply()
+        prefs()?.edit()?.putInt(KEY_THREADS, count.coerceIn(1, 32))?.apply()
     }
 }

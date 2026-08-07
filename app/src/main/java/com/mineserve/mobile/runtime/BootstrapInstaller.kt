@@ -85,12 +85,21 @@ class BootstrapInstaller(private val context: Context) {
     @Volatile
     private var stopAndSwitchRequested: Boolean = false
 
+    /** 当前活动的下载连接：切换请求时立即 disconnect 以中断阻塞中的 read() */
+    @Volatile
+    private var activeConn: HttpURLConnection? = null
+
     /** 请求停止当前镜像源下载并切换到下一个 */
     fun requestStopAndSwitch() {
         val idx = _currentMirrorIndex.value
         val label = mirrorSources.getOrElse(idx) { "未知($idx)" }
         Log.w(TAG, "[切换] requestStopAndSwitch 被调用: 当前镜像源=$label(idx=$idx), 设置 stopAndSwitchRequested=true, 线程=${Thread.currentThread().name}")
         stopAndSwitchRequested = true
+        // 立即中断当前正在阻塞读流的连接（read() 会抛 SocketException）
+        activeConn?.let { conn ->
+            Log.w(TAG, "[切换] 立即 disconnect 活动连接: ${conn.url?.toString()?.take(60)}")
+            try { conn.disconnect() } catch (e: Exception) { Log.w(TAG, "[切换] disconnect 异常: ${e.message}") }
+        }
     }
 
     private fun log(msg: String) {
@@ -930,6 +939,7 @@ esac
     ) {
         target.parentFile?.mkdirs()
         val conn = URL(urlStr).openConnection() as HttpURLConnection
+        activeConn = conn // 注册活动连接，供切换请求立即中断
         conn.connectTimeout = 10_000
         conn.readTimeout = 15_000
         conn.instanceFollowRedirects = true
@@ -975,6 +985,7 @@ esac
                 input.close()
                 conn.disconnect()
                 Log.w(TAG, "[切换] 流已关闭, conn 已 disconnect, 抛出 RuntimeException")
+                activeConn = null
                 throw RuntimeException("用户请求切换镜像源")
             }
             output.write(buf, 0, read)
@@ -1019,6 +1030,7 @@ esac
         output.close()
         input.close()
         conn.disconnect()
+        activeConn = null // 清理活动连接
         // 下载结束清零速度
         onSpeed?.invoke(downloaded, 0L)
     }

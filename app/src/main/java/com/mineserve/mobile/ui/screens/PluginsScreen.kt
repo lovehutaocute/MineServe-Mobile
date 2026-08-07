@@ -97,6 +97,7 @@ import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.theme.Coral
 import com.mineserve.mobile.ui.theme.CoralSoft
+import com.mineserve.mobile.ui.theme.FieldGray
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
@@ -1377,6 +1378,7 @@ private fun ModsTab(
     onSearchModrinth: (String, List<String>, String, String) -> Unit,
     onInstallModrinth: (PluginManager.ModrinthHit, String) -> Unit
 ) {
+    var detailHit by remember { mutableStateOf<PluginManager.ModrinthHit?>(null) }
     var modrinthQuery by remember { mutableStateOf("") }
     var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
     var sortIndex by remember { mutableStateOf(0) }
@@ -1542,27 +1544,16 @@ Spacer(Modifier.size(6.dp))
 fontWeight = FontWeight.SemiBold
             )
         }
-        // 加载器多选筛选
+        // 加载器多选筛选（可展开列表，避免元素零散排布）
         if (modrinthLoaders.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.s835), color = Muted, fontSize = 10.sp)
-            Spacer(Modifier.height(4.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                modrinthLoaders.take(12).forEach { loader ->
-                    val selected = loader in selectedLoaders
-                    FilterChip(
-                        selected = selected,
-                        onClick = {
-                            selectedLoaders = if (selected) selectedLoaders - loader else selectedLoaders + loader
-                        },
-                        label = { Text(loader, fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = IndigoSoft,
-                            selectedLabelColor = Indigo
-                        )
-                    )
+            LoaderFilterSection(
+                loaders = modrinthLoaders,
+                selected = selectedLoaders,
+                onToggle = { loader ->
+                    selectedLoaders = if (loader in selectedLoaders) selectedLoaders - loader else selectedLoaders + loader
                 }
-            }
+            )
         }
         // 结果列表
         if (modrinthResults.isNotEmpty()) {
@@ -1572,7 +1563,8 @@ fontWeight = FontWeight.SemiBold
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 5.dp),
+                        .padding(vertical = 5.dp)
+                        .clickable { detailHit = hit },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     ModrinthIcon(hit.icon_url)
@@ -1616,6 +1608,9 @@ fontWeight = FontWeight.SemiBold
             }
         }
     }
+
+    // 模组详情对话框
+    ModrinthDetailDialog(detailHit) { detailHit = null }
 }
 
 /** 插件页 Modrinth 资源检索（布局与模组页统一） */
@@ -1633,6 +1628,7 @@ private fun PluginModrinthCard(
 ) {
     var query by remember { mutableStateOf("") }
     var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
+    var detailHit by remember { mutableStateOf<PluginManager.ModrinthHit?>(null) }
     var sortIndex by remember { mutableStateOf(0) }
     val sortOptions = listOf("downloads" to stringResource(R.string.s825), "relevance" to stringResource(R.string.s826), "newest" to stringResource(R.string.s827))
     var sortMenuOpen by remember { mutableStateOf(false) }
@@ -1726,27 +1722,16 @@ private fun PluginModrinthCard(
                 fontWeight = FontWeight.SemiBold
             )
         }
-        // 加载器多选筛选
+        // 加载器多选筛选（可展开列表，避免元素零散排布）
         if (loaders.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text(stringResource(R.string.s835), color = Muted, fontSize = 10.sp)
-            Spacer(Modifier.height(4.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                loaders.filter { it != "bukkit" && it != "paper" || it in selectedLoaders }.take(14).forEach { loader ->
-                    val selected = loader in selectedLoaders
-                    FilterChip(
-                        selected = selected,
-                        onClick = {
-                            selectedLoaders = if (selected) selectedLoaders - loader else selectedLoaders + loader
-                        },
-                        label = { Text(loader, fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = IndigoSoft,
-                            selectedLabelColor = Indigo
-                        )
-                    )
+            LoaderFilterSection(
+                loaders = loaders,
+                selected = selectedLoaders,
+                onToggle = { loader ->
+                    selectedLoaders = if (loader in selectedLoaders) selectedLoaders - loader else selectedLoaders + loader
                 }
-            }
+            )
         }
         // 结果列表（条目下方红字提示版本不匹配）
         if (results.isNotEmpty()) {
@@ -1755,7 +1740,8 @@ private fun PluginModrinthCard(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 5.dp),
+                        .padding(vertical = 5.dp)
+                        .clickable { detailHit = hit },
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     ModrinthIcon(hit.icon_url)
@@ -1797,6 +1783,9 @@ private fun PluginModrinthCard(
             }
         }
     }
+
+    // 插件详情对话框（Modrinth 搜索结果）
+    ModrinthDetailDialog(detailHit) { detailHit = null }
 }
 
 /** Modrinth 下载量格式化 */
@@ -1808,9 +1797,115 @@ private fun formatModrinthDownloads(d: Long): String = when {
 }
 
 /** Modrinth 模组图标（网络加载，失败显示占位） */
+/** 可展开的加载器筛选列表：默认收起（显示标题+已选数量），点击展开多选，避免元素零散排布 */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ModrinthIcon(url: String, size: Dp = 32.dp) {
-    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+private fun LoaderFilterSection(
+    loaders: List<String>,
+    selected: Set<String>,
+    onToggle: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(FieldGray)
+                .clickable { expanded = !expanded }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                stringResource(R.string.s835),
+                color = Muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f)
+            )
+            if (selected.isNotEmpty()) {
+                Text(
+                    stringResource(R.string.ui_loader_selected, selected.size),
+                    color = Indigo,
+                    fontSize = 10.sp
+                )
+                Spacer(Modifier.size(6.dp))
+            }
+            Text(if (expanded) "▾" else "▸", color = Muted, fontSize = 11.sp)
+        }
+        if (expanded) {
+            Spacer(Modifier.height(4.dp))
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                loaders.forEach { loader ->
+                    val isSelected = loader in selected
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onToggle(loader) },
+                        label = { Text(loader, fontSize = 10.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = IndigoSoft,
+                            selectedLabelColor = Indigo
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Modrinth 搜索结果详情对话框（模组/插件通用）：作者/下载量/分类/描述 */
+@Composable
+private fun ModrinthDetailDialog(hit: PluginManager.ModrinthHit?, onDismiss: () -> Unit) {
+    val h = hit ?: return
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ModrinthIcon(h.icon_url, size = 30.dp)
+                Spacer(Modifier.size(8.dp))
+                Text(
+                    h.title,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    "${h.author} · ${formatModrinthDownloads(h.downloads)}",
+                    color = Muted,
+                    fontSize = 12.sp
+                )
+                if (h.categories.isNotEmpty()) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        h.categories.joinToString(" · "),
+                        color = Indigo,
+                        fontSize = 11.sp
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    h.description.ifBlank { "-" },
+                    fontSize = 13.sp,
+                    color = com.mineserve.mobile.ui.theme.Ink
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.s620))
+            }
+        }
+    )
+}
+
+@Composable
+private fun ModrinthIcon(url: String, size: Dp = 32.dp) {    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
     LaunchedEffect(url) {
         if (url.isNotBlank()) {
             bitmap = withContext(Dispatchers.IO) {

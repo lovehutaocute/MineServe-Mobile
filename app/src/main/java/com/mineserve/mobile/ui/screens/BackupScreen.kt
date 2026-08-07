@@ -49,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.ui.HeaderBlock
@@ -69,6 +71,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val snapshots by vm.snapshots.collectAsState()
     var isSnapshotting by remember { mutableStateOf(false) }
+    var showDeleteWorldConfirm by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
@@ -129,6 +132,20 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 }
             }
 
+            // 世界管理（删除世界文件夹）
+            McCard(title = stringResource(R.string.ui_world_delete)) {
+                Text(stringResource(R.string.ui_world_delete_hint), color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = { showDeleteWorldConfirm = true },
+                    enabled = isBootstrapped,
+                    colors = ButtonDefaults.buttonColors(containerColor = Coral),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(stringResource(R.string.ui_world_delete), color = Color.White, fontSize = 12.sp)
+                }
+            }
+
             // 备份列表
             McCard(
                 title = stringResource(R.string.s332, snapshots.size),
@@ -180,5 +197,25 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
             }
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    // 删除世界文件夹二次确认
+    if (showDeleteWorldConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteWorldConfirm = false },
+            title = { Text(stringResource(R.string.ui_world_delete), fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            text = { Text(stringResource(R.string.ui_world_delete_hint), fontSize = 13.sp) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteWorldConfirm = false
+                    vm.deleteWorldDirs()
+                }) { Text(stringResource(R.string.s339), color = Coral) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteWorldConfirm = false }) {
+                    Text(stringResource(R.string.s620))
+                }
+            }
+        )
     }
 }

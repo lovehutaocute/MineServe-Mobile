@@ -12,7 +12,7 @@
     <string name="tab_plugins" formatted="false">Plugins &amp; Mods</string>
     <string name="tab_files" formatted="false">Files</string>
     <string name="tab_network" formatted="false">Network</string>
-    <string name="tab_backup" formatted="false">Backup</string>
+    <string name="tab_backup" formatted="false">Worlds &amp; Backup</string>
     <string name="tab_config" formatted="false">Configuration</string>
     <string name="tab_settings" formatted="false">Settings</string>
 
@@ -1125,5 +1125,19 @@
     <string name="s1069">Search and install plugins from the Modrinth open platform</string>
     <string name="s1070">Search plugin, e.g. EssentialsX</string>
     <string name="s1071">This plugin is not compatible with the bukkit loader</string>
+    <string name="ui_loader_selected">%1$d selected</string>
+<string name="ui_world_delete">Delete World Folders</string>
+<string name="ui_world_delete_hint">Permanently deletes world / world_nether / world_the_end of the current core. Cannot be undone; create a backup first.</string>
+<string name="ui_world_deleted">Deleted %1$d world folder(s)</string>
+<string name="ui_world_delete_failed">Failed to delete world folders</string>
+<string name="ui_battery_title">Battery Optimization Exemption</string>
+<string name="ui_battery_hint">Guide the system to exempt this app from battery optimization to avoid background kills</string>
+<string name="ui_battery_btn">Open Battery Settings</string>
+<string name="ui_battery_ok">Battery optimization already exempted</string>
+<string name="ui_autostart_title">Auto-Start Guide</string>
+<string name="ui_autostart_hint">Guide to enable system auto-start permission (different entries per vendor, auto-routed by device)</string>
+<string name="ui_autostart_btn">Enable Auto-Start</string>
+<string name="ui_pixel_title">1-Pixel Keep-Alive</string>
+<string name="ui_pixel_hint">A 1×1 transparent window stays resident with the foreground service to improve survival (limited by system version and vendor policy)</string>
 </resources>
 

@@ -824,6 +824,13 @@ class PluginManager(
         "1.16.5", "1.16.4", "1.16.3", "1.16.2", "1.16.1", "1.16"
     )
 
+    /** 服务端核心对应的 Modrinth 加载器白名单（与服务端核心选择界面 9 类核心一一对应）：
+     *  模组加载器池（5）：Fabric/Forge/NeoForge/Quilt/Vanilla
+     *  插件加载器池（4）：Paper/Purpur/Velocity/BungeeCord
+     *  两类筛选池完全隔离，其余 Modrinth 加载器不进入筛选列表。 */
+    val MOD_LOADERS = listOf("fabric", "forge", "neoforge", "quilt", "vanilla")
+    val PLUGIN_LOADERS = listOf("paper", "purpur", "velocity", "bungeecord")
+
     /** 拉取 Modrinth 全部可用加载器列表 */
     fun fetchModrinthLoaders(): List<String> {
         return try {
@@ -833,6 +840,14 @@ class PluginManager(
             listOf("fabric", "forge", "quilt", "neoforge")
         }
     }
+
+    /** 模组筛选池：仅保留模组专用加载器（顺序与核心选择界面一致） */
+    fun filterModLoaders(all: List<String>): List<String> =
+        MOD_LOADERS.filter { it in all }
+
+    /** 插件筛选池：仅保留插件专用加载器（顺序与核心选择界面一致） */
+    fun filterPluginLoaders(all: List<String>): List<String> =
+        PLUGIN_LOADERS.filter { it in all }
 
     @Serializable
     private data class ModrinthLoader(val name: String = "")

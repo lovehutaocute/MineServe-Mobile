@@ -26,6 +26,7 @@
 
     <!-- 后台启动 Service 所需（用于自动恢复路径） -->
     <uses-permission android:name="android.permission.START_FOREGROUND_SERVICES_FROM_BACKGROUND" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <application
         android:name=".McApplication"
@@ -104,8 +105,18 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- 一像素无声保活 Activity：透明 1px 常驻 -->
+        <activity
+            android:name=".KeepAlivePixelActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="com.mineserve.mobile.pixel"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <activity
             android:name="bin.mt.file.content.MTDataFilesWakeUpActivity"

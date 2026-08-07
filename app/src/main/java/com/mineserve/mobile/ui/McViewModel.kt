@@ -7,6 +7,7 @@ import com.mineserve.mobile.R
 import com.mineserve.mobile.BuildConfig
 import com.mineserve.mobile.MainActivity
 import com.mineserve.mobile.BootReceiver
+import com.mineserve.mobile.KeepAlivePixelActivity
 import com.mineserve.mobile.KeepAliveWorker
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.service.McForegroundService
@@ -838,10 +839,11 @@ class McViewModel(
             ?: cfg.mcVersion
     }
 
-    /** 加载 Modrinth 可用加载器列表 */
+    /** 加载 Modrinth 可用加载器列表（仅保留模组专用加载器，与插件池完全隔离） */
     fun loadModrinthLoaders() {
         viewModelScope.launch {
-            _modrinthLoaders.value = withContext(Dispatchers.IO) { pluginManager.fetchModrinthLoaders() }
+            val all = withContext(Dispatchers.IO) { pluginManager.fetchModrinthLoaders() }
+            _modrinthLoaders.value = pluginManager.filterModLoaders(all)
         }
     }
 
@@ -911,7 +913,8 @@ class McViewModel(
 
     fun loadPluginModrinthLoaders() {
         viewModelScope.launch {
-            _pluginModrinthLoaders.value = withContext(Dispatchers.IO) { pluginManager.fetchModrinthLoaders() }
+            val all = withContext(Dispatchers.IO) { pluginManager.fetchModrinthLoaders() }
+            _pluginModrinthLoaders.value = pluginManager.filterPluginLoaders(all)
         }
     }
 
@@ -1216,6 +1219,34 @@ class McViewModel(
                 _snapshots.value = withContext(Dispatchers.IO) { backupManager.listSnapshots() }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s248, e.message))
+            }
+        }
+    }
+
+    /** 删除当前激活核心的世界文件夹（world / world_nether / world_the_end），不可恢复 */
+    fun deleteWorldDirs() {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit(str(R.string.s192))
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit(str(R.string.s249))
+            return
+        }
+        viewModelScope.launch {
+            try {
+                val deleted = withContext(Dispatchers.IO) {
+                    val base = File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName")
+                    var count = 0
+                    for (name in listOf("world", "world_nether", "world_the_end")) {
+                        val dir = File(base, name)
+                        if (dir.exists() && dir.deleteRecursively()) count++
+                    }
+                    count
+                }
+                _messageFlow.tryEmit(str(R.string.ui_world_deleted, deleted))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.ui_world_delete_failed))
             }
         }
     }
@@ -2050,6 +2081,24 @@ class McViewModel(
     fun setKeepAliveEnabled(v: Boolean) {
         metaPrefs().edit().putBoolean(BootReceiver.KEY_KEEP_ALIVE, v).apply()
         if (v) scheduleKeepAlive() else cancelKeepAlive()
+    }
+
+    /** 一像素保活开关状态 */
+    fun isPixelKeepAlive(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_PIXEL, false)
+
+    /** 设置一像素保活：开启时启动 1px 透明 Activity 常驻，关闭时发送销毁广播 */
+    fun setPixelKeepAlive(v: Boolean) {
+        metaPrefs().edit().putBoolean(BootReceiver.KEY_PIXEL, v).apply()
+        val app = McApplication.get()
+        if (v) {
+            try {
+                val intent = android.content.Intent(app, KeepAlivePixelActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                app.startActivity(intent)
+            } catch (_: Exception) {}
+        } else {
+            KeepAlivePixelActivity.stop(app)
+        }
     }
 
     /** 拉起前台保活服务 */
