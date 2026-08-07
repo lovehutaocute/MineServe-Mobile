@@ -54,6 +54,7 @@ import com.mineserve.mobile.ui.theme.Muted
 fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
     val config by vm.config.collectAsState()
     val context = LocalContext.current
+    val lastCheckResult by vm.lastUpdateCheckResult.collectAsState()
 
     Column(
         modifier = Modifier
@@ -191,7 +192,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             Spacer(Modifier.height(4.dp))
             SettingEntry(
                 title = stringResource(R.string.update_check),
-                subtitle = stringResource(R.string.s1025),
+                subtitle = lastCheckResult ?: stringResource(R.string.s1025),
                 onClick = { vm.checkForUpdate(manual = true) }
             )
         }

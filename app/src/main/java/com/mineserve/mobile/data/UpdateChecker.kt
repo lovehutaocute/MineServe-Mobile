@@ -15,6 +15,16 @@ data class UpdateInfo(
     val publishedAt: String,
 )
 
+/** 更新检查结果 */
+sealed interface UpdateCheckResult {
+    /** 已是最新版本 */
+    data object Latest : UpdateCheckResult
+    /** 发现新版本 */
+    data class Update(val info: UpdateInfo) : UpdateCheckResult
+    /** 检查失败（网络等） */
+    data class Error(val message: String) : UpdateCheckResult
+}
+
 @Serializable
 private data class GitHubRelease(
     val tag_name: String = "",
@@ -42,8 +52,8 @@ object UpdateChecker {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    /** 检查是否有新版本。网络失败/无新版本返回 null。 */
-    suspend fun checkLatest(currentVersionName: String): UpdateInfo? = withContext(Dispatchers.IO) {
+    /** 检查是否有新版本。返回检查结果（已最新 / 有更新 / 失败）。 */
+    suspend fun checkLatest(currentVersionName: String): UpdateCheckResult = withContext(Dispatchers.IO) {
         try {
             val conn = (URL(RELEASE_API).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
@@ -55,25 +65,29 @@ object UpdateChecker {
             val code = conn.responseCode
             val body = conn.inputStream.bufferedReader().use { it.readText() }
             conn.disconnect()
-            if (code !in 200..299) return@withContext null
+            if (code !in 200..299) return@withContext UpdateCheckResult.Error("HTTP $code")
 
             val release = json.decodeFromString<GitHubRelease>(body)
             val asset = release.assets.firstOrNull { it.name == APK_NAME }
                 ?: release.assets.firstOrNull { it.name.endsWith(".apk") }
-                ?: return@withContext null
+                ?: return@withContext UpdateCheckResult.Error("未找到安装包资产")
 
-            val newVersion = normalizeVersion(release.tag_name) ?: return@withContext null
-            val current = normalizeVersion(currentVersionName) ?: return@withContext null
-            if (compareVersions(newVersion, current) <= 0) return@withContext null // 没有新版本
+            val newVersion = normalizeVersion(release.tag_name)
+                ?: return@withContext UpdateCheckResult.Error("版本号解析失败")
+            val current = normalizeVersion(currentVersionName)
+                ?: return@withContext UpdateCheckResult.Latest
+            if (compareVersions(newVersion, current) <= 0) return@withContext UpdateCheckResult.Latest
 
-            UpdateInfo(
-                versionName = newVersion.joinToString("."),
-                downloadUrl = asset.browser_download_url,
-                notes = release.body.trim(),
-                publishedAt = release.published_at,
+            UpdateCheckResult.Update(
+                UpdateInfo(
+                    versionName = newVersion.joinToString("."),
+                    downloadUrl = asset.browser_download_url,
+                    notes = release.body.trim(),
+                    publishedAt = release.published_at,
+                )
             )
-        } catch (_: Exception) {
-            null // 网络失败静默
+        } catch (e: Exception) {
+            UpdateCheckResult.Error(e.message ?: "网络错误")
         }
     }
 

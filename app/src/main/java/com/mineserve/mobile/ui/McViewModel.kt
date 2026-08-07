@@ -20,6 +20,7 @@ import com.mineserve.mobile.data.TunnelStatus
 import com.mineserve.mobile.data.TunnelType
 import com.mineserve.mobile.data.ApkDownloader
 import com.mineserve.mobile.data.UpdateChecker
+import com.mineserve.mobile.data.UpdateCheckResult
 import com.mineserve.mobile.data.UpdateInfo
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.CrashReportManager
@@ -154,6 +155,10 @@ class McViewModel(
     private val _updateDialogVisible = MutableStateFlow(false)
     val updateDialogVisible: StateFlow<Boolean> = _updateDialogVisible.asStateFlow()
 
+    /** 最近一次更新检查结果描述（设置页显示），如「已是最新版本 · 08:30」 */
+    private val _lastUpdateCheckResult = MutableStateFlow<String?>(null)
+    val lastUpdateCheckResult: StateFlow<String?> = _lastUpdateCheckResult.asStateFlow()
+
     fun dismissUpdateDialog() { _updateDialogVisible.value = false }
 
     /** 检查更新：manual=true 来自设置页（显示检查进度 + 失败提示）；auto=true 启动检查（失败静默 + 有新版发通知） */
@@ -163,23 +168,42 @@ class McViewModel(
         _updateState.value = UpdateUiState.Checking
         if (manual) _updateDialogVisible.value = true // 手动检查：立即显示检查中对话框
         viewModelScope.launch {
-            val info = UpdateChecker.checkLatest(BuildConfig.VERSION_NAME)
-            if (info == null) {
-                _updateState.value = UpdateUiState.Idle
-                if (manual) {
-                    _updateDialogVisible.value = false
-                    _messageFlow.tryEmit(app.getString(R.string.update_already_latest))
+            when (val result = UpdateChecker.checkLatest(BuildConfig.VERSION_NAME)) {
+                is UpdateCheckResult.Latest -> {
+                    _updateState.value = UpdateUiState.Idle
+                    _lastUpdateCheckResult.value =
+                        "${app.getString(R.string.update_already_latest)} · ${nowTime()}"
+                    if (manual) {
+                        _updateDialogVisible.value = false
+                        _messageFlow.tryEmit(app.getString(R.string.update_already_latest))
+                    }
                 }
-                return@launch
-            }
-            _updateState.value = UpdateUiState.Available(info)
-            if (manual) {
-                _updateDialogVisible.value = true
-            } else {
-                showUpdateNotification(app, info)
+                is UpdateCheckResult.Update -> {
+                    _updateState.value = UpdateUiState.Available(result.info)
+                    _lastUpdateCheckResult.value =
+                        "${app.getString(R.string.update_available, result.info.versionName)} · ${nowTime()}"
+                    if (manual) {
+                        _updateDialogVisible.value = true
+                    } else {
+                        showUpdateNotification(app, result.info)
+                    }
+                }
+                is UpdateCheckResult.Error -> {
+                    _updateState.value = UpdateUiState.Idle
+                    _lastUpdateCheckResult.value =
+                        "${app.getString(R.string.update_check_failed)} · ${nowTime()}"
+                    if (manual) {
+                        _updateDialogVisible.value = false
+                        _messageFlow.tryEmit(app.getString(R.string.update_check_failed))
+                    }
+                }
             }
         }
     }
+
+    private fun nowTime(): String =
+        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            .format(java.util.Date())
 
     fun showUpdateDialog() {
         if (_updateState.value is UpdateUiState.Available) _updateDialogVisible.value = true
