@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MineServe Mobile · 使用统计</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+    background: radial-gradient(1200px 600px at 20% 10%, #312e81 0%, transparent 50%),
+                radial-gradient(1000px 500px at 80% 90%, #1e3a8a 0%, transparent 50%),
+                #0f172a;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+    color: #e2e8f0; padding: 24px; }
+  .card { background: rgba(255,255,255,.05); border:1px solid rgba(255,255,255,.1);
+    border-radius: 24px; padding: 44px 56px; text-align:center; backdrop-filter: blur(10px);
+    box-shadow: 0 24px 70px rgba(0,0,0,.45); max-width: 92vw; width: 520px; }
+  .badge { display:inline-block; background:#4f46e5; color:#fff; font-size:12px; letter-spacing:2px;
+    padding:5px 14px; border-radius:999px; font-weight:600; }
+  h1 { font-size:24px; margin:18px 0 6px; color:#fff; font-weight:700; }
+  .sub { color:#94a3b8; font-size:14px; margin-bottom:26px; }
+  .num { font-size:84px; font-weight:800; color:#fff; line-height:1; font-variant-numeric: tabular-nums; }
+  .num b { color:#818cf8; }
+  .label { color:#94a3b8; font-size:15px; margin-top:10px; }
+  .meta { margin-top:28px; color:#64748b; font-size:12px; border-top:1px solid rgba(255,255,255,.08);
+    padding-top:16px; }
+  .pulse { display:inline-block; width:8px; height:8px; border-radius:50%; background:#22c55e;
+    margin-right:7px; animation: blink 1.6s infinite; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
+  @media (max-width:480px) { .card { padding:32px 24px; } .num { font-size:64px; } }
+</style>
+</head>
+<body>
+  <div class="card">
+    <span class="badge">MINESERVE MOBILE</span>
+    <h1>累计使用人数</h1>
+    <div class="sub">累计独立用户统计 · 数据实时同步</div>
+    <div class="num"><b id="total">--</b></div>
+    <div class="label"><span class="pulse"></span>位用户正在使用 MineServe Mobile 运行服务器</div>
+    <div class="meta">更新于 <span id="updated">--</span> · 数据由 Cloudflare Workers 统计</div>
+  </div>
+  <script>
+    // 访问 Worker 域名获取最新统计
+    (function () {
+      var API = "https://mineserve-usage.hvhvhhbv.workers.dev";
+      function fmt(n) { return n.toLocaleString("zh-CN"); }
+      function load() {
+        fetch(API + "/stats", { cache: "no-store" })
+          .then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); })
+          .then(function (d) {
+            document.getElementById("total").textContent = fmt(d.total || 0);
+            document.getElementById("updated").textContent =
+              new Date().toLocaleString("zh-CN");
+          })
+          .catch(function () {
+            document.getElementById("total").textContent = "--";
+          });
+      }
+      load();
+      setInterval(load, 60000); // 每分钟自动刷新
+    })();
+  </script>
+</body>
+</html>
