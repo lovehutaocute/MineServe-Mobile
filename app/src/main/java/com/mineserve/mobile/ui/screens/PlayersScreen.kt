@@ -69,6 +69,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.server.PlayerManager
 import com.mineserve.mobile.ui.HeaderBlock
+import com.mineserve.mobile.ui.EmptyHint
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.theme.Coral
@@ -451,7 +452,7 @@ private fun OnlineTab(
         if (!isRunning) {
             StatusRow(color = Coral, text = stringResource(R.string.s684))
         } else if (players.isEmpty()) {
-            EmptyHint(stringResource(R.string.s685))
+            EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s685))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 players.forEach { name ->
@@ -574,11 +575,11 @@ private fun OpsTab(
         Spacer(Modifier.height(10.dp))
 
         if (ops.isEmpty()) {
-            EmptyHint(stringResource(R.string.s693))
+            EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s693))
         } else {
             val filtered = ops.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
             if (filtered.isEmpty()) {
-                EmptyHint(stringResource(R.string.s694))
+                EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s694))
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { op ->
@@ -773,11 +774,11 @@ private fun WhitelistTab(
         Spacer(Modifier.height(10.dp))
 
         if (whitelist.isEmpty()) {
-            EmptyHint(stringResource(R.string.s706))
+            EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s706))
         } else {
             val filtered = whitelist.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
             if (filtered.isEmpty()) {
-                EmptyHint(stringResource(R.string.s707))
+                EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s707))
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { w ->
@@ -841,7 +842,7 @@ private fun BannedTab(
 
     McCard(title = stringResource(R.string.s660)) {
         if (banned.isEmpty()) {
-            EmptyHint(stringResource(R.string.s710))
+            EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s710))
         } else {
             OutlinedTextField(
                 value = search,
@@ -855,7 +856,7 @@ private fun BannedTab(
             Spacer(Modifier.height(10.dp))
             val filtered = banned.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
             if (filtered.isEmpty()) {
-                EmptyHint(stringResource(R.string.s712))
+                EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s712))
             } else {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     filtered.forEach { b ->
@@ -1110,19 +1111,5 @@ private fun DetailRow(label: String, value: String) {
     Column(modifier = Modifier.padding(vertical = 4.dp)) {
         Text(label, color = Muted, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
         Text(value, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
-    }
-}
-
-@Composable
-private fun EmptyHint(text: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(Icons.Outlined.Person, contentDescription = null, tint = Muted.copy(alpha = 0.4f), modifier = Modifier.size(32.dp))
-        Spacer(Modifier.size(8.dp))
-        Text(text, color = Muted, fontSize = 11.sp)
     }
 }

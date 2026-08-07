@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mineserve.mobile.ui.BackBar
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.theme.Coral
 import com.mineserve.mobile.ui.theme.Indigo
@@ -50,24 +51,8 @@ fun OpLevelGuideScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // 返回栏
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .statusBarsPadding()
-                .padding(horizontal = 8.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = null)
-            }
-            Text(
-                stringResource(R.string.s1037),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-        }
+        // 统一返回栏
+        BackBar(title = stringResource(R.string.s1037), onBack = onBack)
 
         // 关于 OP 等级说明
         McCard(title = stringResource(R.string.s1038)) {

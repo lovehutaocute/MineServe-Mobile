@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Description
@@ -65,6 +66,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.ui.HeaderBlock
+import com.mineserve.mobile.ui.EmptyHint
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.theme.Coral
@@ -290,11 +292,9 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
             // 文件列表
             if (files.isEmpty()) {
                 McCard(title = stringResource(R.string.s500)) {
-                    Text(
-                        if (currentPath.isEmpty()) stringResource(R.string.s501) else stringResource(R.string.s502),
-                        color = Muted,
-                        fontSize = 12.sp,
-                        modifier = Modifier.padding(vertical = 16.dp)
+                    EmptyHint(
+                        icon = Icons.Outlined.FolderOpen,
+                        text = if (currentPath.isEmpty()) stringResource(R.string.s501) else stringResource(R.string.s502)
                     )
                 }
             } else {

@@ -146,7 +146,7 @@ fun McApp() {
                     )
                     McTab.Plugins -> PluginsScreen(vm = vm)
                     McTab.Files -> FileManagerScreen(vm = vm, onOpenMtGuide = { subPage = SubPage.MtGuide })
-                    McTab.Network -> NetworkScreen(vm = vm, onBack = {})
+                    McTab.Network -> NetworkScreen(vm = vm, onBack = {}, showBackBar = false)
                     McTab.Backup -> BackupScreen(vm = vm, onBack = {})
                     McTab.Config -> PropertiesScreen(vm = vm, onBack = {}, showBackBar = false)
                     McTab.Settings -> SettingsScreen(

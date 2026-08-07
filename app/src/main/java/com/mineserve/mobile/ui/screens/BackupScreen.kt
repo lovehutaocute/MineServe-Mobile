@@ -25,6 +25,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Archive
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -51,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.ui.HeaderBlock
+import com.mineserve.mobile.ui.EmptyHint
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.theme.Coral
@@ -137,7 +139,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 }
             ) {
                 if (snapshots.isEmpty()) {
-                    Text(stringResource(R.string.s334), color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical = 8.dp))
+                    EmptyHint(icon = Icons.Outlined.Archive, text = stringResource(R.string.s334))
                 } else {
                     snapshots.forEachIndexed { i, snap ->
                         if (i > 0) Spacer(Modifier.height(6.dp))

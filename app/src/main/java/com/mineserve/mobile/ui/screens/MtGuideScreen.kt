@@ -37,6 +37,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mineserve.mobile.ui.BackBar
 import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.theme.Indigo
@@ -51,20 +52,8 @@ fun MtGuideScreen(onBack: () -> Unit) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        // 返回栏（白底覆盖状态栏，配合全屏展示）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
-            }
-            Text(stringResource(R.string.s404), fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        }
+        // 统一返回栏
+        BackBar(title = stringResource(R.string.s404), onBack = onBack)
 
         HeaderBlock(eyebrow = "Tools", title = stringResource(R.string.s564), statusBarPadding = false)
 

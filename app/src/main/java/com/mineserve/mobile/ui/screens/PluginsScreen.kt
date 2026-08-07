@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.server.PluginManager
 import com.mineserve.mobile.ui.HeaderBlock
+import com.mineserve.mobile.ui.EmptyHint
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.theme.Coral
@@ -558,11 +559,11 @@ private fun InstalledTab(
 
     McCard(title = stringResource(R.string.s390)) {
         if (!activeCoreExists) {
-            EmptyHint(stringResource(R.string.s770))
+            EmptyHint(icon = Icons.Outlined.Extension, text = stringResource(R.string.s770))
             return@McCard
         }
         if (installed.isEmpty()) {
-            EmptyHint(stringResource(R.string.s771))
+            EmptyHint(icon = Icons.Outlined.Extension, text = stringResource(R.string.s771))
             return@McCard
         }
 
@@ -622,7 +623,7 @@ private fun InstalledTab(
         }
 
         if (filtered.isEmpty()) {
-            EmptyHint(stringResource(R.string.s773))
+            EmptyHint(icon = Icons.Outlined.Extension, text = stringResource(R.string.s773))
             return@McCard
         }
 
@@ -1048,7 +1049,7 @@ private fun UploadTab(
 
     McCard(title = stringResource(R.string.s792)) {
         if (!activeCoreExists) {
-            EmptyHint(stringResource(R.string.s770))
+            EmptyHint(icon = Icons.Outlined.Extension, text = stringResource(R.string.s770))
             return@McCard
         }
         Text(
@@ -1316,25 +1317,6 @@ private fun BadgeChip(text: String, color: Color, bg: Color) {
             .padding(horizontal = 6.dp, vertical = 2.dp)
     ) {
         Text(text, color = color, fontSize = 9.sp, fontWeight = FontWeight.Bold)
-    }
-}
-
-@Composable
-private fun EmptyHint(text: String) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Icon(
-            Icons.Outlined.Extension,
-            contentDescription = null,
-            tint = Muted.copy(alpha = 0.4f),
-            modifier = Modifier.size(32.dp)
-        )
-        Spacer(Modifier.size(8.dp))
-        Text(text, color = Muted, fontSize = 11.sp)
     }
 }
 

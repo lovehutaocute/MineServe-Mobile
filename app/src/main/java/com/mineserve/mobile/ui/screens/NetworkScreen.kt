@@ -76,6 +76,7 @@ import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.TunnelType
 import com.mineserve.mobile.data.TunnelStatus
 import com.mineserve.mobile.data.TunnelState
+import com.mineserve.mobile.ui.BackBar
 import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
@@ -94,7 +95,7 @@ import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
+fun NetworkScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
     val config by vm.config.collectAsState()
     val lanIp by vm.lanIp.collectAsState()
     val serverState by vm.serverState.collectAsState()
@@ -123,21 +124,11 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
-        // 返回栏（白底覆盖状态栏，配合全屏展示）
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.surface)
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
-            }
-            Text(stringResource(R.string.s541), fontSize = 14.sp, fontWeight = FontWeight.Medium, modifier = Modifier.padding(start = 4.dp))
+        // 子页面时显示返回栏；作为底部 tab 时由 HeaderBlock 处理状态栏
+        if (showBackBar) {
+            BackBar(title = stringResource(R.string.s541), onBack = onBack)
         }
-        HeaderBlock(eyebrow = "Networking", title = stringResource(R.string.s585), statusBarPadding = false)
+        HeaderBlock(eyebrow = "Networking", title = stringResource(R.string.s585), statusBarPadding = !showBackBar)
 
         // ── 服务器连接信息（局域网） ──────────────────────────
         McCard(title = stringResource(R.string.s586)) {
