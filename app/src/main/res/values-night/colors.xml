@@ -1,0 +1,14 @@
+<resources>
+    <!-- 深色模式下的设计令牌 -->
+    <color name="bg">#10131A</color>
+    <color name="card">#1A1F2B</color>
+    <color name="ink">#E6E9F2</color>
+    <color name="muted">#9AA3B5</color>
+    <color name="indigo">#9FB0F0</color>
+    <color name="indigo_soft">#2A3563</color>
+    <color name="mint">#8CF0C4</color>
+    <color name="mint_soft">#17382C</color>
+    <color name="coral">#FFB4A8</color>
+    <color name="coral_soft">#3D2424</color>
+    <color name="line">#2A3140</color>
+</resources>

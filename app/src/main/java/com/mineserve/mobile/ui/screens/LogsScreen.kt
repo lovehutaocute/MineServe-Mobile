@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.McViewModel
+import com.mineserve.mobile.ui.theme.Card
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Ink
 import com.mineserve.mobile.ui.theme.Muted
@@ -77,7 +78,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White)
+                .background(Card)
                 .statusBarsPadding()
                 .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -178,7 +179,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(Color.White)
+                .background(Card)
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {

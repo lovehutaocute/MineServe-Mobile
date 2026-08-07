@@ -82,10 +82,14 @@ import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.SegPill
 import com.mineserve.mobile.ui.DebouncedTextField
 import com.mineserve.mobile.ui.theme.Coral
+import com.mineserve.mobile.ui.theme.CoralSoft
+import com.mineserve.mobile.ui.theme.FieldBg
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
+import com.mineserve.mobile.ui.theme.MintSoft
 import com.mineserve.mobile.ui.theme.Muted
+import com.mineserve.mobile.ui.theme.TrackBg
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -143,7 +147,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                     modifier = Modifier
                         .size(10.dp)
                         .clip(CircleShape)
-                        .background(if (serverState.isRunning) Color(0xFF4CAF50) else Color(0xFFB0B7C3))
+                        .background(if (serverState.isRunning) Color(0xFF4CAF50) else Muted)
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
@@ -163,7 +167,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF5F6FA))
+                    .background(FieldBg)
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
@@ -210,7 +214,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xFFF5F6FA))
+                    .background(FieldBg)
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
                 Text(
@@ -365,8 +369,8 @@ private fun TunnelStatusCard(
                 TunnelStatus.Running -> Triple(Color(0xFF4CAF50), stringResource(R.string.s606), Color(0xFF2E7D32))
                 TunnelStatus.Starting -> Triple(Color(0xFFFFA726), stringResource(R.string.s379), Color(0xFFEF6C00))
                 TunnelStatus.Failed -> Triple(Color(0xFFEF5350), stringResource(R.string.s607, tunnelState.errorMessage.ifBlank { unknownError }), Coral)
-                TunnelStatus.Stopped -> Triple(Color(0xFFB0B7C3), stringResource(R.string.s608), Muted)
-                TunnelStatus.Idle -> Triple(Color(0xFFB0B7C3), stringResource(R.string.s609), Muted)
+                TunnelStatus.Stopped -> Triple(Muted, stringResource(R.string.s608), Muted)
+                TunnelStatus.Idle -> Triple(Muted, stringResource(R.string.s609), Muted)
             }
             if (tunnelState.status == TunnelStatus.Starting) {
                 CircularProgressIndicator(
@@ -406,7 +410,7 @@ private fun TunnelStatusCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (isActive) Color(0xFFE8F5E9) else Color(0xFFFFF3E0))
+                    .background(if (isActive) MintSoft else CoralSoft)
                     .border(1.dp, if (isActive) Color(0xFF4CAF50) else Color(0xFFFFA726), RoundedCornerShape(12.dp))
                     .padding(horizontal = 12.dp, vertical = 10.dp)
             ) {
@@ -438,7 +442,7 @@ private fun TunnelStatusCard(
                 enabled = tunnelState.status != TunnelStatus.Starting,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Indigo,
-                    disabledContainerColor = Color(0xFFB0BEC5)
+                    disabledContainerColor = TrackBg
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f)
@@ -452,8 +456,8 @@ private fun TunnelStatusCard(
                 onClick = onStop,
                 enabled = tunnelState.status == TunnelStatus.Running || tunnelState.status == TunnelStatus.Starting,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF8890A0),
-                    disabledContainerColor = Color(0xFFD0D4DA)
+                    containerColor = Muted,
+                    disabledContainerColor = TrackBg
                 ),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.weight(1f)
