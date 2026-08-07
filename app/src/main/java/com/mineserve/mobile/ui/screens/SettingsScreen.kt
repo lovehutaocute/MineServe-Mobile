@@ -1,6 +1,7 @@
 package com.mineserve.mobile.ui.screens
 
 import androidx.compose.ui.res.stringResource
+import com.mineserve.mobile.BuildConfig
 import com.mineserve.mobile.R
 
 import android.content.Intent
@@ -182,16 +183,16 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
 
         // 关于
         McCard(title = stringResource(R.string.s1023)) {
-            Text(
-                "MC 云控面板 · v1.0.0",
-                color = Muted,
-                fontSize = 11.sp
+            SettingEntry(
+                title = stringResource(R.string.update_current_version),
+                subtitle = "v${BuildConfig.VERSION_NAME}",
+                onClick = {} // 版本号行不可点击
             )
             Spacer(Modifier.height(4.dp))
-            Text(
-                stringResource(R.string.s1025),
-                color = Muted,
-                fontSize = 11.sp
+            SettingEntry(
+                title = stringResource(R.string.update_check),
+                subtitle = stringResource(R.string.s1025),
+                onClick = { vm.checkForUpdate(manual = true) }
             )
         }
 

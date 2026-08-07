@@ -1079,4 +1079,19 @@
     <string name="s1058">Switch to next mirror</string>
     <string name="s1059">Current default OP level: %1$s</string>
     <string name="s1060">Not configured (default 4)</string>
+
+    <string name="update_already_latest">You are already on the latest version</string>
+    <string name="update_download_failed">Download failed</string>
+    <string name="update_notif_title">New version %1$s available</string>
+    <string name="update_notif_text">Tap to view changelog and install</string>
+    <string name="update_check">Check for Updates</string>
+    <string name="update_current_version">Current version</string>
+    <string name="update_title">New version v%1$s available</string>
+    <string name="update_notes">What\'s New</string>
+    <string name="update_download">Download</string>
+    <string name="update_later">Later</string>
+    <string name="update_installing">Installing…</string>
+    <string name="update_checking">Checking for updates…</string>
+    <string name="update_available">New version %1$s available</string>
 </resources>
+

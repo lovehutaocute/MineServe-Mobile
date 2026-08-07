@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.mineserve.mobile.R
+import com.mineserve.mobile.BuildConfig
+import com.mineserve.mobile.MainActivity
 import com.mineserve.mobile.BootReceiver
 import com.mineserve.mobile.KeepAliveWorker
 import com.mineserve.mobile.McApplication
@@ -16,6 +18,9 @@ import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.data.TunnelState
 import com.mineserve.mobile.data.TunnelStatus
 import com.mineserve.mobile.data.TunnelType
+import com.mineserve.mobile.data.ApkDownloader
+import com.mineserve.mobile.data.UpdateChecker
+import com.mineserve.mobile.data.UpdateInfo
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.CrashReportManager
 import com.mineserve.mobile.server.McServerController
@@ -45,6 +50,13 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import androidx.core.app.NotificationCompat
+import androidx.core.content.FileProvider
+import java.io.File
 
 /**
  * 顶层共享 ViewModel：
@@ -122,6 +134,113 @@ class McViewModel(
 
     /** 隧道运行状态，UI 层订阅展示 */
     val tunnelState: StateFlow<TunnelState> = tunnelManager.state
+
+    // ── 软件更新（GitHub Releases） ──────────────────────────────────
+
+    /** 更新界面状态 */
+    sealed interface UpdateUiState {
+        data object Idle : UpdateUiState
+        data object Checking : UpdateUiState
+        data class Available(val info: UpdateInfo) : UpdateUiState
+        data class Downloading(val progress: Float, val info: UpdateInfo) : UpdateUiState
+        data class Downloaded(val info: UpdateInfo) : UpdateUiState
+        data class Failed(val message: String) : UpdateUiState
+    }
+
+    private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
+    val updateState: StateFlow<UpdateUiState> = _updateState.asStateFlow()
+
+    /** 更新对话框是否显示 */
+    private val _updateDialogVisible = MutableStateFlow(false)
+    val updateDialogVisible: StateFlow<Boolean> = _updateDialogVisible.asStateFlow()
+
+    fun dismissUpdateDialog() { _updateDialogVisible.value = false }
+
+    /** 检查更新：manual=true 来自设置页（显示检查进度 + 失败提示）；auto=true 启动检查（失败静默 + 有新版发通知） */
+    fun checkForUpdate(manual: Boolean = false) {
+        if (_updateState.value is UpdateUiState.Checking) return
+        val app = McApplication.get()
+        _updateState.value = UpdateUiState.Checking
+        if (manual) _updateDialogVisible.value = true // 手动检查：立即显示检查中对话框
+        viewModelScope.launch {
+            val info = UpdateChecker.checkLatest(BuildConfig.VERSION_NAME)
+            if (info == null) {
+                _updateState.value = UpdateUiState.Idle
+                if (manual) {
+                    _updateDialogVisible.value = false
+                    _messageFlow.tryEmit(app.getString(R.string.update_already_latest))
+                }
+                return@launch
+            }
+            _updateState.value = UpdateUiState.Available(info)
+            if (manual) {
+                _updateDialogVisible.value = true
+            } else {
+                showUpdateNotification(app, info)
+            }
+        }
+    }
+
+    fun showUpdateDialog() {
+        if (_updateState.value is UpdateUiState.Available) _updateDialogVisible.value = true
+    }
+
+    /** 开始下载新版 APK（完成后自动调系统安装器） */
+    fun downloadUpdate() {
+        val state = _updateState.value
+        if (state !is UpdateUiState.Available) return
+        val app = McApplication.get()
+        _updateState.value = UpdateUiState.Downloading(0f, state.info)
+        viewModelScope.launch {
+            try {
+                val target = File(app.cacheDir, "update/MineServeMobile-latest.apk")
+                ApkDownloader.download(state.info.downloadUrl, target) { p ->
+                    _updateState.value = UpdateUiState.Downloading(p, state.info)
+                }
+                _updateState.value = UpdateUiState.Downloaded(state.info)
+                installApk(app, target)
+            } catch (e: Exception) {
+                _updateState.value = UpdateUiState.Failed(e.message ?: app.getString(R.string.update_download_failed))
+            }
+        }
+    }
+
+    /** 调系统安装器安装 APK */
+    fun installApk(context: Context, file: File) {
+        try {
+            val uri = FileProvider.getUriForFile(
+                context, context.packageName + ".fileprovider", file
+            )
+            val intent = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            _updateState.value = UpdateUiState.Failed(e.message ?: "install error")
+        }
+    }
+
+    /** 自动检查发现新版时发系统通知，点击进入更新对话框 */
+    private fun showUpdateNotification(app: Context, info: UpdateInfo) {
+        val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val contentIntent = PendingIntent.getActivity(
+            app, 1001,
+            Intent(app, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                putExtra("open_update", true)
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(app, app.getString(R.string.notif_channel_id))
+            .setSmallIcon(android.R.drawable.stat_sys_download_done)
+            .setContentTitle(app.getString(R.string.update_notif_title, info.versionName))
+            .setContentText(app.getString(R.string.update_notif_text))
+            .setContentIntent(contentIntent)
+            .setAutoCancel(true)
+            .build()
+        try { nm.notify(1001, notification) } catch (_: Exception) {}
+    }
 
     // ── 设备状态（常规权限可采集，无需 root） ─────────────────────────
 

@@ -24,6 +24,10 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         ensureNotificationPermission()
+        // 更新通知点击进入：通知带 open_update extra，通知 MainActivity 打开更新对话框
+        if (intent?.getBooleanExtra("open_update", false) == true) {
+            McApplication.get().requestOpenUpdate()
+        }
         setContent {
             MineServeMobileTheme {
                 McApp()

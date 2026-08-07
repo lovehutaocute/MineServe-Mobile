@@ -1078,4 +1078,19 @@
     <string name="s1058">切换到下个镜像源</string>
     <string name="s1059">当前配置默认 OP 等级：%1$s</string>
     <string name="s1060">未配置（默认 4）</string>
+
+    <string name="update_already_latest">当前已是最新版本</string>
+    <string name="update_download_failed">下载失败</string>
+    <string name="update_notif_title">发现新版本 %1$s</string>
+    <string name="update_notif_text">点击查看更新内容并安装</string>
+    <string name="update_check">检查更新</string>
+    <string name="update_current_version">当前版本</string>
+    <string name="update_title">发现新版本 v%1$s</string>
+    <string name="update_notes">更新内容</string>
+    <string name="update_download">下载更新</string>
+    <string name="update_later">稍后再说</string>
+    <string name="update_installing">安装中…</string>
+    <string name="update_checking">正在检查更新…</string>
+    <string name="update_available">发现新版本 %1$s</string>
 </resources>
+

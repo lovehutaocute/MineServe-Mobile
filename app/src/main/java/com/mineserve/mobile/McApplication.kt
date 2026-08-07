@@ -58,6 +58,18 @@ class McApplication : Application(), Configuration.Provider {
     val crashLogFile: java.io.File
         get() = java.io.File(filesDir, "home/crash_log.txt")
 
+    /** 更新通知点击后置 true，McApp 观察到后打开更新对话框 */
+    private val _openUpdateRequest = MutableStateFlow(false)
+    val openUpdateRequest: StateFlow<Boolean> = _openUpdateRequest.asStateFlow()
+
+    fun requestOpenUpdate() {
+        _openUpdateRequest.value = true
+    }
+
+    fun consumeOpenUpdateRequest() {
+        _openUpdateRequest.value = false
+    }
+
     override fun onCreate() {
         super.onCreate()
         instance = this

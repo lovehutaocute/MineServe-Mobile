@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider 路径：更新下载的 APK 缓存在 cacheDir/update/ 下 -->
+<paths>
+    <cache-path name="update_apk" path="update/" />
+</paths>

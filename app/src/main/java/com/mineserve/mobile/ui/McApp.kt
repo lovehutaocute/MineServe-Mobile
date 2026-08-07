@@ -16,6 +16,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -23,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.ui.screens.BackupScreen
 import com.mineserve.mobile.ui.screens.DashboardScreen
 import com.mineserve.mobile.ui.screens.DownloadHelpScreen
@@ -35,6 +37,7 @@ import com.mineserve.mobile.ui.screens.LogsScreen
 import com.mineserve.mobile.ui.screens.NetworkScreen
 import com.mineserve.mobile.ui.screens.PlayersScreen
 import com.mineserve.mobile.ui.screens.PluginsScreen
+import com.mineserve.mobile.ui.screens.UpdateDialog
 import com.mineserve.mobile.ui.screens.PropertiesScreen
 import com.mineserve.mobile.ui.screens.SettingsScreen
 import com.mineserve.mobile.ui.theme.Indigo
@@ -53,6 +56,16 @@ fun McApp() {
     var tab by remember { mutableStateOf(McTab.Dashboard) }
     var showLogs by remember { mutableStateOf(false) }
     var subPage by remember { mutableStateOf<SubPage?>(null) }
+
+    // 启动自动检查更新（后台执行，发现新版发通知）
+    LaunchedEffect(Unit) { vm.checkForUpdate(manual = false) }
+    // 更新通知点击 → 打开更新对话框
+    LaunchedEffect(McApplication.get().openUpdateRequest.value) {
+        if (McApplication.get().openUpdateRequest.value) {
+            vm.showUpdateDialog()
+            McApplication.get().consumeOpenUpdateRequest()
+        }
+    }
 
     // 系统返回键：逐级返回上一页面，禁止直接退出应用。
     // 优先级：日志页 → 子页面 → 其他 Tab → 概览（Dashboard）；已在概览时消费返回键不退出。
@@ -143,5 +156,8 @@ fun McApp() {
                 }
             }
         }
+
+        // 软件更新对话框（全局，覆盖所有页面）
+        UpdateDialog(vm = vm)
     }
 }
