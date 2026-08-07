@@ -85,6 +85,9 @@ class BootstrapInstaller(private val context: Context) {
 
     /** 请求停止当前镜像源下载并切换到下一个 */
     fun requestStopAndSwitch() {
+        val idx = _currentMirrorIndex.value
+        val label = mirrorSources.getOrElse(idx) { "未知($idx)" }
+        Log.w(TAG, "[切换] requestStopAndSwitch 被调用: 当前镜像源=$label(idx=$idx), 设置 stopAndSwitchRequested=true, 线程=${Thread.currentThread().name}")
         stopAndSwitchRequested = true
     }
 
@@ -369,19 +372,24 @@ class BootstrapInstaller(private val context: Context) {
 
         stopAndSwitchRequested = false
         log("下载 Termux 运行环境 (~30MB)...")
+        Log.i(TAG, "[下载] 开始 downloadBootstrap, 共 ${mirrorUrls.size} 个镜像源, arch=$arch, 线程=${Thread.currentThread().name}")
         var lastError: Exception? = null
         for ((idx, mirror) in mirrorUrls.withIndex()) {
             _currentMirrorIndex.value = idx
             val url = "$mirror/$version/$fileName"
             val label = mirrorSources[idx]
+            Log.i(TAG, "[下载] === 尝试镜像源 $idx/$label ===")
             log("尝试 $label: ${url.take(80)}...")
             try {
                 rootfsFile.delete()
+                Log.i(TAG, "[下载] 调用 httpDownload, url=${url.take(100)}")
                 httpDownload(url, rootfsFile, 15..45, onProgress) { msg ->
                     log(msg)
                 }
+                Log.i(TAG, "[下载] httpDownload 正常返回, 已下载 ${rootfsFile.length()} 字节")
                 // 检查是否被用户请求停止切换
                 if (stopAndSwitchRequested) {
+                    Log.w(TAG, "[切换] httpDownload 返回后检测到 stopAndSwitchRequested=true, 跳过 $label")
                     stopAndSwitchRequested = false
                     rootfsFile.delete()
                     log("用户请求切换镜像源，跳过 $label")
@@ -394,23 +402,28 @@ class BootstrapInstaller(private val context: Context) {
                 if (expected != null) {
                     val actual = sha256Hex(rootfsFile)
                     if (!expected.equals(actual, ignoreCase = true)) {
+                        Log.e(TAG, "[下载] SHA256 校验失败: expected=${expected.take(16)}.. actual=${actual.take(16)}..")
                         rootfsFile.delete()
                         throw RuntimeException("SHA256 校验失败")
                     }
                 }
+                Log.i(TAG, "[下载] 镜像源 $label 下载并校验通过")
                 log("校验通过")
                 _currentMirrorIndex.value = -1
                 return
             } catch (e: Exception) {
+                Log.e(TAG, "[下载] 镜像源 $label 异常: ${e.javaClass.simpleName}: ${e.message}", e)
                 log("$label 失败: ${e.message}")
                 lastError = e
                 rootfsFile.delete()
                 // 如果是用户主动请求切换，重置标志继续下一个
                 if (stopAndSwitchRequested) {
+                    Log.i(TAG, "[切换] catch 块检测到 stopAndSwitchRequested=true, 重置标志继续下一个镜像源")
                     stopAndSwitchRequested = false
                 }
             }
         }
+        Log.e(TAG, "[下载] 所有 ${mirrorUrls.size} 个镜像源均失败, lastError=${lastError?.message}")
         _currentMirrorIndex.value = -1
         throw RuntimeException("所有镜像源均下载失败: ${lastError?.message}")
     }
@@ -906,8 +919,12 @@ esac
             conn.setRequestProperty("Range", "bytes=$existing-")
         }
 
+        Log.i(TAG, "[HTTP] 开始连接: url=${urlStr.take(100)}, connectTimeout=10s, readTimeout=15s, 续传起点=$existing 字节")
+        val connectStart = System.currentTimeMillis()
         conn.connect()
+        val connectElapsed = System.currentTimeMillis() - connectStart
         val code = conn.responseCode
+        Log.i(TAG, "[HTTP] 连接完成: 耗时=${connectElapsed}ms, HTTP $code")
         if (code !in 200..299 && code != 416) {
             conn.disconnect()
             throw RuntimeException("HTTP $code: $urlStr")
@@ -915,6 +932,7 @@ esac
 
         val contentLength = conn.contentLengthLong
         val total = if (contentLength > 0) contentLength + existing else -1L
+        Log.i(TAG, "[HTTP] 开始读取流: contentLength=$contentLength, total(含续传)=$total")
         val input = conn.inputStream
         val output = FileOutputStream(target, existing > 0)
 
@@ -925,12 +943,17 @@ esac
         var lastProgressTime = 0L
         var lastSpeedCalcTime = System.currentTimeMillis()
         var lastSpeedCalcBytes = downloaded
+        var loopCount = 0
+        val loopStart = System.currentTimeMillis()
         while (input.read(buf).also { read = it } != -1) {
+            loopCount++
             // 响应用户请求切换镜像源：立即中断当前下载
             if (stopAndSwitchRequested) {
+                Log.w(TAG, "[切换] 下载循环检测到 stopAndSwitchRequested=true, loopCount=$loopCount, downloaded=$downloaded 字节, 已耗时=${System.currentTimeMillis() - loopStart}ms, 准备关闭流并抛出异常")
                 output.close()
                 input.close()
                 conn.disconnect()
+                Log.w(TAG, "[切换] 流已关闭, conn 已 disconnect, 抛出 RuntimeException")
                 throw RuntimeException("用户请求切换镜像源")
             }
             output.write(buf, 0, read)
@@ -971,6 +994,7 @@ esac
                 }
             }
         }
+        Log.i(TAG, "[HTTP] 下载循环正常结束: loopCount=$loopCount, downloaded=$downloaded 字节, 总耗时=${System.currentTimeMillis() - loopStart}ms")
         output.close()
         input.close()
         conn.disconnect()

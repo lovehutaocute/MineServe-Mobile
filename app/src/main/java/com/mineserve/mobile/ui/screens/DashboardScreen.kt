@@ -302,13 +302,18 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                                 )
                                 OutlinedButton(
                                     onClick = {
-                                        if (switchInProgress) return@OutlinedButton
+                                        if (switchInProgress) {
+                                            android.util.Log.w("DashboardScreen", "[切换] 按钮点击但 switchInProgress=true, 忽略")
+                                            return@OutlinedButton
+                                        }
+                                        android.util.Log.i("DashboardScreen", "[切换] 按钮点击: currentMirrorIndex=$currentMirrorIndex, 即将调用 vm.switchBootstrapMirror()")
                                         switchInProgress = true
                                         vm.switchBootstrapMirror()
                                         scope.launch {
                                             snackbarHostState.showSnackbar(mirrorSwitchMsg)
                                             delay(1500)
                                             switchInProgress = false
+                                            android.util.Log.i("DashboardScreen", "[切换] switchInProgress 已重置为 false")
                                         }
                                     },
                                     enabled = !switchInProgress,

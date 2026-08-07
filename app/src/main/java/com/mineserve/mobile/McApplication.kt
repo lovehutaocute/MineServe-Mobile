@@ -51,6 +51,8 @@ class McApplication : Application(), Configuration.Provider {
 
     /** 请求停止当前镜像源下载并切换到下一个 */
     fun switchBootstrapMirror() {
+        val idx = currentMirrorIndex.value
+        android.util.Log.i("McApplication", "[切换] switchBootstrapMirror 调用: currentMirrorIndex=$idx, 线程=${Thread.currentThread().name}")
         termuxRuntime.installer.requestStopAndSwitch()
     }
 

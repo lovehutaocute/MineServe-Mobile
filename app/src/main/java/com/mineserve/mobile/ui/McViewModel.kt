@@ -94,7 +94,10 @@ class McViewModel(
     val mirrorSources: List<String> get() = McApplication.get().mirrorSources
 
     /** 请求切换到下一个镜像源 */
-    fun switchBootstrapMirror() = McApplication.get().switchBootstrapMirror()
+    fun switchBootstrapMirror() {
+        android.util.Log.i("McViewModel", "[切换] switchBootstrapMirror 调用, 线程=${Thread.currentThread().name}")
+        McApplication.get().switchBootstrapMirror()
+    }
 
     /** apt 安装下载速度（bytes/s） */
     private val _installSpeed = MutableStateFlow(0L)
