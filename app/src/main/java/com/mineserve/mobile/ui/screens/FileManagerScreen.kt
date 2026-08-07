@@ -143,7 +143,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            HeaderBlock(eyebrow = "File Manager", title = stringResource(R.string.s488))
+            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_files), title = stringResource(R.string.s488))
 
             // MT 管理器 + 导出服务器
             Row(

@@ -110,7 +110,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Core Download", title = stringResource(R.string.s450))
+            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_download), title = stringResource(R.string.s450))
 
             // 当前下载状态
             McCard(title = stringResource(R.string.s451)) {

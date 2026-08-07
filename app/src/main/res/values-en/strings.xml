@@ -1096,5 +1096,23 @@
     <string name="update_check_failed">Check failed (network error)</string>
     <string name="mirror_switch_requested">Switch mirror requested</string>
     <string name="mirror_switching">Switching…</string>
+    <string name="eyebrow_dashboard">Local Server</string>
+    <string name="eyebrow_settings">Settings</string>
+    <string name="eyebrow_backup">Backup &amp; Restore</string>
+    <string name="eyebrow_download">Core Download</string>
+    <string name="eyebrow_files">File Manager</string>
+    <string name="eyebrow_plugins">Plugin Manager</string>
+    <string name="eyebrow_network">Networking</string>
+    <string name="eyebrow_properties">Server Properties</string>
+    <string name="eyebrow_keepalive">Keep Alive</string>
+    <string name="eyebrow_tools">Tools</string>
+    <string name="eyebrow_help">Help</string>
+    <string name="hero_starting">Starting server · %1$s</string>
+    <string name="hero_running">Server running · %1$s</string>
+    <string name="hero_stopped">Server not running</string>
+    <string name="hero_tps">TPS</string>
+    <string name="hero_online">Online</string>
+    <string name="hero_memory">Memory</string>
+    <string name="hero_uptime">Uptime</string>
 </resources>
 

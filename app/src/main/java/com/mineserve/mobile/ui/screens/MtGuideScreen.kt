@@ -55,7 +55,7 @@ fun MtGuideScreen(onBack: () -> Unit) {
         // 统一返回栏
         BackBar(title = stringResource(R.string.s404), onBack = onBack)
 
-        HeaderBlock(eyebrow = "Tools", title = stringResource(R.string.s564), statusBarPadding = false)
+        HeaderBlock(eyebrow = stringResource(R.string.eyebrow_tools), title = stringResource(R.string.s564), statusBarPadding = false)
 
         McCard(title = stringResource(R.string.s565)) {
             Text(stringResource(R.string.s566), color = Muted, fontSize = 12.sp)

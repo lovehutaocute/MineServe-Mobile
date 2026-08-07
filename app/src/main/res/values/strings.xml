@@ -1095,5 +1095,23 @@
     <string name="update_check_failed">检查失败（网络异常）</string>
     <string name="mirror_switch_requested">已请求切换镜像源</string>
     <string name="mirror_switching">切换中…</string>
+    <string name="eyebrow_dashboard">本地服务器</string>
+    <string name="eyebrow_settings">设置</string>
+    <string name="eyebrow_backup">备份与还原</string>
+    <string name="eyebrow_download">核心下载</string>
+    <string name="eyebrow_files">文件管理</string>
+    <string name="eyebrow_plugins">插件与模组</string>
+    <string name="eyebrow_network">网络</string>
+    <string name="eyebrow_properties">服务器配置</string>
+    <string name="eyebrow_keepalive">保活</string>
+    <string name="eyebrow_tools">工具</string>
+    <string name="eyebrow_help">帮助</string>
+    <string name="hero_starting">正在启动服务端 · %1$s</string>
+    <string name="hero_running">服务器运行中 · %1$s</string>
+    <string name="hero_stopped">服务器未启动</string>
+    <string name="hero_tps">TPS</string>
+    <string name="hero_online">在线</string>
+    <string name="hero_memory">内存</string>
+    <string name="hero_uptime">运行时长</string>
 </resources>
 

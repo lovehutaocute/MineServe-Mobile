@@ -78,7 +78,7 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Keep Alive", title = stringResource(R.string.s542), statusBarPadding = false)
+            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_keepalive), title = stringResource(R.string.s542), statusBarPadding = false)
 
             // 服务状态
             McCard(title = stringResource(R.string.s543)) {

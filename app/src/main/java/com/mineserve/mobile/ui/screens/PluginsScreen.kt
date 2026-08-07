@@ -218,7 +218,7 @@ fun PluginsScreen(vm: McViewModel) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Plugin Manager", title = stringResource(R.string.s750))
+            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_plugins), title = stringResource(R.string.s750))
 
             // ── 当前核心状态卡片 ──
             McCard(

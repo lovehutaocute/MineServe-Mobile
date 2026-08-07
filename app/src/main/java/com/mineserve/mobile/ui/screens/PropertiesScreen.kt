@@ -188,7 +188,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Server Properties", title = stringResource(R.string.s997), statusBarPadding = !showBackBar)
+            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_properties), title = stringResource(R.string.s997), statusBarPadding = !showBackBar)
 
             // 当前核心提示：每个命名服务器拥有独立配置
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }

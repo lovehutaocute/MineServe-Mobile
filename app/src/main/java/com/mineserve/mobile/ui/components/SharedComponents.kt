@@ -176,9 +176,9 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
                 Spacer(Modifier.size(6.dp))
                 Text(
                     when {
-                        isStarting -> "正在启动服务端 · $coreLabel"
-                        state.isRunning -> "服务器运行中 · $coreLabel"
-                        else -> "服务器未启动"
+                        isStarting -> stringResource(R.string.hero_starting, coreLabel)
+                        state.isRunning -> stringResource(R.string.hero_running, coreLabel)
+                        else -> stringResource(R.string.hero_stopped)
                     },
                     color = Color.White.copy(alpha = 0.9f),
                     fontSize = 12.sp,
@@ -191,21 +191,21 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 HeroStat(
                     if (state.isRunning) String.format("%.1f", state.tps) else "--",
-                    "TPS"
+                    stringResource(R.string.hero_tps)
                 )
                 HeroStat(
                     if (state.isRunning) "${state.onlinePlayers}/${state.maxPlayers}" else "--/--",
-                    "在线"
+                    stringResource(R.string.hero_online)
                 )
                 HeroStat(
                     if (state.isRunning && state.usedMemoryMb > 0) formatMemory(state.usedMemoryMb) else "--",
-                    "内存"
+                    stringResource(R.string.hero_memory)
                 )
                 HeroStat(
                     if (state.isRunning && state.runningSinceMs > 0)
                         formatUptime(android.os.SystemClock.elapsedRealtime() - state.runningSinceMs)
                     else "--",
-                    "运行时长"
+                    stringResource(R.string.hero_uptime)
                 )
             }
             // 启动中提示：适配启动耗时较长的场景

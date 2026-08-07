@@ -61,7 +61,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
     ) {
-        HeaderBlock(eyebrow = "Settings", title = stringResource(R.string.s186))
+        HeaderBlock(eyebrow = stringResource(R.string.eyebrow_settings), title = stringResource(R.string.s186))
 
         // JVM 内存上限
         McCard(title = stringResource(R.string.s1003)) {

@@ -128,7 +128,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = tr
         if (showBackBar) {
             BackBar(title = stringResource(R.string.s541), onBack = onBack)
         }
-        HeaderBlock(eyebrow = "Networking", title = stringResource(R.string.s585), statusBarPadding = !showBackBar)
+        HeaderBlock(eyebrow = stringResource(R.string.eyebrow_network), title = stringResource(R.string.s585), statusBarPadding = !showBackBar)
 
         // ── 服务器连接信息（局域网） ──────────────────────────
         McCard(title = stringResource(R.string.s586)) {

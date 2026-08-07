@@ -66,7 +66,7 @@ fun DownloadHelpScreen(vm: McViewModel, onBack: () -> Unit) {
     ) {
         // 统一返回栏
         BackBar(title = stringResource(R.string.s404), onBack = onBack)
-        HeaderBlock(eyebrow = "Help", title = stringResource(R.string.s405), statusBarPadding = false)
+        HeaderBlock(eyebrow = stringResource(R.string.eyebrow_help), title = stringResource(R.string.s405), statusBarPadding = false)
 
         // 介绍
         McCard(title = stringResource(R.string.s406)) {

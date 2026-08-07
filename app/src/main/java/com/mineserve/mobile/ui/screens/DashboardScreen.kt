@@ -146,7 +146,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
         ) {
-            HeaderBlock(eyebrow = "Local Server", title = stringResource(R.string.s340))
+            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_dashboard), title = stringResource(R.string.s340))
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
