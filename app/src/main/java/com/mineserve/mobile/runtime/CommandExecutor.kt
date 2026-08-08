@@ -107,6 +107,32 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
     }
 
     /**
+     * 执行命令并把输出逐行回调给 onLine（不进入 consoleFlow，避免与 MC 服务器日志混流）。
+     * 供 Termux 终端面板使用；单次执行，输出实时回调。
+     */
+    fun execWithOutput(
+        vararg command: String,
+        env: Map<String, String> = emptyMap(),
+        onLine: (String) -> Unit
+    ): Int {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execWithOutput: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            redirectInput(File("/dev/null"))
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        val process = pb.start()
+        process.outputStream.close()
+        BufferedReader(InputStreamReader(process.inputStream)).useLines { seq ->
+            seq.forEach(onLine)
+        }
+        return process.waitFor()
+    }
+
+    /**
      * 后台长期命令（如 tmux new-session -d）。
      * 输出流入 consoleFlow 供 UI 订阅
      */

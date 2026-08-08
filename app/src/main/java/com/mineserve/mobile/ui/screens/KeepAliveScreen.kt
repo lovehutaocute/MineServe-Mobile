@@ -42,6 +42,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -60,6 +61,7 @@ import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Mint
 import com.mineserve.mobile.ui.theme.Muted
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * 后台保活设置页：开机自启 / 周期保活 / 崩溃自动重启 等开关，每项带功能说明。
@@ -72,12 +74,16 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
     var keepAlive by remember { mutableStateOf(vm.isKeepAliveEnabled()) }
     var pixelKeep by remember { mutableStateOf(vm.isPixelKeepAlive()) }
     var serviceRunning by remember { mutableStateOf(McForegroundService.isRunning) }
+    // 服务按钮防重复状态
+    var serviceBusy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
-    // 轮询服务运行状态
+    // 轮询服务运行状态（5s 一次，仅状态变化才写 state，避免无谓重组）
     LaunchedEffect(Unit) {
         while (true) {
-            serviceRunning = McForegroundService.isRunning
-            delay(2000)
+            val running = McForegroundService.isRunning
+            if (serviceRunning != running) serviceRunning = running
+            delay(5000)
         }
     }
 
@@ -111,13 +117,24 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
                     Button(
-                        onClick = { vm.startKeepAliveService() },
+                        onClick = {
+                            // 防重复点击：禁用 1.5s，避免连点触发多次前台服务启动
+                            serviceBusy = true
+                            scope.launch { delay(1500); serviceBusy = false }
+                            vm.startKeepAliveService()
+                        },
+                        enabled = !serviceBusy,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) { Text(stringResource(R.string.s546), color = Color.White, fontSize = 12.sp) }
                     OutlinedButton(
-                        onClick = { vm.stopKeepAliveService() },
+                        onClick = {
+                            serviceBusy = true
+                            scope.launch { delay(1500); serviceBusy = false }
+                            vm.stopKeepAliveService()
+                        },
+                        enabled = !serviceBusy,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) { Text(stringResource(R.string.s547), color = Coral, fontSize = 12.sp) }
@@ -160,7 +177,10 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                 Text(stringResource(R.string.ui_battery_hint), color = Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { requestIgnoreBatteryOptimizations(context) },
+                    onClick = {
+                        Toast.makeText(context, context.getString(R.string.ui_battery_btn), Toast.LENGTH_SHORT).show()
+                        requestIgnoreBatteryOptimizations(context)
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -170,7 +190,10 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                 Text(stringResource(R.string.ui_autostart_hint), color = Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(8.dp))
                 Button(
-                    onClick = { openManufacturerAutostart(context) },
+                    onClick = {
+                        Toast.makeText(context, context.getString(R.string.ui_autostart_btn), Toast.LENGTH_SHORT).show()
+                        openManufacturerAutostart(context)
+                    },
                     colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                     shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.fillMaxWidth()

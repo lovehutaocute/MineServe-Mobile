@@ -1152,5 +1152,20 @@
 <string name="cmd_kick">踢出</string>
     <string name="ui_log_localize">日志汉化</string>
     <string name="ui_log_localize_hint">将常见日志（进服/离服/在线人数/世界保存/启动完成）显示为中文</string>
+    <string name="ui_installing">安装中…</string>
+
+    <string name="ui_server_icon">服务器图标</string>
+    <string name="ui_server_icon_change">更换图标</string>
+    <string name="ui_server_icon_reset">恢复默认</string>
+    <string name="ui_server_icon_hint">玩家在多人游戏列表看到的图标（64×64，重启服务器后生效）</string>
+    <string name="ui_server_icon_updated">服务器图标已更新，重启服务器后生效</string>
+    <string name="ui_server_icon_reset_done">已恢复默认图标</string>
+    <string name="ui_server_icon_fail">图标更新失败: %1$s</string>
+    <string name="ui_server_icon_default">默认</string>
+    <string name="mc_terminal">MC 终端</string>
+    <string name="termux_terminal">Termux 终端</string>
+    <string name="termux_hint">输入命令，如 ls、pkg update</string>
+    <string name="termux_busy">执行中…</string>
+    <string name="termux_placeholder">输入命令开始使用终端</string>
 </resources>
 

@@ -10,6 +10,11 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -46,6 +52,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,6 +62,8 @@ import androidx.compose.ui.Alignment
 import kotlinx.coroutines.flow.map
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,9 +86,11 @@ import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
 import com.mineserve.mobile.ui.theme.Muted
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 概览页：完全对齐参考界面 hero + 安装步骤 + 核心选择 + 启停按钮
@@ -114,6 +125,12 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
     var switchInProgress by remember { mutableStateOf(false) }
+    // 服务器图标选择器
+    val iconPickerLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) vm.setServerIcon(uri)
+    }
     // Snackbar 文案需在 Composable 上下文取值（onClick 内不可调用 @Composable）
     val mirrorSwitchMsg = stringResource(R.string.mirror_switch_requested)
 
@@ -583,6 +600,64 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     color = Muted,
                     fontSize = 10.sp
                 )
+            }
+
+            // ── 服务器图标（server-icon.png，玩家在多人游戏列表看到的图标） ──
+            McCard(title = stringResource(R.string.ui_server_icon)) {
+                val iconVersion by vm.serverIconVersion.collectAsState()
+                val iconBmp by produceState<Bitmap?>(initialValue = null, iconVersion) {
+                    value = withContext(Dispatchers.IO) {
+                        vm.serverIconFile()?.let { BitmapFactory.decodeFile(it.absolutePath) }
+                    }
+                }
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(56.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(IndigoSoft),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val previewBmp = iconBmp
+                        if (previewBmp != null) {
+                            Image(
+                                bitmap = previewBmp.asImageBitmap(),
+                                contentDescription = null,
+                                modifier = Modifier.size(56.dp),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Text("🖼️", fontSize = 22.sp)
+                        }
+                    }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.ui_server_icon_hint),
+                            color = Muted,
+                            fontSize = 10.sp,
+                            lineHeight = 14.sp
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { iconPickerLauncher.launch("image/*") },
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(stringResource(R.string.ui_server_icon_change), color = Color.White, fontSize = 12.sp)
+                    }
+                    OutlinedButton(
+                        onClick = { vm.removeServerIcon() },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(stringResource(R.string.ui_server_icon_reset), color = Coral, fontSize = 12.sp)
+                    }
+                }
             }
 
             // ── 服务器地址 ──

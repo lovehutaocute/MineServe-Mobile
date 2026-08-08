@@ -116,6 +116,13 @@ class TermuxRuntime(context: Context) {
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
         executor.execOnce(*command, env = env)
 
+    /**
+     * 执行 Termux shell 命令，输出逐行回调（Termux 终端面板专用，不与 MC 日志混流）。
+     * 命令通过 sh -c 执行（含 Termux 环境 PATH/LD_LIBRARY_PATH），阻塞至命令结束。
+     */
+    fun execTermux(command: String, onLine: (String) -> Unit): Int =
+        executor.execWithOutput("sh", "-c", command, onLine = onLine)
+
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
         executor.execStream(tag, *command, env = env)
 

@@ -857,11 +857,26 @@ class PluginManager(
         return try {
             val gameVersions = java.net.URLEncoder.encode("[\"$mcVersion\"]", "UTF-8")
             val loaders = java.net.URLEncoder.encode("[\"$loader\"]", "UTF-8")
-            val urlStr = "https://api.modrinth.com/v2/project/$slug/version?game_versions=$gameVersions&loaders=$loaders"
-            val body = fetchModrinthText(urlStr)
-            val versions = modrinthJson.decodeFromString<List<ModrinthVersion>>(body)
-            val v = versions.firstOrNull { it.version_type == "release" } ?: versions.firstOrNull() ?: return null
-            v.files.firstOrNull { it.primary }?.url ?: v.files.firstOrNull()?.url
+            // 降级策略：精确(mcVersion+loader) → 仅 mcVersion → 仅 loader → 项目最新 release
+            // 解决部分插件仅标注 paper 未标注 bukkit 等导致精确查询为空的问题
+            val queries = listOf(
+                "?game_versions=$gameVersions&loaders=$loaders",
+                "?game_versions=$gameVersions",
+                "?loaders=$loaders",
+                ""
+            )
+            for (query in queries) {
+                val body = fetchModrinthText("https://api.modrinth.com/v2/project/$slug/version$query")
+                val versions = runCatching {
+                    modrinthJson.decodeFromString<List<ModrinthVersion>>(body)
+                }.getOrNull()
+                val v = versions?.firstOrNull { it.version_type == "release" }
+                    ?: versions?.firstOrNull()
+                    ?: continue
+                val url = v.files.firstOrNull { it.primary }?.url ?: v.files.firstOrNull()?.url
+                if (url != null) return url
+            }
+            null
         } catch (e: Exception) {
             null
         }

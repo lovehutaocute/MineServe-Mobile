@@ -117,6 +117,117 @@ class McViewModel(
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
 
+    // ── Termux 终端（会话面板） ─────────────────────────────
+
+    private val _termuxLines = MutableStateFlow<List<String>>(emptyList())
+    val termuxLines: StateFlow<List<String>> = _termuxLines.asStateFlow()
+
+    private val _termuxBusy = MutableStateFlow(false)
+    val termuxBusy: StateFlow<Boolean> = _termuxBusy.asStateFlow()
+
+    /** 执行 Termux shell 命令（IO 线程，输出实时追加到 termuxLines，命令回显 $ cmd） */
+    fun execTermuxCommand(command: String) {
+        if (command.isBlank() || _termuxBusy.value) return
+        viewModelScope.launch {
+            _termuxBusy.value = true
+            try {
+                appendTermux("$ " + command)
+                val exit = withContext(Dispatchers.IO) {
+                    repo.termuxRuntime.execTermux(command) { line ->
+                        appendTermux(line)
+                    }
+                }
+                if (exit != 0) appendTermux("(退出码 $exit)")
+            } catch (e: Exception) {
+                appendTermux("执行错误: ${e.message}")
+            } finally {
+                _termuxBusy.value = false
+            }
+        }
+    }
+
+    /** 追加一行到 termuxLines（500 行环形缓冲） */
+    private fun appendTermux(line: String) {
+        val cur = _termuxLines.value
+        _termuxLines.value = if (cur.size >= 500) cur.drop(cur.size - 499) + line else cur + line
+    }
+
+    // ── 服务器图标（server-icon.png） ────────────────────────
+
+    /** 图标变更信号（UI 用于重载预览） */
+    private val _serverIconVersion = MutableStateFlow(0)
+    val serverIconVersion: StateFlow<Int> = _serverIconVersion.asStateFlow()
+
+    /** 当前核心的 server-icon.png 文件（不存在返回 null） */
+    fun serverIconFile(): File? {
+        val dirName = activeDirName() ?: return null
+        return File(repo.termuxRuntime.serverDirFor(dirName), "server-icon.png")
+            .takeIf { it.exists() }
+    }
+
+    /** 更换服务器图标：读取 Uri → 居中裁剪缩放 64×64 → PNG 写入 server-icon.png */
+    fun setServerIcon(uri: Uri) {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit(str(R.string.s192))
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit(str(R.string.s212))
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val app = McApplication.get()
+                    val input = app.contentResolver.openInputStream(uri)
+                        ?: throw RuntimeException("无法读取所选图片")
+                    val src = input.use { android.graphics.BitmapFactory.decodeStream(it) }
+                        ?: throw RuntimeException("无法解析图片")
+                    // 居中裁剪为正方形后缩放到 64×64
+                    val size = minOf(src.width, src.height)
+                    val x = (src.width - size) / 2
+                    val y = (src.height - size) / 2
+                    val square = android.graphics.Bitmap.createBitmap(src, x, y, size, size)
+                    val icon = android.graphics.Bitmap.createScaledBitmap(square, 64, 64, true)
+                    val target = File(repo.termuxRuntime.serverDirFor(dirName), "server-icon.png")
+                    target.parentFile?.mkdirs()
+                    java.io.FileOutputStream(target).use { fos ->
+                        icon.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos)
+                    }
+                    if (square !== icon) square.recycle()
+                    icon.recycle()
+                }
+                _messageFlow.tryEmit(str(R.string.ui_server_icon_updated))
+                _serverIconVersion.value++
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.ui_server_icon_fail, e.message))
+            }
+        }
+    }
+
+    /** 恢复默认：删除 server-icon.png */
+    fun removeServerIcon() {
+        if (!isBootstrapped.value) {
+            _errorFlow.tryEmit(str(R.string.s192))
+            return
+        }
+        val dirName = activeDirName() ?: run {
+            _errorFlow.tryEmit(str(R.string.s212))
+            return
+        }
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    File(repo.termuxRuntime.serverDirFor(dirName), "server-icon.png").delete()
+                }
+                _messageFlow.tryEmit(str(R.string.ui_server_icon_reset_done))
+                _serverIconVersion.value++
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.ui_server_icon_fail, e.message))
+            }
+        }
+    }
+
     /** 控制台行环形缓冲，避免每行 O(n) 拷贝 */
     private val consoleBuffer = ArrayDeque<String>(1000)
     private var consoleDirty = false
@@ -299,7 +410,7 @@ class McViewModel(
         viewModelScope.launch {
             while (true) {
                 withContext(Dispatchers.IO) { collectDeviceStatsOnce() }
-                delay(3000)
+                delay(10000)
             }
         }
     }
@@ -799,7 +910,7 @@ class McViewModel(
                 _messageFlow.tryEmit(str(R.string.s221, mod.name))
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit(str(R.string.s222, e.message))
+                _errorFlow.tryEmit(str(R.string.s222, mod.name, e.message))
             }
         }
     }
@@ -891,11 +1002,19 @@ class McViewModel(
                     pluginManager.resolveModrinthDownload(hit.slug, mcVersion, loader)
                 } ?: throw RuntimeException("该模组不支持当前 MC 版本/加载器")
                 val fileName = "${hit.slug}.jar"
-                withContext(Dispatchers.IO) { pluginManager.installModFromUrl(url, fileName, dirName) }
+                withContext(Dispatchers.IO) {
+                    pluginManager.installModFromUrl(url, fileName, dirName) { d, t, s ->
+                        _pluginDownloadProgress.value = _pluginDownloadProgress.value + (hit.slug to PluginDownloadProgress(
+                            pluginId = hit.slug, downloadedBytes = d, totalBytes = t, speedBytesPerSec = s
+                        ))
+                    }
+                }
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - hit.slug
                 _messageFlow.tryEmit(str(R.string.s225, hit.title))
                 refreshMods()
             } catch (e: Exception) {
-                _errorFlow.tryEmit(str(R.string.s226, e.message))
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - hit.slug
+                _errorFlow.tryEmit(str(R.string.s226, hit.title, e.message))
             }
         }
     }
@@ -961,11 +1080,19 @@ class McViewModel(
                     pluginManager.resolveModrinthDownload(hit.slug, mcVersion, loader)
                 } ?: throw RuntimeException("该插件不支持所选 MC 版本/加载器")
                 val fileName = "${hit.slug}.jar"
-                withContext(Dispatchers.IO) { pluginManager.installFromUrl(url, fileName, dirName) }
+                withContext(Dispatchers.IO) {
+                    pluginManager.installFromUrl(url, fileName, dirName) { d, t, s ->
+                        _pluginDownloadProgress.value = _pluginDownloadProgress.value + (hit.slug to PluginDownloadProgress(
+                            pluginId = hit.slug, downloadedBytes = d, totalBytes = t, speedBytesPerSec = s
+                        ))
+                    }
+                }
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - hit.slug
                 _messageFlow.tryEmit(str(R.string.s229, hit.title))
                 refreshInstalledPlugins()
             } catch (e: Exception) {
-                _errorFlow.tryEmit(str(R.string.s230, e.message))
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value - hit.slug
+                _errorFlow.tryEmit(str(R.string.s230, hit.title, e.message))
             }
         }
     }
@@ -1012,7 +1139,7 @@ class McViewModel(
                 refreshInstalledPlugins()
             } catch (e: Exception) {
                 _pluginDownloadProgress.value = _pluginDownloadProgress.value - curated.id
-                _errorFlow.tryEmit(str(R.string.s230, e.message))
+                _errorFlow.tryEmit(str(R.string.s230, curated.name, e.message))
             }
         }
     }
@@ -2044,6 +2171,11 @@ class McViewModel(
         // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
+                // 无 UI 订阅时（后台/无页面）长睡，仅控制台可见时保持 100ms 高频刷新
+                if (_consoleLines.subscriptionCount.value <= 0) {
+                    delay(2000)
+                    continue
+                }
                 delay(100)
                 if (consoleDirty) {
                     val snapshot: List<String> = synchronized(consoleBuffer) {

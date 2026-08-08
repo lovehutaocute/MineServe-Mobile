@@ -25,14 +25,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.TextButton
@@ -41,6 +46,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -76,6 +82,13 @@ import com.mineserve.mobile.ui.theme.Muted
 fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     val lines by vm.consoleLines.collectAsState()
     var input by remember { mutableStateOf("") }
+    // 会话面板状态
+    val serverState by vm.serverState.collectAsState()
+    val termuxLines by vm.termuxLines.collectAsState()
+    val termuxBusy by vm.termuxBusy.collectAsState()
+    var termuxInput by remember { mutableStateOf("") }
+    var mcExpanded by remember { mutableStateOf(true) }
+    var termuxExpanded by remember { mutableStateOf(true) }
     val context = LocalContext.current
     // 日志汉化开关（prefs，默认开启）；仅中文系统语言下生效
     val logPrefs = remember { context.getSharedPreferences("log_prefs", Context.MODE_PRIVATE) }
@@ -157,6 +170,15 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             }
         }
 
+        // ── 会话面板 1：MC 终端（仅服务器启动后显示） ──
+        if (serverState.isRunning) {
+            TerminalPanel(
+                title = stringResource(R.string.mc_terminal),
+                statusColor = Color(0xFFA6E3A1),
+                expanded = mcExpanded,
+                onToggle = { mcExpanded = !mcExpanded },
+                modifier = if (mcExpanded) Modifier.weight(1f) else Modifier
+            ) {
         // 日志列表
         val listState = rememberLazyListState()
         // 进入页面时定位到最新日志（底部），而非顶部
@@ -237,6 +259,83 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                 Icon(Icons.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
             }
         }
+            }  // MC 终端面板结束
+
+            // ── 会话面板 2：Termux 终端（始终显示） ──
+            TerminalPanel(
+                title = stringResource(R.string.termux_terminal),
+                statusColor = Color(0xFF89B4FA),
+                expanded = termuxExpanded,
+                onToggle = { termuxExpanded = !termuxExpanded },
+                modifier = if (termuxExpanded) Modifier.weight(1f) else Modifier
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color(0xFF1E1E2E))
+                ) {
+                    if (termuxLines.isEmpty()) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(stringResource(R.string.termux_placeholder), color = Color(0xFF8888AA), fontSize = 12.sp)
+                        }
+                    } else {
+                        val tState = rememberLazyListState()
+                        LaunchedEffect(termuxLines.size) {
+                            if (termuxLines.isNotEmpty()) tState.scrollToItem(termuxLines.size - 1)
+                        }
+                        LazyColumn(
+                            state = tState,
+                            modifier = Modifier.fillMaxSize().padding(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            itemsIndexed(termuxLines) { _, line ->
+                                Text(
+                                    line,
+                                    color = if (line.startsWith("$ ")) Color(0xFFA6E3A1) else Color(0xFFCDD6F4),
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+                    }
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Card)
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = termuxInput,
+                        onValueChange = { termuxInput = it },
+                        placeholder = { Text(stringResource(R.string.termux_hint), fontSize = 12.sp) },
+                        singleLine = true,
+                        enabled = !termuxBusy,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(Modifier.height(0.dp))
+                    IconButton(
+                        onClick = {
+                            if (termuxInput.isNotBlank() && !termuxBusy) {
+                                vm.execTermuxCommand(termuxInput)
+                                termuxInput = ""
+                            }
+                        },
+                        enabled = !termuxBusy
+                    ) {
+                        if (termuxBusy) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Indigo)
+                        } else {
+                            Icon(Icons.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // 日志设置弹窗（汉化开关）
@@ -278,4 +377,45 @@ private fun localizeLogLine(line: String): String {
         .replace("Saved the game", "世界已保存")
         .replace("Saved the world", "世界已保存")
         .replace(Regex("Done \\(([\\d.]+)s\\)!.*"), "服务器启动完成（$1s）")
+}
+
+/** 可折叠会话面板（标题栏：状态点 + 名称 + 展开/收起箭头） */
+@Composable
+private fun TerminalPanel(
+    title: String,
+    statusColor: Color,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Card)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onToggle)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(8.dp).clip(CircleShape).background(statusColor))
+            Spacer(Modifier.width(6.dp))
+            Text(title, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            Icon(
+                if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                contentDescription = null,
+                tint = Muted
+            )
+        }
+        if (expanded) {
+            // 占满父面板剩余高度，保证内部 content 的 weight(1f) 生效（否则日志区高度为 0 → 空白）
+            Column(modifier = Modifier.fillMaxWidth().weight(1f)) { content() }
+        }
+    }
 }

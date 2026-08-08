@@ -25,7 +25,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 
 /**
  * 前台服务：MC 进程托管 + 日志 socket 服务端 + 保活
@@ -83,7 +82,8 @@ class McForegroundService : Service() {
         } else {
             startForeground(NOTIF_ID, notif)
         }
-        acquireLocks()
+        // 配置读取（DataStore）移到 IO 线程，避免主线程磁盘 I/O
+        scope.launch { acquireLocks() }
         // 启动 socket 监听 + 健康 watchdog
         startWatchdog()
     }
@@ -121,7 +121,7 @@ class McForegroundService : Service() {
                 if (alive && tick % 2 == 0) {
                     try {
                         val config = runCatching {
-                            runBlocking { app.repository.configFlow.first() }
+                            app.repository.configFlow.first()
                         }.getOrNull()
                         if (config != null) {
                             // list 命令获取在线玩家数（所有核心支持）
@@ -144,10 +144,10 @@ class McForegroundService : Service() {
     /**
      * 唤醒锁 + Wi-Fi 锁，确保 MC 进程在屏幕熄灭时仍可接收玩家连接
      */
-    private fun acquireLocks() {
+    private suspend fun acquireLocks() {
         val app = McApplication.get(this)
         val config = runCatching {
-            runBlocking { app.repository.configFlow.first() }
+            app.repository.configFlow.first()
         }.getOrNull()
         val keepCpu = config?.keepCpuWakelock ?: true
         val keepWifi = config?.keepWifiLock ?: true

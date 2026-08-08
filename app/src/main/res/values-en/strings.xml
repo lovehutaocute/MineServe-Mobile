@@ -1153,5 +1153,20 @@
 <string name="cmd_kick">Kick</string>
     <string name="ui_log_localize">Localize Logs</string>
     <string name="ui_log_localize_hint">Show common logs (join/leave/online count/world save/startup) in Chinese</string>
+    <string name="ui_installing">Installing…</string>
+
+    <string name="ui_server_icon">Server Icon</string>
+    <string name="ui_server_icon_change">Change Icon</string>
+    <string name="ui_server_icon_reset">Reset</string>
+    <string name="ui_server_icon_hint">Icon shown in the multiplayer server list (64×64, takes effect after server restart)</string>
+    <string name="ui_server_icon_updated">Server icon updated. Restart the server to take effect.</string>
+    <string name="ui_server_icon_reset_done">Default icon restored.</string>
+    <string name="ui_server_icon_fail">Failed to update icon: %1$s</string>
+    <string name="ui_server_icon_default">Default</string>
+    <string name="mc_terminal">MC Terminal</string>
+    <string name="termux_terminal">Termux Terminal</string>
+    <string name="termux_hint">Type a command, e.g. ls, pkg update</string>
+    <string name="termux_busy">Running…</string>
+    <string name="termux_placeholder">Type a command to start</string>
 </resources>
 

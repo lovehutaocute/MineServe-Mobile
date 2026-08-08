@@ -5,14 +5,16 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
+import android.os.StrictMode
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.mineserve.mobile.data.DownloadPrefs
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.UsageTracker
 import com.mineserve.mobile.runtime.TermuxRuntime
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -73,9 +75,34 @@ class McApplication : Application(), Configuration.Provider {
         _openUpdateRequest.value = false
     }
 
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /** 应用级协程作用域（替代 GlobalScope，随进程生命周期，可统一取消） */
+    fun scope(): CoroutineScope = appScope
+
     override fun onCreate() {
         super.onCreate()
         instance = this
+
+        // Debug 构建启用 StrictMode：尽早发现主线程磁盘/网络违规
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy.Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .penaltyLog()
+                    .build()
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy.Builder()
+                    .detectLeakedSqlLiteObjects()
+                    .detectLeakedClosableObjects()
+                    .detectActivityLeaks()
+                    .penaltyLog()
+                    .build()
+            )
+        }
 
         // 全局崩溃捕获
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
@@ -112,7 +139,7 @@ class McApplication : Application(), Configuration.Provider {
 
         // 启动时推送上次崩溃日志到控制台（IO 线程，不阻塞主线程启动）
         if (crashLogFile.exists() && crashLogFile.length() > 0) {
-            GlobalScope.launch(Dispatchers.IO) {
+            scope().launch {
                 try {
                     val lastCrash = crashLogFile.readText().takeLast(3000)
                     termuxRuntime.emitLog("[crash] 上次崩溃日志:\n$lastCrash")
@@ -144,7 +171,7 @@ class McApplication : Application(), Configuration.Provider {
     /** 启动/重试 bootstrap 初始化 */
     fun startBootstrap() {
         if (_isBootstrapped.value) return
-        GlobalScope.launch(Dispatchers.IO) {
+        scope().launch {
             _bootstrapError.value = null
             val ok = try {
                 termuxRuntime.bootstrap { phase, progress ->
@@ -174,7 +201,7 @@ class McApplication : Application(), Configuration.Provider {
      * 删除后自动重新开始初始化流程。
      */
     fun deleteBootstrap() {
-        GlobalScope.launch(Dispatchers.IO) {
+        scope().launch {
             _isBootstrapped.value = false
             _bootstrapError.value = null
             repository.updateServerState {

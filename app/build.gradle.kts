@@ -47,7 +47,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 混淆仅正式发版时启用：gradlew assembleRelease -PreleaseR8=true
+            // 本地测试/不更新 release 的构建保持无混淆（避免混淆引发的运行时问题干扰排查）
+            val enableR8 = (project.findProperty("releaseR8") as String?)?.toBoolean() ?: false
+            isMinifyEnabled = enableR8
+            isShrinkResources = enableR8
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

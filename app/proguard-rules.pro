@@ -1,11 +1,26 @@
-# 保留 Termux bridge 接口（反射调用 native helper）
--keep class com.mcserver.manager.runtime.** { *; }
--keep class com.mcserver.manager.service.** { *; }
+# ===== MineServe Mobile R8 规则 =====
+# 包名已由 com.mcserver.manager 迁移为 com.mineserve.mobile
 
-# kotlinx.serialization
--keepattributes *Annotation*, InnerClasses
+# 保留 Termux bridge 接口（反射调用 native helper）
+-keep class com.mineserve.mobile.runtime.** { *; }
+-keep class com.mineserve.mobile.service.** { *; }
+# 服务器管理与安装链路（PluginManager/下载/隧道等，防混淆运行时异常）
+-keep class com.mineserve.mobile.server.** { *; }
+
+# ---------- kotlinx.serialization ----------
+-keepattributes *Annotation*, InnerClasses, Signature
 -dontnote kotlinx.serialization.AnnotationsKt
 
+# @Serializable 类：保留 Companion 与生成的 serializer 描述符
+-keep,includedescriptorclasses class com.mineserve.mobile.**$$serializer { *; }
+-keepclassmembers class com.mineserve.mobile.** {
+    *** Companion;
+}
+-keepclasseswithmembers class com.mineserve.mobile.** {
+    kotlinx.serialization.KSerializer serializer(...);
+}
+
+# kotlinx.serialization 内部
 -keepclassmembers class kotlinx.serialization.json.** {
     *** Companion;
 }
@@ -13,5 +28,11 @@
     kotlinx.serialization.KSerializer serializer(...);
 }
 
-# Compose
+# 枚举（序列化/配置使用，保留 name 与序数语义）
+-keepclassmembers enum * { *; }
+
+# ---------- Compose ----------
 -keep class androidx.compose.** { *; }
+
+# ---------- 数据/工具 ----------
+# xz / commons-compress 无反射，无需规则

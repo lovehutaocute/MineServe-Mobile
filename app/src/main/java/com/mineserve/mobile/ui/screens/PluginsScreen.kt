@@ -173,6 +173,44 @@ fun PluginsScreen(vm: McViewModel) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
+    // 全局安装/下载进度对话框（精选插件、Modrinth、自定义 URL 统一反馈）
+    val installingEntry = downloadProgress.entries.firstOrNull()
+    if (installingEntry != null) {
+        val p = installingEntry.value
+        AlertDialog(
+            onDismissRequest = {},
+            title = { Text(stringResource(R.string.ui_installing), fontSize = 16.sp) },
+            text = {
+                Column {
+                    Text(p.pluginId, fontSize = 13.sp, color = Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(12.dp))
+                    if (p.totalBytes > 0) {
+                        LinearProgressIndicator(
+                            progress = { (p.downloadedBytes.toFloat() / p.totalBytes).coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(6.dp),
+                            color = Indigo
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "${formatBytes(p.downloadedBytes)} / ${formatBytes(p.totalBytes)} · ${p.speedBytesPerSec / 1024} KB/s",
+                            fontSize = 12.sp, color = Muted
+                        )
+                    } else {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(28.dp), color = Indigo, strokeWidth = 3.dp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "${formatBytes(p.downloadedBytes)} · ${p.speedBytesPerSec / 1024} KB/s",
+                            fontSize = 12.sp, color = Muted
+                        )
+                    }
+                }
+            },
+            confirmButton = {}
+        )
+    }
+
     var activeTab by remember { mutableStateOf(PluginTab.Installed) }
     var pendingDelete by remember { mutableStateOf<PluginManager.InstalledPlugin?>(null) }
     var pendingModDelete by remember { mutableStateOf<PluginManager.ModEntry?>(null) }
@@ -1942,4 +1980,15 @@ private fun ModrinthIcon(url: String, size: Dp = 32.dp) {    var bitmap by remem
             Text("🟦", fontSize = 14.sp)
         }
     }
+}
+
+/** 字节数格式化（进度对话框使用） */
+private fun formatBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return String.format(java.util.Locale.US, "%.1f KB", kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return String.format(java.util.Locale.US, "%.1f MB", mb)
+    val gb = mb / 1024.0
+    return String.format(java.util.Locale.US, "%.2f GB", gb)
 }
