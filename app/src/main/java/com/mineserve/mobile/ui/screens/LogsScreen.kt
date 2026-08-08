@@ -260,8 +260,9 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             }
         }
             }  // MC 终端面板结束
+        } // if (serverState.isRunning) — MC 终端仅在服务器运行时显示
 
-            // ── 会话面板 2：Termux 终端（始终显示） ──
+        // ── 会话面板 2：Termux 终端（始终显示） ──
             TerminalPanel(
                 title = stringResource(R.string.termux_terminal),
                 statusColor = Color(0xFF89B4FA),
@@ -334,7 +335,6 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                         }
                     }
                 }
-            }
         }
     }
 
