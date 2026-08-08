@@ -1138,5 +1138,19 @@
 <string name="ui_autostart_btn">去开启自启动</string>
 <string name="ui_pixel_title">一像素保活</string>
 <string name="ui_pixel_hint">1×1 透明窗口常驻，配合前台服务提升存活率（受系统版本与厂商策略影响，效果尽力而为）</string>
+<string name="cmd_time_day">白天</string>
+<string name="cmd_time_night">夜晚</string>
+<string name="cmd_weather_clear">天气晴</string>
+<string name="cmd_weather_rain">天气雨</string>
+<string name="cmd_weather_thunder">雷暴</string>
+<string name="cmd_gamemode_survival">生存</string>
+<string name="cmd_gamemode_creative">创造</string>
+<string name="cmd_list">玩家列表</string>
+<string name="cmd_tps">卡顿检测</string>
+<string name="cmd_save_all">保存世界</string>
+<string name="cmd_say">公告</string>
+<string name="cmd_kick">踢出</string>
+    <string name="ui_log_localize">日志汉化</string>
+    <string name="ui_log_localize_hint">将常见日志（进服/离服/在线人数/世界保存/启动完成）显示为中文</string>
 </resources>
 

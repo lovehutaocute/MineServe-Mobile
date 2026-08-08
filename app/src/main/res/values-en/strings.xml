@@ -1139,5 +1139,19 @@
 <string name="ui_autostart_btn">Enable Auto-Start</string>
 <string name="ui_pixel_title">1-Pixel Keep-Alive</string>
 <string name="ui_pixel_hint">A 1×1 transparent window stays resident with the foreground service to improve survival (limited by system version and vendor policy)</string>
+<string name="cmd_time_day">Day</string>
+<string name="cmd_time_night">Night</string>
+<string name="cmd_weather_clear">Clear</string>
+<string name="cmd_weather_rain">Rain</string>
+<string name="cmd_weather_thunder">Thunder</string>
+<string name="cmd_gamemode_survival">Survival</string>
+<string name="cmd_gamemode_creative">Creative</string>
+<string name="cmd_list">Players</string>
+<string name="cmd_tps">TPS</string>
+<string name="cmd_save_all">Save</string>
+<string name="cmd_say">Say</string>
+<string name="cmd_kick">Kick</string>
+    <string name="ui_log_localize">Localize Logs</string>
+    <string name="ui_log_localize_hint">Show common logs (join/leave/online count/world save/startup) in Chinese</string>
 </resources>
 

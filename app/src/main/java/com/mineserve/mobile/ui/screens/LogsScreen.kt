@@ -8,6 +8,8 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
@@ -32,7 +34,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Send
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.IconButton
@@ -72,6 +77,11 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     val lines by vm.consoleLines.collectAsState()
     var input by remember { mutableStateOf("") }
     val context = LocalContext.current
+    // 日志汉化开关（prefs，默认开启）；仅中文系统语言下生效
+    val logPrefs = remember { context.getSharedPreferences("log_prefs", Context.MODE_PRIVATE) }
+    var logLocalized by remember { mutableStateOf(logPrefs.getBoolean("localize", true)) }
+    var showLogSettings by remember { mutableStateOf(false) }
+    val isChineseLocale = java.util.Locale.getDefault().language == "zh"
 
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部带返回按钮的 Header（白底覆盖状态栏，配合全屏展示）
@@ -102,23 +112,47 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             }) {
                 Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s560), tint = Indigo)
             }
+            // 日志设置齿轮按钮（汉化开关）
+            IconButton(onClick = { showLogSettings = true }) {
+                Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.ui_log_localize), tint = Indigo)
+            }
         }
 
-        // 快捷指令按钮
-        val quickCommands = listOf("/list", "/tps", "/say ", "/kick ", "/help")
+        // 快捷指令栏：原版 MC 常用指令，横向滑动查看全部
+        val quickCommands = listOf(
+            Triple("🕐", R.string.cmd_time_day, "/time set day"),
+            Triple("🌙", R.string.cmd_time_night, "/time set night"),
+            Triple("☀️", R.string.cmd_weather_clear, "/weather clear"),
+            Triple("🌧️", R.string.cmd_weather_rain, "/weather rain"),
+            Triple("⛈️", R.string.cmd_weather_thunder, "/weather thunder"),
+            Triple("🎮", R.string.cmd_gamemode_survival, "/gamemode survival"),
+            Triple("🧱", R.string.cmd_gamemode_creative, "/gamemode creative"),
+            Triple("👥", R.string.cmd_list, "/list"),
+            Triple("🐢", R.string.cmd_tps, "/tps"),
+            Triple("💾", R.string.cmd_save_all, "/save-all"),
+            Triple("📣", R.string.cmd_say, "/say "),
+            Triple("👟", R.string.cmd_kick, "/kick ")
+        )
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 12.dp, vertical = 4.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            quickCommands.forEach { cmd ->
+            quickCommands.forEach { (emoji, labelRes, cmd) ->
                 androidx.compose.material3.TextButton(
-                    onClick = { input = cmd; vm.sendCommand(cmd); input = "" },
+                    onClick = { vm.sendCommand(cmd) },
                     modifier = Modifier.defaultMinSize(minWidth = 1.dp, minHeight = 1.dp).height(28.dp),
-                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
                     shape = RoundedCornerShape(4.dp),
                     colors = androidx.compose.material3.ButtonDefaults.textButtonColors(contentColor = Color(0xFF89B4FA))
                 ) {
-                    Text(cmd, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text(
+                        "$emoji ${stringResource(labelRes)}",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }
@@ -169,7 +203,10 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                                 else -> Color(0xFFCDD6F4)
                             }
                         }
-                        Text(line, color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text(
+                            if (logLocalized && isChineseLocale) localizeLogLine(line) else line,
+                            color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace
+                        )
                     }
                 }
             }
@@ -201,4 +238,44 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
             }
         }
     }
+
+    // 日志设置弹窗（汉化开关）
+    if (showLogSettings) {
+        AlertDialog(
+            onDismissRequest = { showLogSettings = false },
+            title = { Text(stringResource(R.string.ui_log_localize), fontSize = 15.sp, fontWeight = FontWeight.Bold) },
+            text = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.ui_log_localize), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.ui_log_localize_hint), color = Muted, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
+                    Switch(
+                        checked = logLocalized,
+                        onCheckedChange = {
+                            logLocalized = it
+                            logPrefs.edit().putBoolean("localize", it).apply()
+                        }
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showLogSettings = false }) {
+                    Text(stringResource(R.string.s620))
+                }
+            }
+        )
+    }
+}
+
+/** 日志行部分汉化：进服/离服/在线人数/世界保存/启动完成（仅显示层，不改原始数据） */
+private fun localizeLogLine(line: String): String {
+    return line
+        .replace(Regex("(\\w+) joined the game"), "玩家 $1 加入了游戏")
+        .replace(Regex("(\\w+) left the game"), "玩家 $1 离开了游戏")
+        .replace(Regex("There are (\\d+) of a max of (\\d+) players online"), "当前在线 $1/$2 人")
+        .replace("Saving worlds", "正在保存世界")
+        .replace("Saved the game", "世界已保存")
+        .replace("Saved the world", "世界已保存")
+        .replace(Regex("Done \\(([\\d.]+)s\\)!.*"), "服务器启动完成（$1s）")
 }

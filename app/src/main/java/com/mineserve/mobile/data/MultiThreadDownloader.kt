@@ -266,8 +266,9 @@ object MultiThreadDownloader {
     private fun openConn(urlStr: String): HttpURLConnection {
         return (URL(urlStr).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
-            connectTimeout = 30_000
-            readTimeout = 60_000
+            // 快速失败：连接 8s、读间隔 20s，挂梯子/镜像异常时快速切源
+            connectTimeout = 8_000
+            readTimeout = 20_000
             setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
         }
     }
