@@ -1021,6 +1021,10 @@ class McViewModel(
                 } ?: throw RuntimeException("该模组不支持当前 MC 版本/加载器")
                 val fileName = "${hit.slug}.jar"
                 withContext(Dispatchers.IO) {
+                    // 下载开始前先放占位进度，保证进度弹窗一定显示（下载瞬间完成也不会漏）
+                    _pluginDownloadProgress.value = _pluginDownloadProgress.value + (hit.slug to PluginDownloadProgress(
+                        pluginId = hit.slug, downloadedBytes = 0, totalBytes = 0, speedBytesPerSec = 0
+                    ))
                     pluginManager.installModFromUrl(url, fileName, dirName) { d, t, s ->
                         _pluginDownloadProgress.value = _pluginDownloadProgress.value + (hit.slug to PluginDownloadProgress(
                             pluginId = hit.slug, downloadedBytes = d, totalBytes = t, speedBytesPerSec = s
@@ -1099,6 +1103,10 @@ class McViewModel(
                 } ?: throw RuntimeException("该插件不支持所选 MC 版本/加载器")
                 val fileName = "${hit.slug}.jar"
                 withContext(Dispatchers.IO) {
+                    // 下载开始前先放占位进度，保证进度弹窗一定显示
+                    _pluginDownloadProgress.value = _pluginDownloadProgress.value + (hit.slug to PluginDownloadProgress(
+                        pluginId = hit.slug, downloadedBytes = 0, totalBytes = 0, speedBytesPerSec = 0
+                    ))
                     pluginManager.installFromUrl(url, fileName, dirName) { d, t, s ->
                         _pluginDownloadProgress.value = _pluginDownloadProgress.value + (hit.slug to PluginDownloadProgress(
                             pluginId = hit.slug, downloadedBytes = d, totalBytes = t, speedBytesPerSec = s
@@ -1140,6 +1148,10 @@ class McViewModel(
                 } else {
                     curated.downloadUrl
                 }
+                // 下载开始前先放占位进度，保证进度弹窗一定显示（下载瞬间完成也不会漏）
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value + (curated.id to PluginDownloadProgress(
+                    pluginId = curated.id, downloadedBytes = 0, totalBytes = 0, speedBytesPerSec = 0
+                ))
                 pluginManager.installFromUrl(
                     resolvedUrl,
                     curated.targetFileName,
@@ -1302,6 +1314,10 @@ class McViewModel(
         }
         viewModelScope.launch {
             try {
+                // 下载开始前先放占位进度，保证进度弹窗一定显示（下载瞬间完成也不会漏）
+                _pluginDownloadProgress.value = _pluginDownloadProgress.value + (URL_DOWNLOAD_ID to PluginDownloadProgress(
+                    pluginId = URL_DOWNLOAD_ID, downloadedBytes = 0, totalBytes = 0, speedBytesPerSec = 0
+                ))
                 pluginManager.installFromUrl(url, customFileName, dirName) { downloaded, total, speed ->
                     _pluginDownloadProgress.value = _pluginDownloadProgress.value + (URL_DOWNLOAD_ID to PluginDownloadProgress(
                         pluginId = URL_DOWNLOAD_ID,
