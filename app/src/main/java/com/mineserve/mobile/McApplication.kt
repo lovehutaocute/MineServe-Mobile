@@ -137,6 +137,16 @@ class McApplication : Application(), Configuration.Provider {
 
         termuxRuntime = TermuxRuntime(this)
 
+        // 启动时修复 rootfs 命令可执行权限（幂等：已装环境每次启动都修复，
+        // 解决 usr/bin 下命令 Permission denied / 退出码 126 的问题）
+        scope().launch {
+            try {
+                termuxRuntime.ensureRootfsExecutable()
+            } catch (e: Exception) {
+                android.util.Log.w("McApplication", "ensureRootfsExecutable failed: ${e.message}")
+            }
+        }
+
         // 启动时推送上次崩溃日志到控制台（IO 线程，不阻塞主线程启动）
         if (crashLogFile.exists() && crashLogFile.length() > 0) {
             scope().launch {
@@ -185,6 +195,12 @@ class McApplication : Application(), Configuration.Provider {
             }
             if (ok) {
                 _isBootstrapped.value = true
+                // 新装环境：修复 rootfs 命令可执行权限（usr/bin 下脚本初始无 exec 位）
+                try {
+                    termuxRuntime.ensureRootfsExecutable()
+                } catch (e: Exception) {
+                    android.util.Log.w("McApplication", "ensureRootfsExecutable after bootstrap failed: ${e.message}")
+                }
                 android.util.Log.i("McApplication", "bootstrap completed")
                 repository.updateServerState { it.copy(currentProgress = 100) }
             } else {

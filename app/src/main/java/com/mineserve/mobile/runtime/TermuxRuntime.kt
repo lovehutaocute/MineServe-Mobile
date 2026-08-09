@@ -128,6 +128,43 @@ class TermuxRuntime(context: Context) {
     fun execTermux(command: String, onLine: (String) -> Unit): Int =
         executor.execWithOutput("/system/bin/sh", "-c", command, onLine = onLine)
 
+    /**
+     * 修复 rootfs 命令可执行权限（幂等，毫秒级）。
+     *
+     * 背景：Termux bootstrap zip 解压时（extractZipToDir）只对 bin/、libexec/ 前缀及
+     * 少量文件名设置 exec 位，usr/bin/ 下的真实脚本/二进制（pkg、apt 等）初始无 exec 位；
+     * 依赖 bin/ 符号链接 chmod 跟随的链路在部分环境下失效，导致执行时报
+     * "Permission denied"（退出码 126）。
+     *
+     * 修复：遍历 usr/bin、bin、libexec、lib/apt/methods 下所有文件直接 setExecutable。
+     * 对 bin/ 下的符号链接，java.io.File.setExecutable 跟随链接修改目标文件权限。
+     * 每次应用启动调用（幂等，已装环境也生效），不依赖重新初始化。
+     *
+     * @return 本次修复的文件数
+     */
+    fun ensureRootfsExecutable(): Int {
+        val prefix = installer.rootDir.absolutePath
+        if (!File(prefix).isDirectory) return 0
+        val dirs = listOf("usr/bin", "bin", "libexec", "lib/apt/methods")
+        var fixed = 0
+        dirs.forEach { rel ->
+            File(prefix, rel).listFiles()?.forEach { f ->
+                if (f.isFile && !f.canExecute()) {
+                    try {
+                        if (f.setExecutable(true, false)) fixed++
+                    } catch (e: Exception) {
+                        Log.w(TAG, "ensureRootfsExecutable: chmod failed ${f.absolutePath}: ${e.message}")
+                    }
+                }
+            }
+        }
+        if (fixed > 0) {
+            Log.i(TAG, "ensureRootfsExecutable: fixed $fixed files")
+            installer.onLog?.invoke("[bootstrap] 修复 $fixed 个命令可执行权限")
+        }
+        return fixed
+    }
+
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
         executor.execStream(tag, *command, env = env)
 
