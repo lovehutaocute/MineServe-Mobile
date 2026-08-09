@@ -54,10 +54,10 @@ class TermuxRuntime(context: Context) {
 
     fun isReady(): Boolean = installer.isReady()
 
-    /** 删除整个 Termux 运行环境 */
-    suspend fun deleteBootstrap() {
+    /** 删除整个 Termux 运行环境；force=true 为强制彻底删除（不自动重新初始化） */
+    suspend fun deleteBootstrap(force: Boolean = false) {
         stopMc()
-        installer.deleteBootstrap()
+        installer.deleteBootstrap(force)
     }
 
     /** 多核心支持：按文件夹名获取对应核心的 jar 路径（home/servers/{dirName}/server.jar） */

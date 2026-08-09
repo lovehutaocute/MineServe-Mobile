@@ -114,6 +114,11 @@ class McViewModel(
         McApplication.get().deleteBootstrap()
     }
 
+    /** 强制删除 Termux 依赖：彻底卸载，删除后不自动重新初始化（需手动安装） */
+    fun forceDeleteBootstrap() {
+        McApplication.get().forceDeleteBootstrap()
+    }
+
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
 

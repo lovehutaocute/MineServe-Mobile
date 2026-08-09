@@ -786,13 +786,23 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     )
                 },
                 confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showDeleteConfirm = false
-                            vm.deleteBootstrap()
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(
+                            onClick = {
+                                showDeleteConfirm = false
+                                vm.deleteBootstrap()
+                            }
+                        ) {
+                            Text(stringResource(R.string.s401), color = Coral, fontWeight = FontWeight.SemiBold)
                         }
-                    ) {
-                        Text(stringResource(R.string.s401), color = Coral, fontWeight = FontWeight.SemiBold)
+                        TextButton(
+                            onClick = {
+                                showDeleteConfirm = false
+                                vm.forceDeleteBootstrap()
+                            }
+                        ) {
+                            Text(stringResource(R.string.force_delete), color = Coral, fontWeight = FontWeight.SemiBold)
+                        }
                     }
                 },
                 dismissButton = {

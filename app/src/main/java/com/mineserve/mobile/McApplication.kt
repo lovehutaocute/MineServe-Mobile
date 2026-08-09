@@ -234,6 +234,27 @@ class McApplication : Application(), Configuration.Provider {
         }
     }
 
+    /**
+     * 强制删除 Termux 依赖：彻底卸载（含缓存与状态标记，删除失败自动重试），
+     * 删除后**不自动重新初始化**——等待用户手动触发安装。
+     */
+    fun forceDeleteBootstrap() {
+        scope().launch {
+            _isBootstrapped.value = false
+            _bootstrapError.value = null
+            repository.updateServerState {
+                it.copy(
+                    currentProgress = 0,
+                    installSteps = com.mineserve.mobile.data.InstallStep.values().map { step ->
+                        com.mineserve.mobile.data.StepState(step, com.mineserve.mobile.data.StepStatus.Wait)
+                    }
+                )
+            }
+            termuxRuntime.deleteBootstrap(force = true)
+            // 注意：不调用 startBootstrap()，保持卸载状态，等用户手动初始化
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

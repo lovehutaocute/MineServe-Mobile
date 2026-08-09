@@ -120,16 +120,43 @@ class BootstrapInstaller(private val context: Context) {
 
     /**
      * 删除整个 Termux 运行环境（rootfs + 缓存 + readyFile）。
-     * 用于用户主动重置环境或排查问题。
+     * force=false：普通删除（删除后应用会自动重新初始化）；
+     * force=true：强制删除——更彻底（含 native/runtime/tmp 缓存与状态标记），
+     * 删除失败自动重试，删除后由调用方决定是否重新初始化。
      */
-    fun deleteBootstrap() {
-        log("开始删除 Termux 运行环境...")
+    fun deleteBootstrap(force: Boolean = false) {
+        log(if (force) "开始强制删除 Termux 环境..." else "开始删除 Termux 运行环境...")
+
+        /** 递归删除并重试（文件被占用/句柄未释放时多次尝试） */
+        fun deleteRetry(f: File, retries: Int = 4): Boolean {
+            if (!f.exists()) return true
+            repeat(retries) {
+                if (f.exists()) {
+                    try { f.deleteRecursively() } catch (_: Exception) {}
+                    // 目录残留时逐个文件删（更激进）
+                    if (f.exists()) {
+                        try { f.walkBottomUp().forEach { it.delete() } } catch (_: Exception) {}
+                    }
+                }
+                if (!f.exists()) return true
+                try { Thread.sleep(200) } catch (_: Exception) {}
+            }
+            return !f.exists()
+        }
+
         readyFile.delete()
-        rootDir.deleteRecursively()
-        // 清除缓存的 rootfs zip（所有架构）
-        tmpDir.listFiles()?.filter { it.name.startsWith("bootstrap-") }?.forEach { it.delete() }
-        // 清除 runtime 目录（socket 等）
-        runtimeDir.listFiles()?.forEach { it.deleteRecursively() }
+        deleteRetry(rootDir)
+        // 强制删除时额外清理 native / runtime / tmp 缓存
+        if (force) {
+            deleteRetry(nativeDir)
+            runtimeDir.listFiles()?.forEach { deleteRetry(it) }
+            tmpDir.listFiles()?.filter { it.name.startsWith("bootstrap-") }?.forEach { deleteRetry(it) }
+            File(context.filesDir, ".dpkg_finalized").delete()
+            File(context.filesDir, ".bootstrap_ready").delete()
+        } else {
+            tmpDir.listFiles()?.filter { it.name.startsWith("bootstrap-") }?.forEach { it.delete() }
+            runtimeDir.listFiles()?.forEach { it.deleteRecursively() }
+        }
         log("Termux 运行环境已删除")
     }
 
