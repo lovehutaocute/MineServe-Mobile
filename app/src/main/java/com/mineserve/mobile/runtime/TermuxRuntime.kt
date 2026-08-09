@@ -547,7 +547,7 @@ class TermuxRuntime(context: Context) {
         Log.w(TAG, "ensureJvmComplete: jvm incomplete, reinstalling openjdk-25")
         installer.onLog?.invoke("[bootstrap] jvm 不完整，重新安装 openjdk-25...")
         try {
-            executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "-f", "openjdk-25")
+            executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=20", "install", "--allow-unauthenticated", "-y", "-f", "openjdk-25")
             // 重装后 jvm 可能在 compat，重新归位 + 重建 wrapper
             fixUsrBin()
             fixJavaSymlinks()
@@ -647,10 +647,10 @@ class TermuxRuntime(context: Context) {
         // shebang 硬编码指向 /data/data/com.termux/... 解释器，不修复则 apt-get 无法执行
         // （退出码 126），JDK 永远装不完，bootstrap 陷入死循环。
         fixRootfsPermissions()
-        executor.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
+        executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=20", "update", "--allow-insecure-repositories", "-y")
         // 安装 openjdk-25：Paper 26.x / MC 26.1+ 要求 Java 25+，openjdk-17 已不够
-        executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25", "wget", "curl")
-        executor.execOnce("apt-get", "clean")
+        executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=20", "install", "--allow-unauthenticated", "-y", "openjdk-25", "wget", "curl")
+        executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=20", "clean")
 
         // 修复 openjdk 符号链接：dpkg-wrapper 的 configure 是 no-op，
         // post-install 脚本未执行，导致 $PREFIX/bin/java 符号链接未创建
