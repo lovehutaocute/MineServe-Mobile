@@ -137,7 +137,14 @@ class McViewModel(
                         appendTermux(line)
                     }
                 }
-                if (exit != 0) appendTermux("(退出码 $exit)")
+                if (exit != 0) {
+                    val hint = when (exit) {
+                        126 -> "（命令找到但无法执行：权限不足或依赖缺失）"
+                        127 -> "（命令未找到：请检查命令是否存在）"
+                        else -> ""
+                    }
+                    appendTermux("(退出码 $exit)$hint")
+                }
             } catch (e: Exception) {
                 appendTermux("执行错误: ${e.message}")
             } finally {

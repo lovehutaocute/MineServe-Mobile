@@ -119,9 +119,14 @@ class TermuxRuntime(context: Context) {
     /**
      * 执行 Termux shell 命令，输出逐行回调（Termux 终端面板专用，不与 MC 日志混流）。
      * 命令通过 sh -c 执行（含 Termux 环境 PATH/LD_LIBRARY_PATH），阻塞至命令结束。
+     *
+     * 注意：内层解释器必须显式用 /system/bin/sh，不能依赖 PATH 解析 "sh"——
+     * PATH 中的 sh 会命中 $PREFIX/bin/sh（Termux bash ELF），bash 依赖的共享库
+     * （readline/ncurses 等）不在 LD_LIBRARY_PATH 内会导致启动失败（退出码 126）。
+     * MC 服务器启动链（startMc）从不经过 Termux bash，因此能正常运行。
      */
     fun execTermux(command: String, onLine: (String) -> Unit): Int =
-        executor.execWithOutput("sh", "-c", command, onLine = onLine)
+        executor.execWithOutput("/system/bin/sh", "-c", command, onLine = onLine)
 
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
         executor.execStream(tag, *command, env = env)

@@ -59,11 +59,20 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，库实际落在 usr/lib/
         // 必须加入 LD_LIBRARY_PATH，否则 proot 找不到 libtalloc.so.2
         val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        // Termux rootfs 的共享库标准位置为 $PREFIX/usr/lib（bash 依赖的 readline/ncurses
+        // 等都在这里）；仅靠 $prefix/lib 会导致这些命令启动失败（退出码 126）。
+        // 顺序：$prefix/lib → compat 实际落点 → Termux 标准 usr/lib → 系统库
+        val libPath = listOf(
+            "$prefix/lib",
+            compatUsrLib,
+            "$prefix/usr/lib",
+            "/system/lib64"
+        ).joinToString(":")
         return mapOf(
             "HOME" to "$prefix/home",
             "PATH" to "$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
             "TMPDIR" to "$prefix/tmp",
-            "LD_LIBRARY_PATH" to "$prefix/lib:$compatUsrLib:/system/lib64",
+            "LD_LIBRARY_PATH" to libPath,
             "PREFIX" to "$prefix",
             "TERM" to "xterm-256color",
             "LANG" to "en_US.UTF-8",
