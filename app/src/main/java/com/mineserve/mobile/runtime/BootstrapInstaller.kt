@@ -688,6 +688,26 @@ extract_deb() {
     if [ -d "__D__{PREFIX}/lib/apt/methods" ]; then
       chmod 755 "__D__{PREFIX}/lib/apt/methods/"* 2>/dev/null
     fi
+    # 修复 dpkg-deb -x 覆盖 compat 符号链接的问题：
+    # tar 解压时包内 usr/ 等目录条目会把链接覆盖成真实目录，新装包文件落入
+    # compat 目录导致 PATH 找不到。解压后合并回 usr/bin 并重建链接。
+    COMPAT_USR="__D__{PREFIX}/data/data/com.termux/files/usr"
+    if [ -d "__D__COMPAT_USR" ] && [ ! -L "__D__COMPAT_USR" ]; then
+      if [ -d "__D__COMPAT_USR/bin" ]; then
+        cp -f "__D__COMPAT_USR/bin/"* "__D__{PREFIX}/usr/bin/" 2>/dev/null
+        chmod 755 "__D__{PREFIX}/usr/bin/"* 2>/dev/null
+      fi
+      rm -rf "__D__COMPAT_USR"
+      mkdir -p "__D__{PREFIX}/data/data/com.termux/files"
+      ln -sf "__D__{PREFIX}" "__D__COMPAT_USR"
+      log "rebuilt compat symlink after extract"
+    fi
+    # 为 usr/bin 新命令补 bin/ 符号链接（postinst 被跳过时缺失 → PATH 找不到 → 127）
+    for f in "__D__{PREFIX}/usr/bin/"*; do
+      [ -f "__D__f" ] || continue
+      b="__D__{PREFIX}/bin/$(basename "__D__f")"
+      [ -e "__D__b" ] || ln -sf "../usr/bin/$(basename "__D__f")" "__D__b" 2>/dev/null
+    done
   else
     log "ERROR: extract failed for __D__deb"
   fi
