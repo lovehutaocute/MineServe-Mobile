@@ -178,7 +178,7 @@ class TermuxRuntime(context: Context) {
         val dpkg = File(installer.rootDir, "bin/dpkg")
         if (!dpkg.exists()) return 0
         val isV2 = try {
-            dpkg.readText().contains("rebuilt compat symlink after extract")
+            dpkg.readText().contains("commands linked (fixUsrBin will relocate)")
         } catch (_: Exception) { false }
         return if (!isV2) {
             installer.ensureDpkgWrapper()
@@ -301,23 +301,36 @@ class TermuxRuntime(context: Context) {
         val compatUsr = File(compatDir, "usr")
         val compatUsrBin = File(compatUsr, "bin")
 
-        // 1. compat usr 若是真实目录（链接被 dpkg 覆盖/失效）→ 先同步其 bin 内容到 usr/bin，
-        //    再重建符号链接，避免新装包文件困在 compat 目录导致 PATH 找不到
+        // 1. compat usr 若是真实目录（链接被 dpkg 覆盖/失效）→ 全量移动到 rootfs 对应位置
+        //    再重建符号链接。用 rename（同分区元数据操作，毫秒级）而非 copyRecursively——
+        //    否则 bootstrap 装完 60 个 apt 包（几百 MB）后全量复制一遍会慢好几倍。
         val compatIsLink = try {
             java.nio.file.Files.isSymbolicLink(compatUsr.toPath())
         } catch (_: Exception) { false }
         if (compatUsr.exists() && !compatIsLink && compatUsr.isDirectory) {
-            Log.w(TAG, "fixUsrBin: compat usr is real dir, syncing then relinking")
-            // 全量合并 compat 内容到 rootfs（bin/lib/usr/bin/usr/lib/etc/share 等），
-            // 不能只同步 bin/——apt 装的共享库（libandroid-spawn.so 等）在 lib/ 下，
-            // 漏掉会导致 java 的 libjvm.so dlopen 失败（library not found）
+            Log.w(TAG, "fixUsrBin: compat usr is real dir, moving then relinking")
+            // 先移动文件（bin/lib/usr/bin/usr/lib/etc/share 全处理，含 apt 装的共享库），
+            // 用 renameTo 同分区瞬时完成；目录结构按 relativeTo 保留
             try {
-                compatUsr.copyRecursively(File(prefix), overwrite = true)
+                compatUsr.walkTopDown()
+                    .sortedByDescending { it.absolutePath.length }
+                    .forEach { src ->
+                        if (src == compatUsr) return@forEach
+                        val rel = src.relativeTo(compatUsr)
+                        val dst = File(prefix, rel.path)
+                        if (src.isDirectory) {
+                            dst.mkdirs()
+                        } else if (src.isFile) {
+                            if (dst.exists()) dst.delete()
+                            src.renameTo(dst)
+                        }
+                    }
+                // 移动后补可执行位（rename 不改变权限，apt 解压文件权限来自 dpkg-deb 默认）
                 listOf("bin", "usr/bin", "libexec", "lib/apt/methods", "usr/lib/apt/methods").forEach { rel ->
                     File(prefix, rel).listFiles()?.forEach { it.setExecutable(true, false) }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "fixUsrBin: copy compat tree failed: ${e.message}")
+                Log.w(TAG, "fixUsrBin: move compat tree failed: ${e.message}")
             }
             try {
                 compatUsr.deleteRecursively()
