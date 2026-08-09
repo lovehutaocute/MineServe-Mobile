@@ -221,7 +221,48 @@ class TermuxRuntime(context: Context) {
     }
 
     /** 组合修复：命令可执行位 + 脚本解释器路径（启动时幂等调用） */
-    fun fixRootfsPermissions(): Int = ensureRootfsExecutable() + fixScriptShebangs()
+    fun fixRootfsPermissions(): Int =
+        fixUsrBin() + ensureRootfsExecutable() + fixScriptShebangs()
+
+    /**
+     * 补全 usr/bin 缺失的解释器（幂等）。
+     *
+     * 背景：Termux bootstrap 解压后，bin/ 下脚本的 shebang 指向 $PREFIX/usr/bin/bash 等
+     * 真实解释器；但部分环境下 usr/bin/ 真实文件缺失（usr/bin/pkg、usr/bin/bash 不存在），
+     * 而真实文件落在 compat 路径 $PREFIX/data/data/com.termux/files/usr/bin/（Termux
+     * 完整目录结构）——脚本 execve 解释器时 ENOENT → "No such file or directory"(126)。
+     *
+     * 修复：若 usr/bin 缺文件而 compat 路径有对应文件，复制补全（含 exec 位）。
+     * 只补缺失文件，不覆盖已有内容。
+     *
+     * @return 本次补全的文件数
+     */
+    fun fixUsrBin(): Int {
+        val prefix = installer.rootDir.absolutePath
+        if (!File(prefix).isDirectory) return 0
+        val usrBin = File(prefix, "usr/bin")
+        val compatUsrBin = File(prefix, "data/data/com.termux/files/usr/bin")
+        if (!compatUsrBin.isDirectory) return 0
+        usrBin.mkdirs()
+        var fixed = 0
+        compatUsrBin.listFiles()?.forEach { src ->
+            val dst = File(usrBin, src.name)
+            try {
+                if (src.isFile && !dst.exists()) {
+                    src.copyTo(dst)
+                    dst.setExecutable(true, false)
+                    fixed++
+                    Log.i(TAG, "fixUsrBin: copied ${src.name} -> usr/bin/")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "fixUsrBin: copy ${src.name} failed: ${e.message}")
+            }
+        }
+        if (fixed > 0) {
+            installer.onLog?.invoke("[bootstrap] 补全 $fixed 个缺失命令（usr/bin）")
+        }
+        return fixed
+    }
 
     /**
      * 诊断单个命令的执行环境（Termux 会话命令失败时输出，便于定位根因）。
@@ -237,6 +278,22 @@ class TermuxRuntime(context: Context) {
             sb.append("\n  bin/$first: ${fileInfo(File(prefix, "bin/$first"))}")
             sb.append("\n  usr/bin/$first: ${fileInfo(File(prefix, "usr/bin/$first"))}")
         }
+        // usr/bin 目录整体状态 + 关键解释器
+        val usrBin = File(prefix, "usr/bin")
+        val usrBinCount = usrBin.listFiles()?.size ?: -1
+        sb.append("\n  usr/bin 文件数: ${if (usrBinCount < 0) "目录不存在" else usrBinCount}")
+        listOf("bash", "sh", "perl", "python", "env", "apt-get").forEach { name ->
+            val f = File(usrBin, name)
+            if (f.exists()) {
+                sb.append("\n  usr/bin/$name: ${fileInfo(f)}")
+            } else {
+                sb.append("\n  usr/bin/$name: 不存在")
+            }
+        }
+        // compat 路径（Termux 结构真实落点）
+        val compatUsrBin = File(prefix, "data/data/com.termux/files/usr/bin")
+        val compatCount = compatUsrBin.listFiles()?.size ?: -1
+        sb.append("\n  compat usr/bin 文件数: ${if (compatCount < 0) "不存在" else compatCount}")
         sb.append("\n  /data/data/com.termux: ${if (File("/data/data/com.termux").exists()) "存在" else "不存在"}")
         return sb.toString()
     }
