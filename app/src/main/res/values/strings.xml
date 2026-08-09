@@ -1108,6 +1108,7 @@
     <string name="backup_ext_list_title">外部备份文件（%1$d）</string>
     <string name="backup_ext_list_empty">外部目录暂无备份</string>
     <string name="backup_ext_restore">还原</string>
+    <string name="backup_ext_import">导入备份</string>
     <string name="backup_conflict_title">检测到重名服务器</string>
     <string name="backup_conflict_content">目标服务器目录「%1$s」已存在，还原将覆盖它（当前世界与配置会丢失）。确定覆盖吗？</string>
     <string name="backup_conflict_overwrite">覆盖还原</string>

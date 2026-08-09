@@ -1452,9 +1452,38 @@ class McViewModel(
     /** 列出外部备份 zip（供备份页展示） */
     fun externalBackups(): List<java.io.File> = com.mineserve.mobile.server.ExternalBackupStore.listBackups()
 
+    /** 从手机其他位置导入备份 zip 到外部备份目录（SAF 选择） */
+    fun importBackupToExternal(uri: android.net.Uri) {
+        viewModelScope.launch {
+            try {
+                if (!com.mineserve.mobile.server.ExternalBackupStore.ensure()) {
+                    _errorFlow.tryEmit("外部备份目录不可用")
+                    return@launch
+                }
+                val app = McApplication.get()
+                val fileName = withContext(Dispatchers.IO) {
+                    app.contentResolver.query(
+                        uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
+                    )?.use { c ->
+                        if (c.moveToFirst()) c.getString(0) else null
+                    } ?: "backup_${System.currentTimeMillis()}.zip"
+                }
+                val safeName = fileName?.takeIf { it.endsWith(".zip") } ?: "backup_${System.currentTimeMillis()}.zip"
+                val target = java.io.File(com.mineserve.mobile.server.ExternalBackupStore.rootDir, safeName)
+                withContext(Dispatchers.IO) {
+                    app.contentResolver.openInputStream(uri)?.use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+                _messageFlow.tryEmit("已导入备份: $safeName")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("导入失败: ${e.message}")
+            }
+        }
+    }
+
     /** 从外部 zip 还原世界（zip 内 world/ 前缀） */
-    fun restoreWorldFromExternal(zipName: String) {
-        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+    fun restoreWorldFromExternal(zipName: String) {        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
         val dirName = activeDirName() ?: run { _errorFlow.tryEmit(str(R.string.s212)); return }
         val file = java.io.File(com.mineserve.mobile.server.ExternalBackupStore.rootDir, zipName)
         viewModelScope.launch {

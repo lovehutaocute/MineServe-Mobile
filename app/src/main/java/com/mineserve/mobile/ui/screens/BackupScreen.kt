@@ -26,6 +26,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Archive
+import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Restore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -80,6 +81,12 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
         extBackups = com.mineserve.mobile.server.ExternalBackupStore.listBackups()
     }
     LaunchedEffect(Unit) { refreshExtBackups() }
+    // 导入备份（SAF 选择手机上的 zip 复制到外部目录）
+    val importLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        uri?.let { vm.importBackupToExternal(it) }
+    }
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
@@ -192,12 +199,17 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 Text(stringResource(R.string.backup_ext_refresh_hint), color = Muted, fontSize = 10.sp)
             }
 
-            // 外部备份文件列表（还原/删除）
+            // 外部备份文件列表（导入/还原/删除）
             McCard(
                 title = stringResource(R.string.backup_ext_list_title, extBackups.size),
                 trailing = {
-                    IconButton(onClick = { refreshExtBackups() }) {
-                        Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(18.dp))
+                    Row {
+                        IconButton(onClick = { importLauncher.launch(arrayOf("application/zip")) }) {
+                            Icon(Icons.Outlined.FileUpload, stringResource(R.string.backup_ext_import), tint = Indigo, modifier = Modifier.size(18.dp))
+                        }
+                        IconButton(onClick = { refreshExtBackups() }) {
+                            Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             ) {
