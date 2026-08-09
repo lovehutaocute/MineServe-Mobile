@@ -81,12 +81,12 @@ class McServerController(
             steps.forEachIndexed { idx, step ->
                 repo.markStep(step, StepStatus.Active, idx * (100 / steps.size))
                 val code = when (step) {
-                    InstallStep.Jdk -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25")
-                    InstallStep.Wget -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "wget")
+                    InstallStep.Jdk -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "openjdk-25")
+                    InstallStep.Wget -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "wget")
                     InstallStep.Frp -> termux.execOnce("/system/bin/sh", "-c",
-                        "which frpc >/dev/null 2>&1 || apt-get install --allow-unauthenticated -y frp")
-                    InstallStep.Rclone -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "rclone")
-                    InstallStep.Proot -> termux.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "proot")
+                        "which frpc >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=60 install --allow-unauthenticated -y frp")
+                    InstallStep.Rclone -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "rclone")
+                    InstallStep.Proot -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot")
                 }
                 if (code == 0) {
                     repo.markStep(step, StepStatus.Done, (idx + 1) * (100 / steps.size))
