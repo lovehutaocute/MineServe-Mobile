@@ -114,18 +114,6 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                 Text("LOG STREAM", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold)
                 Text(stringResource(R.string.s557), color = Ink, fontSize = 18.sp, fontWeight = FontWeight.Bold)
             }
-            // 一键复制日志按钮
-            IconButton(onClick = {
-                if (lines.isNotEmpty()) {
-                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                    clipboard.setPrimaryClip(ClipData.newPlainText("MCServer Logs", lines.joinToString("\n")))
-                    Toast.makeText(context, context.getString(R.string.s558, lines.size), Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, context.getString(R.string.s559), Toast.LENGTH_SHORT).show()
-                }
-            }) {
-                Icon(Icons.Outlined.ContentCopy, contentDescription = stringResource(R.string.s560), tint = Indigo)
-            }
             // 日志设置齿轮按钮（汉化开关）
             IconButton(onClick = { showLogSettings = true }) {
                 Icon(Icons.Outlined.Settings, contentDescription = stringResource(R.string.ui_log_localize), tint = Indigo)
@@ -178,6 +166,15 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                 statusColor = Color(0xFFA6E3A1),
                 expanded = mcExpanded,
                 onToggle = { mcExpanded = !mcExpanded },
+                onCopy = {
+                    if (lines.isNotEmpty()) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("MCServer Logs", lines.joinToString("\n")))
+                        Toast.makeText(context, context.getString(R.string.s558, lines.size), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, context.getString(R.string.s559), Toast.LENGTH_SHORT).show()
+                    }
+                },
                 modifier = if (mcExpanded) Modifier.weight(1f) else Modifier
             ) {
         // 日志列表
@@ -269,6 +266,15 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                 statusColor = Color(0xFF89B4FA),
                 expanded = termuxExpanded,
                 onToggle = { termuxExpanded = !termuxExpanded },
+                onCopy = {
+                    if (termuxLines.isNotEmpty()) {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Termux Logs", termuxLines.joinToString("\n")))
+                        Toast.makeText(context, context.getString(R.string.s558, termuxLines.size), Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, context.getString(R.string.s559), Toast.LENGTH_SHORT).show()
+                    }
+                },
                 modifier = if (termuxExpanded) Modifier.weight(1f) else Modifier
             ) {
                 Box(
@@ -387,6 +393,7 @@ private fun TerminalPanel(
     statusColor: Color,
     expanded: Boolean,
     onToggle: () -> Unit,
+    onCopy: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -408,6 +415,17 @@ private fun TerminalPanel(
             Spacer(Modifier.width(6.dp))
             Text(title, color = Ink, fontSize = 13.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.weight(1f))
+            // 会话面板各自的复制按钮（复制本面板日志）
+            if (onCopy != null) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Outlined.ContentCopy,
+                        contentDescription = stringResource(R.string.s560),
+                        tint = Indigo,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+            }
             Icon(
                 if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
                 contentDescription = null,
