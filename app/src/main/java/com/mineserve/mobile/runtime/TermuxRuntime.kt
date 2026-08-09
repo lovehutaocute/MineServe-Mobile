@@ -222,7 +222,53 @@ class TermuxRuntime(context: Context) {
 
     /** 组合修复：命令可执行位 + 脚本解释器路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int =
-        fixUsrBin() + ensureRootfsExecutable() + fixScriptShebangs()
+        fixUsrBin() + ensureRootfsExecutable() + fixScriptShebangs() + fixScriptPaths()
+
+    /**
+     * 修复脚本内容中硬编码的 Termux 绝对路径（幂等）。
+     *
+     * 背景：pkg、termux-* 等脚本除 shebang 外，**内容里**还硬编码调用
+     * /data/data/com.termux/files/usr/bin/xxx（如 pkg 第 11 行调用
+     * termux-setup-package-manager）。这些路径指向其他 app（com.termux）目录，
+     * MineServe 进程跨 app 执行被拒 → Permission denied（退出码 1）。
+     *
+     * 修复：对 shebang 脚本（文本文件，跳过 ELF 避免损坏），把内容中的
+     * /data/data/com.termux/files/usr/ 全部替换为自身 rootfs 路径 $PREFIX。
+     * 只处理以 #! 开头的文本脚本。
+     *
+     * @return 本次修复的脚本数
+     */
+    fun fixScriptPaths(): Int {
+        val prefix = installer.rootDir.absolutePath
+        if (!File(prefix).isDirectory) return 0
+        val termuxUsr = "/data/data/com.termux/files/usr"
+        var fixed = 0
+        listOf(
+            "usr/bin", "bin", "libexec", "lib/apt/methods",
+            "usr/lib/apt/methods", "etc/profile.d", "etc/apt/apt.conf.d"
+        ).forEach { rel ->
+            File(prefix, rel).listFiles()?.forEach { f ->
+                if (!f.isFile) return@forEach
+                try {
+                    // 只处理文本脚本（以 #! 开头），跳过 ELF 二进制
+                    val head = f.bufferedReader().use { it.readLine() } ?: return@forEach
+                    if (!head.startsWith("#!")) return@forEach
+                    val content = f.readText()
+                    if (content.contains(termuxUsr)) {
+                        f.writeText(content.replace(termuxUsr, prefix))
+                        f.setExecutable(true, false)
+                        fixed++
+                        Log.i(TAG, "fixScriptPaths: patched ${f.absolutePath}")
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        if (fixed > 0) {
+            Log.i(TAG, "fixScriptPaths: fixed $fixed scripts")
+            installer.onLog?.invoke("[bootstrap] 修复 $fixed 个脚本内部路径")
+        }
+        return fixed
+    }
 
     /**
      * 补全 usr/bin 缺失的解释器（幂等）。
