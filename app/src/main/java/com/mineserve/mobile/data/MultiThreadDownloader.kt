@@ -96,7 +96,7 @@ object MultiThreadDownloader {
             // 等待所有分片完成
             pool.shutdown()
             while (!pool.awaitTermination(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
-                reportSpeed(done.get(), started, onProgress)
+                reportSpeed(done.get(), total, started, onProgress)
             }
             if (!errors.isEmpty()) {
                 throw RuntimeException("多线程分片下载失败: ${errors.peek()?.message ?: "未知错误"}")
@@ -217,11 +217,11 @@ object MultiThreadDownloader {
         }
     }
 
-    /** 每 500ms 报告一次总速度 */
-    private fun reportSpeed(downloaded: Long, started: Long, onProgress: (Long, Long, Long) -> Unit) {
+    /** 每 500ms 报告一次总进度与速度（total 用真实长度，避免进度无法计算） */
+    private fun reportSpeed(downloaded: Long, total: Long, started: Long, onProgress: (Long, Long, Long) -> Unit) {
         val elapsed = (System.currentTimeMillis() - started) / 1000.0
         val speed = if (elapsed > 0) (downloaded / elapsed).toLong() else 0L
-        onProgress(downloaded, -1L, speed)
+        onProgress(downloaded, total, speed)
     }
 
     /** 单流下载（Range 不支持 / 未启用 / 小文件时的降级路径） */

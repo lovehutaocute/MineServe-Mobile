@@ -347,9 +347,25 @@ class McViewModel(
         if (_updateState.value is UpdateUiState.Available) _updateDialogVisible.value = true
     }
 
-    /** 开始下载新版 APK（完成后自动调系统安装器） */
-    fun downloadUpdate() {
+    /** 打开浏览器跳到 GitHub Release 页面（供用户手动下载更新） */
+    fun openGithubUpdate() {
         val state = _updateState.value
+        if (state !is UpdateUiState.Available) return
+        val url = state.info.htmlUrl.ifBlank { "https://github.com/lovehutaocute/MineServe-Mobile/releases/latest" }
+        try {
+            val intent = android.content.Intent(
+                android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse(url)
+            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            McApplication.get().startActivity(intent)
+            dismissUpdateDialog()
+        } catch (e: Exception) {
+            _messageFlow.tryEmit("无法打开浏览器: ${e.message}")
+        }
+    }
+
+    /** 开始下载新版 APK（完成后自动调系统安装器） */
+    fun downloadUpdate() {        val state = _updateState.value
         if (state !is UpdateUiState.Available) return
         val app = McApplication.get()
         _updateState.value = UpdateUiState.Downloading(0f, state.info)

@@ -1093,6 +1093,8 @@
     <string name="update_title">New version v%1$s available</string>
     <string name="update_notes">What\'s New</string>
     <string name="update_download">Download</string>
+    <string name="update_github">Update via GitHub</string>
+    <string name="update_inapp">In-app Update</string>
     <string name="update_later">Later</string>
     <string name="update_installing">Installing…</string>
     <string name="update_checking">Checking for updates…</string>

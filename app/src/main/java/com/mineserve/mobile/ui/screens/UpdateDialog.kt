@@ -1,6 +1,8 @@
 package com.mineserve.mobile.ui.screens
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -66,8 +68,13 @@ fun UpdateDialog(vm: McViewModel) {
                 }
             },
             confirmButton = {
-                TextButton(onClick = { vm.downloadUpdate() }) {
-                    Text(stringResource(R.string.update_download))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { vm.openGithubUpdate() }) {
+                        Text(stringResource(R.string.update_github))
+                    }
+                    TextButton(onClick = { vm.downloadUpdate() }) {
+                        Text(stringResource(R.string.update_inapp))
+                    }
                 }
             },
             dismissButton = {

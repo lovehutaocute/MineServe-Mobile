@@ -13,6 +13,7 @@ data class UpdateInfo(
     val downloadUrl: String,
     val notes: String,
     val publishedAt: String,
+    val htmlUrl: String = "",
 )
 
 /** 更新检查结果 */
@@ -30,6 +31,7 @@ private data class GitHubRelease(
     val tag_name: String = "",
     val body: String = "",
     val published_at: String = "",
+    val html_url: String = "",
     val assets: List<Asset> = emptyList(),
 )
 
@@ -84,6 +86,7 @@ object UpdateChecker {
                     downloadUrl = asset.browser_download_url,
                     notes = release.body.trim(),
                     publishedAt = release.published_at,
+                    htmlUrl = release.html_url,
                 )
             )
         } catch (e: Exception) {
