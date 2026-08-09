@@ -478,6 +478,188 @@ class BootstrapInstaller(private val context: Context) {
         extractZipToDir(rootfsFile, rootDir)
     }
 
+    // ── dpkg-wrapper 生成（postSetup 与已装环境启动修复共用） ─────────
+
+    /** 生成 dpkg 包装脚本内容（占位符替换后） */
+    private fun dpkgWrapperScript(prefix: String): String {
+        return """#!/system/bin/sh
+export PATH="__P__{PREFIX}/bin:__P__{PREFIX}/libexec:/system/bin:/system/xbin"
+export LD_LIBRARY_PATH="__P__{PREFIX}/lib:/system/lib64"
+PREFIX="__PREFIX__"
+STATUS="__P__{PREFIX}/var/lib/dpkg/status"
+DPKG_DEB="__P__{PREFIX}/bin/dpkg-deb"
+
+# 日志函数（输出到 stderr，被 apt-get 捕获）
+log() { echo "[dpkg-wrapper] __D__*" >&2; }
+
+# Termux .deb 包内文件路径是 data/data/com.termux/files/usr/bin/tmux
+# 但我们的 PREFIX 是 /data/data/com.mineserve.mobile/files/home
+# 需要创建兼容符号链接：PREFIX/data/data/com.termux/files/usr -> PREFIX
+# 这样 dpkg-deb -x 解压时文件会落在正确位置（PREFIX/bin/tmux）
+TERMUX_COMPAT="__P__{PREFIX}/data/data/com.termux/files"
+if [ ! -e "__P__{TERMUX_COMPAT}/usr" ]; then
+    mkdir -p "__P__{TERMUX_COMPAT}"
+    ln -sf "__P__{PREFIX}" "__P__{TERMUX_COMPAT}/usr"
+    log "created compat symlink: __P__{TERMUX_COMPAT}/usr -> __P__{PREFIX}"
+fi
+
+# 提取单个 .deb 文件并记录到 status
+extract_deb() {
+  deb="__D__1"
+  if [ ! -f "__D__deb" ]; then
+    log "skip: __D__deb (not a file)"
+    return 0
+  fi
+  log "extracting: __D__deb"
+  if "__D__DPKG_DEB" -x "__D__deb" "__D__PREFIX" 2>/dev/null; then
+    pkg=$("__D__DPKG_DEB" -f "__D__deb" Package 2>/dev/null)
+    ver=$("__D__DPKG_DEB" -f "__D__deb" Version 2>/dev/null)
+    if [ -n "__D__pkg" ]; then
+      # 移除旧记录
+      sed -i "/^Package: __D__pkg__D__/,/^__D__/d" "__D__STATUS" 2>/dev/null
+      # 追加新记录
+      echo "Package: __D__pkg" >> "__D__STATUS"
+      echo "Status: install ok installed" >> "__D__STATUS"
+      echo "Version: __D__ver" >> "__D__STATUS"
+      echo "Architecture: aarch64" >> "__D__STATUS"
+      echo "" >> "__D__STATUS"
+      log "installed: __D__pkg __D__ver"
+    fi
+    # 设置 bin/ 下所有文件可执行权限（dpkg-deb -x 不会保留 Unix 权限位）
+    if [ -d "__D__{PREFIX}/bin" ]; then
+      chmod 755 "__D__{PREFIX}/bin/"* 2>/dev/null
+      log "set executable: __D__{PREFIX}/bin/"
+    fi
+    if [ -d "__D__{PREFIX}/libexec" ]; then
+      chmod 755 "__D__{PREFIX}/libexec/"* 2>/dev/null
+    fi
+    if [ -d "__D__{PREFIX}/lib/apt/methods" ]; then
+      chmod 755 "__D__{PREFIX}/lib/apt/methods/"* 2>/dev/null
+    fi
+    # 修复 dpkg-deb -x 覆盖 compat 符号链接的问题：
+    # tar 解压时包内 usr/ 等目录条目会把链接覆盖成真实目录，新装包文件落入
+    # compat 目录导致 PATH 找不到。解压后合并回 usr/bin 并重建链接。
+    COMPAT_USR="__D__{PREFIX}/data/data/com.termux/files/usr"
+    if [ -d "__D__COMPAT_USR" ] && [ ! -L "__D__COMPAT_USR" ]; then
+      if [ -d "__D__COMPAT_USR/bin" ]; then
+        cp -f "__D__COMPAT_USR/bin/"* "__D__{PREFIX}/usr/bin/" 2>/dev/null
+        chmod 755 "__D__{PREFIX}/usr/bin/"* 2>/dev/null
+      fi
+      rm -rf "__D__COMPAT_USR"
+      mkdir -p "__D__{PREFIX}/data/data/com.termux/files"
+      ln -sf "__D__{PREFIX}" "__D__COMPAT_USR"
+      log "rebuilt compat symlink after extract"
+    fi
+    # 为 usr/bin 新命令补 bin/ 符号链接（postinst 被跳过时缺失 → PATH 找不到 → 127）
+    for f in "__D__{PREFIX}/usr/bin/"*; do
+      [ -f "__D__f" ] || continue
+      b="__D__{PREFIX}/bin/$(basename "__D__f")"
+      [ -e "__D__b" ] || ln -sf "../usr/bin/$(basename "__D__f")" "__D__b" 2>/dev/null
+    done
+  else
+    log "ERROR: extract failed for __D__deb"
+  fi
+}
+
+# 处理 --recursive 选项（apt-get 可能用此方式批量安装）
+RECURSIVE=0
+ARGS=""
+while [ "__D__#" -gt 0 ]; do
+  case "__D__1" in
+    --recursive|-R)
+      RECURSIVE=1
+      shift
+      ;;
+    --unpack|--install|-i|--configure|-a|--pending|--yet-to-unpack)
+      MODE="__D__1"
+      shift
+      ;;
+    --*)
+      # 跳过其他选项参数
+      shift
+      ;;
+    *)
+      ARGS="__D__ARGS __D__1"
+      shift
+      ;;
+  esac
+done
+
+log "called with mode=__D__MODE args=__D__ARGS recursive=__D__RECURSIVE"
+
+case "__D__MODE" in
+  --unpack|--install|-i)
+    if [ "__D__RECURSIVE" = "1" ]; then
+      # 递归处理目录
+      for dir in __D__ARGS; do
+        if [ -d "__D__dir" ]; then
+          log "scanning directory: __D__dir"
+          for deb in "__D__dir"/*.deb; do
+            [ -f "__D__deb" ] && extract_deb "__D__deb"
+          done
+        fi
+      done
+    else
+      for deb in __D__ARGS; do
+        extract_deb "__D__deb"
+      done
+    fi
+    exit 0
+    ;;
+  --configure|-a|--pending|--yet-to-unpack)
+    # 配置阶段：跳过（文件已提取，无需配置）
+    # 改写新装脚本的 Termux 硬编码路径（shebang 与内容）→ 自身 PREFIX 路径，
+    # 使 pkg install 的脚本类命令立即可用（apt 批量安装最后会走此分支，只跑一次）
+    for f in "__D__{PREFIX}/usr/bin/"*; do
+      [ -f "__D__f" ] || continue
+      if head -c 64 "__D__f" 2>/dev/null | grep -q "^#!"; then
+        sed -i "s|/data/data/com.termux/files/usr|__D__{PREFIX}|g" "__D__f" 2>/dev/null
+        chmod 755 "__D__f" 2>/dev/null
+      fi
+    done
+    log "configure: skipped (no-op)"
+    exit 0
+    ;;
+  --remove|-r|--purge|-P)
+    log "remove: skipped (no-op)"
+    exit 0
+    ;;
+  --list|-l)
+    grep "^Package:" "__D__STATUS" 2>/dev/null | sed 's/Package: /ii  /'
+    exit 0
+    ;;
+  --status|-s)
+    pkg=$(echo __D__ARGS | awk '{print __D__1}')
+    awk -v p="__D__pkg" 'BEGIN{RS=""} __D__0 ~ "Package: "p' "__D__STATUS" 2>/dev/null
+    exit 0
+    ;;
+  *)
+    log "unknown mode, no-op"
+    exit 0
+    ;;
+esac
+""".replace("__P__", "\$")
+            .replace("__D__", "\$")
+            .replace("__PREFIX__", prefix)
+    }
+
+    /** 写入 dpkg 包装脚本（幂等：postSetup 与已装环境启动修复共用） */
+    fun ensureDpkgWrapper() {
+        val prefix = rootDir.absolutePath
+        val dpkgReal = File(rootDir, "bin/dpkg.real")
+        val dpkgBin = File(rootDir, "bin/dpkg")
+        if (dpkgBin.exists() && !dpkgReal.exists()) {
+            dpkgBin.renameTo(dpkgReal)
+        }
+        if (dpkgReal.exists()) {
+            dpkgReal.setExecutable(true, false)
+            File(rootDir, "bin/dpkg").writeText(dpkgWrapperScript(prefix))
+            File(rootDir, "bin/dpkg").setExecutable(true, false)
+        }
+        val dpkgDeb = File(rootDir, "bin/dpkg-deb")
+        if (dpkgDeb.exists()) dpkgDeb.setExecutable(true, false)
+    }
+
     // ── 后置初始化 ─────────────────────────────────────────────────
 
     private fun postSetup() {
@@ -622,178 +804,10 @@ class BootstrapInstaller(private val context: Context) {
             log("创建兼容符号链接失败: ${e.message}")
         }
 
-        // 创建 dpkg 包装脚本
-        // dpkg 的配置目录在编译时硬编码为 /data/data/com.termux/files/usr/etc/dpkg/
-        // 该路径属于另一个 app，无法访问，导致 dpkg 启动即崩溃
-        // 包装脚本用 dpkg-deb -x 提取 .deb 包，绕过配置目录问题
-        val dpkgReal = File(rootDir, "bin/dpkg.real")
-        val dpkgBin = File(rootDir, "bin/dpkg")
-        if (dpkgBin.exists() && !dpkgReal.exists()) {
-            dpkgBin.renameTo(dpkgReal)
-        }
-        if (dpkgReal.exists()) {
-            dpkgReal.setExecutable(true, false)
-            // 使用占位符避免 Kotlin 字符串插值冲突
-            val dpkgScript = """#!/system/bin/sh
-export PATH="__P__{PREFIX}/bin:__P__{PREFIX}/libexec:/system/bin:/system/xbin"
-export LD_LIBRARY_PATH="__P__{PREFIX}/lib:/system/lib64"
-PREFIX="__PREFIX__"
-STATUS="__P__{PREFIX}/var/lib/dpkg/status"
-DPKG_DEB="__P__{PREFIX}/bin/dpkg-deb"
+        // 创建 dpkg 包装脚本（配置目录硬编码 Termux 路径导致 dpkg 崩溃，用包装脚本绕过）
+        ensureDpkgWrapper()
 
-# 日志函数（输出到 stderr，被 apt-get 捕获）
-log() { echo "[dpkg-wrapper] __D__*" >&2; }
-
-# Termux .deb 包内文件路径是 data/data/com.termux/files/usr/bin/tmux
-# 但我们的 PREFIX 是 /data/data/com.mineserve.mobile/files/home
-# 需要创建兼容符号链接：PREFIX/data/data/com.termux/files/usr -> PREFIX
-# 这样 dpkg-deb -x 解压时文件会落在正确位置（PREFIX/bin/tmux）
-TERMUX_COMPAT="__P__{PREFIX}/data/data/com.termux/files"
-if [ ! -e "__P__{TERMUX_COMPAT}/usr" ]; then
-    mkdir -p "__P__{TERMUX_COMPAT}"
-    ln -sf "__P__{PREFIX}" "__P__{TERMUX_COMPAT}/usr"
-    log "created compat symlink: __P__{TERMUX_COMPAT}/usr -> __P__{PREFIX}"
-fi
-
-# 提取单个 .deb 文件并记录到 status
-extract_deb() {
-  deb="__D__1"
-  if [ ! -f "__D__deb" ]; then
-    log "skip: __D__deb (not a file)"
-    return 0
-  fi
-  log "extracting: __D__deb"
-  if "__D__DPKG_DEB" -x "__D__deb" "__D__PREFIX" 2>/dev/null; then
-    pkg=$("__D__DPKG_DEB" -f "__D__deb" Package 2>/dev/null)
-    ver=$("__D__DPKG_DEB" -f "__D__deb" Version 2>/dev/null)
-    if [ -n "__D__pkg" ]; then
-      # 移除旧记录
-      sed -i "/^Package: __D__pkg__D__/,/^__D__/d" "__D__STATUS" 2>/dev/null
-      # 追加新记录
-      echo "Package: __D__pkg" >> "__D__STATUS"
-      echo "Status: install ok installed" >> "__D__STATUS"
-      echo "Version: __D__ver" >> "__D__STATUS"
-      echo "Architecture: aarch64" >> "__D__STATUS"
-      echo "" >> "__D__STATUS"
-      log "installed: __D__pkg __D__ver"
-    fi
-    # 设置 bin/ 下所有文件可执行权限（dpkg-deb -x 不会保留 Unix 权限位）
-    if [ -d "__D__{PREFIX}/bin" ]; then
-      chmod 755 "__D__{PREFIX}/bin/"* 2>/dev/null
-      log "set executable: __D__{PREFIX}/bin/"
-    fi
-    if [ -d "__D__{PREFIX}/libexec" ]; then
-      chmod 755 "__D__{PREFIX}/libexec/"* 2>/dev/null
-    fi
-    if [ -d "__D__{PREFIX}/lib/apt/methods" ]; then
-      chmod 755 "__D__{PREFIX}/lib/apt/methods/"* 2>/dev/null
-    fi
-    # 修复 dpkg-deb -x 覆盖 compat 符号链接的问题：
-    # tar 解压时包内 usr/ 等目录条目会把链接覆盖成真实目录，新装包文件落入
-    # compat 目录导致 PATH 找不到。解压后合并回 usr/bin 并重建链接。
-    COMPAT_USR="__D__{PREFIX}/data/data/com.termux/files/usr"
-    if [ -d "__D__COMPAT_USR" ] && [ ! -L "__D__COMPAT_USR" ]; then
-      if [ -d "__D__COMPAT_USR/bin" ]; then
-        cp -f "__D__COMPAT_USR/bin/"* "__D__{PREFIX}/usr/bin/" 2>/dev/null
-        chmod 755 "__D__{PREFIX}/usr/bin/"* 2>/dev/null
-      fi
-      rm -rf "__D__COMPAT_USR"
-      mkdir -p "__D__{PREFIX}/data/data/com.termux/files"
-      ln -sf "__D__{PREFIX}" "__D__COMPAT_USR"
-      log "rebuilt compat symlink after extract"
-    fi
-    # 为 usr/bin 新命令补 bin/ 符号链接（postinst 被跳过时缺失 → PATH 找不到 → 127）
-    for f in "__D__{PREFIX}/usr/bin/"*; do
-      [ -f "__D__f" ] || continue
-      b="__D__{PREFIX}/bin/$(basename "__D__f")"
-      [ -e "__D__b" ] || ln -sf "../usr/bin/$(basename "__D__f")" "__D__b" 2>/dev/null
-    done
-  else
-    log "ERROR: extract failed for __D__deb"
-  fi
-}
-
-# 处理 --recursive 选项（apt-get 可能用此方式批量安装）
-RECURSIVE=0
-ARGS=""
-while [ "__D__#" -gt 0 ]; do
-  case "__D__1" in
-    --recursive|-R)
-      RECURSIVE=1
-      shift
-      ;;
-    --unpack|--install|-i|--configure|-a|--pending|--yet-to-unpack)
-      MODE="__D__1"
-      shift
-      ;;
-    --*)
-      # 跳过其他选项参数
-      shift
-      ;;
-    *)
-      ARGS="__D__ARGS __D__1"
-      shift
-      ;;
-  esac
-done
-
-log "called with mode=__D__MODE args=__D__ARGS recursive=__D__RECURSIVE"
-
-case "__D__MODE" in
-  --unpack|--install|-i)
-    if [ "__D__RECURSIVE" = "1" ]; then
-      # 递归处理目录
-      for dir in __D__ARGS; do
-        if [ -d "__D__dir" ]; then
-          log "scanning directory: __D__dir"
-          for deb in "__D__dir"/*.deb; do
-            [ -f "__D__deb" ] && extract_deb "__D__deb"
-          done
-        fi
-      done
-    else
-      for deb in __D__ARGS; do
-        extract_deb "__D__deb"
-      done
-    fi
-    exit 0
-    ;;
-  --configure|-a|--pending|--yet-to-unpack)
-    # 配置阶段：跳过（文件已提取，无需配置）
-    log "configure: skipped (no-op)"
-    exit 0
-    ;;
-  --remove|-r|--purge|-P)
-    log "remove: skipped (no-op)"
-    exit 0
-    ;;
-  --list|-l)
-    grep "^Package:" "__D__STATUS" 2>/dev/null | sed 's/Package: /ii  /'
-    exit 0
-    ;;
-  --status|-s)
-    pkg=$(echo __D__ARGS | awk '{print __D__1}')
-    awk -v p="__D__pkg" 'BEGIN{RS=""} __D__0 ~ "Package: "p' "__D__STATUS" 2>/dev/null
-    exit 0
-    ;;
-  *)
-    log "unknown mode, no-op"
-    exit 0
-    ;;
-esac
-""".replace("__P__", "\$")
-            .replace("__D__", "\$")
-            .replace("__PREFIX__", prefix)
-            File(rootDir, "bin/dpkg").writeText(dpkgScript)
-            File(rootDir, "bin/dpkg").setExecutable(true, false)
-
-            // 确认 dpkg-deb 也存在且可执行
-            val dpkgDeb = File(rootDir, "bin/dpkg-deb")
-            if (dpkgDeb.exists()) {
-                dpkgDeb.setExecutable(true, false)
-            }
-
-            // 创建 gpgv 包装脚本
+        // 创建 gpgv 包装脚本
             // gpgv 在 Termux rootfs 中可能因缺少 GPG keyring 或权限问题而挂起
             // 创建一个始终返回成功的包装脚本，完全绕过 GPG 验证
             val gpgvReal = File(rootDir, "bin/gpgv.real")
@@ -901,7 +915,6 @@ esac
                 File(rootDir, "bin/apt-key").writeText(aptKeyScript)
                 File(rootDir, "bin/apt-key").setExecutable(true, false)
             }
-        }
 
         // 合并 Android 系统 CA 证书到 Termux 的 ca-certificates.crt
         // apt-get 的 http 方法遇到 301 重定向到 https 时，会启动 https 方法驱动

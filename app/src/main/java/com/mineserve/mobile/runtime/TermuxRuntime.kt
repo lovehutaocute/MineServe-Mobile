@@ -167,7 +167,25 @@ class TermuxRuntime(context: Context) {
 
     /** 组合修复：命令可执行位 + 脚本路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int =
-        fixUsrBin() + ensureRootfsExecutable() + fixScriptsOnce() + fixAptSources()
+        fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() + fixScriptsOnce() + fixAptSources()
+
+    /**
+     * 升级已装环境的 dpkg 包装脚本到新版（幂等）。
+     * 新版 wrapper 在解压后：归位 compat 链接 + 补 bin 链接 + --configure 时改写新装脚本路径。
+     * 旧版（无 compat 归位逻辑）→ 用 ensureDpkgWrapper() 重写。
+     */
+    fun fixDpkgWrapper(): Int {
+        val dpkg = File(installer.rootDir, "bin/dpkg")
+        if (!dpkg.exists()) return 0
+        val isV2 = try {
+            dpkg.readText().contains("rebuilt compat symlink after extract")
+        } catch (_: Exception) { false }
+        return if (!isV2) {
+            installer.ensureDpkgWrapper()
+            Log.i(TAG, "fixDpkgWrapper: upgraded dpkg wrapper to v2")
+            1
+        } else 0
+    }
 
     /**
      * 修复脚本 shebang 解释器路径 + 内容中硬编码的 Termux 绝对路径（幂等，单次遍历）。
