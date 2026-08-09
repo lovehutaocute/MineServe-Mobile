@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.R
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.McViewModel.UpdateUiState
+import com.mineserve.mobile.ui.theme.Indigo
 
 /** 软件更新对话框：检查中 / 有新版（含更新说明与下载）/ 下载进度 / 失败提示 */
 @Composable
@@ -65,6 +66,13 @@ fun UpdateDialog(vm: McViewModel) {
                             .heightIn(max = 220.dp)
                             .verticalScroll(rememberScrollState())
                     )
+                    // 更新前备份存档（防更新后世界/核心丢失）
+                    TextButton(
+                        onClick = { vm.backupBeforeUpdate() },
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Text(stringResource(R.string.update_backup), color = Indigo, fontSize = 12.sp)
+                    }
                 }
             },
             confirmButton = {

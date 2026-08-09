@@ -1094,6 +1094,9 @@
     <string name="update_download">下载更新</string>
     <string name="update_github">去 GitHub 更新</string>
     <string name="update_inapp">应用内更新</string>
+    <string name="update_backup">📦 先备份存档</string>
+    <string name="update_backup_done">已备份存档：%1$s</string>
+    <string name="update_backup_empty">未找到世界存档，跳过备份</string>
     <string name="update_later">稍后再说</string>
     <string name="update_installing">安装中…</string>
     <string name="update_checking">正在检查更新…</string>

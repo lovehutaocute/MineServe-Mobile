@@ -1095,6 +1095,9 @@
     <string name="update_download">Download</string>
     <string name="update_github">Update via GitHub</string>
     <string name="update_inapp">In-app Update</string>
+    <string name="update_backup">📦 Backup World First</string>
+    <string name="update_backup_done">World backed up: %1$s</string>
+    <string name="update_backup_empty">No world save found, skipped backup</string>
     <string name="update_later">Later</string>
     <string name="update_installing">Installing…</string>
     <string name="update_checking">Checking for updates…</string>

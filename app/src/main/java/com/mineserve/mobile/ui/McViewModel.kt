@@ -1386,6 +1386,22 @@ class McViewModel(
         }
     }
 
+    /** 更新前备份存档（更新对话框「先备份存档」入口） */
+    fun backupBeforeUpdate() {
+        viewModelScope.launch {
+            try {
+                val path = createSnapshot()
+                if (path != null) {
+                    _messageFlow.tryEmit(str(R.string.update_backup_done, java.io.File(path).name))
+                } else {
+                    _messageFlow.tryEmit(str(R.string.update_backup_empty))
+                }
+            } catch (e: Exception) {
+                _messageFlow.tryEmit("备份失败: ${e.message}")
+            }
+        }
+    }
+
     // ── 备份恢复管理 ────────────────────────────────────────────────
 
     private val backupManager = BackupManager(repo.termuxRuntime)
