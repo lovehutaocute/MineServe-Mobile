@@ -1098,6 +1098,9 @@
     <string name="update_backup">📦 Backup World First</string>
     <string name="update_backup_done">World backed up: %1$s</string>
     <string name="update_backup_empty">No world save found, skipped backup</string>
+    <string name="backup_ext_perm_title">External Backup Permission</string>
+    <string name="backup_ext_perm_content">Backups are saved to /storage/emulated/0/世界与服务器的备份/ (kept after uninstall or app update). Requires "All files access" permission.</string>
+    <string name="backup_ext_perm_action">Grant</string>
     <string name="update_later">Later</string>
     <string name="update_installing">Installing…</string>
     <string name="update_checking">Checking for updates…</string>

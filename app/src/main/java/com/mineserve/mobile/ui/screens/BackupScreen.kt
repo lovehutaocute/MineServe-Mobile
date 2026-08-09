@@ -72,6 +72,8 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     val snapshots by vm.snapshots.collectAsState()
     var isSnapshotting by remember { mutableStateOf(false) }
     var showDeleteWorldConfirm by remember { mutableStateOf(false) }
+    // 外部备份权限（每次进入页面检查）
+    val hasStoragePerm = com.mineserve.mobile.server.ExternalBackupStore.hasPermission(context)
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
@@ -96,6 +98,36 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
             modifier = Modifier.fillMaxSize().padding(paddingValues).verticalScroll(rememberScrollState())
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_backup), title = stringResource(R.string.s324))
+
+            // 外部备份权限引导（未授权时显示）
+            if (!hasStoragePerm) {
+                McCard(title = stringResource(R.string.backup_ext_perm_title)) {
+                    Text(stringResource(R.string.backup_ext_perm_content), color = Muted, fontSize = 11.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Button(
+                        onClick = {
+                            try {
+                                val intent = android.content.Intent(
+                                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                    android.net.Uri.parse("package:" + context.packageName)
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // 部分 ROM 无此 Activity，回退到应用详情设置
+                                val intent = android.content.Intent(
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    android.net.Uri.parse("package:" + context.packageName)
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                context.startActivity(intent)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(stringResource(R.string.backup_ext_perm_action), color = Color.White, fontSize = 12.sp)
+                    }
+                }
+            }
 
             // 快照操作
             McCard(title = stringResource(R.string.s325)) {

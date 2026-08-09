@@ -1097,6 +1097,9 @@
     <string name="update_backup">📦 先备份存档</string>
     <string name="update_backup_done">已备份存档：%1$s</string>
     <string name="update_backup_empty">未找到世界存档，跳过备份</string>
+    <string name="backup_ext_perm_title">外部备份权限</string>
+    <string name="backup_ext_perm_content">备份文件将保存到 /storage/emulated/0/世界与服务器的备份/（卸载或更新应用后仍保留）。需要「所有文件访问」权限。</string>
+    <string name="backup_ext_perm_action">去授权</string>
     <string name="update_later">稍后再说</string>
     <string name="update_installing">安装中…</string>
     <string name="update_checking">正在检查更新…</string>
