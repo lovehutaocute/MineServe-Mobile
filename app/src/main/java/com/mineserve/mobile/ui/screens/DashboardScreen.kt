@@ -123,6 +123,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     var isStopping by remember { mutableStateOf(false) }
     var showStartSettings by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showDeleteDepsConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
     var switchInProgress by remember { mutableStateOf(false) }
     // 服务器图标选择器
@@ -713,22 +714,40 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
             }
 
-            // 依赖已装齐：页面底部放「重新安装依赖」小入口
+            // 依赖已装齐：页面底部放「重新安装依赖」小入口 + 「删除依赖」（直接删文件）
             if (depsInstalled) {
-                OutlinedButton(
-                    onClick = { vm.installDependencies() },
-                    enabled = !isInstalling,
-                    shape = RoundedCornerShape(10.dp),
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 20.dp)
+                        .padding(horizontal = 20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        if (isInstalling) stringResource(R.string.s393) else stringResource(R.string.s394),
-                        color = Indigo,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    OutlinedButton(
+                        onClick = { vm.installDependencies() },
+                        enabled = !isInstalling,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            if (isInstalling) stringResource(R.string.s393) else stringResource(R.string.s394),
+                            color = Indigo,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = { showDeleteDepsConfirm = true },
+                        enabled = !isInstalling,
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            stringResource(R.string.delete_deps),
+                            color = Coral,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
                 }
             }
             // QQ 交流群入口
@@ -808,6 +827,38 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 dismissButton = {
                     TextButton(
                         onClick = { showDeleteConfirm = false }
+                    ) {
+                        Text(stringResource(R.string.s402), color = Muted)
+                    }
+                }
+            )
+        }
+
+        // 删除依赖确认框（直接删除运行环境与依赖文件，不自动重装）
+        if (showDeleteDepsConfirm) {
+            AlertDialog(
+                onDismissRequest = { showDeleteDepsConfirm = false },
+                title = { Text(stringResource(R.string.delete_deps_title), fontWeight = FontWeight.Bold) },
+                text = {
+                    Text(
+                        stringResource(R.string.delete_deps_content),
+                        color = Muted,
+                        fontSize = 12.sp
+                    )
+                },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            showDeleteDepsConfirm = false
+                            vm.forceDeleteBootstrap()
+                        }
+                    ) {
+                        Text(stringResource(R.string.delete_deps), color = Coral, fontWeight = FontWeight.SemiBold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        onClick = { showDeleteDepsConfirm = false }
                     ) {
                         Text(stringResource(R.string.s402), color = Muted)
                     }
