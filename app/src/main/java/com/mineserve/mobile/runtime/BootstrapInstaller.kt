@@ -525,12 +525,16 @@ extract_deb() {
       echo "" >> "__D__STATUS"
       log "installed: __D__pkg __D__ver"
     fi
+    # 每包轻量收尾：只 chmod bin/（与历史快速版本一致，bin/ 遍历开销小）。
+    # usr/bin 补链接/脚本改写等重活在 Java 层兜底（fixRootfsPermissions / refreshTermux）
+    if [ -d "__D__{PREFIX}/bin" ]; then
+      chmod 755 "__D__{PREFIX}/bin/"* 2>/dev/null
+      log "set executable: __D__{PREFIX}/bin/"
+    fi
     # 修复 dpkg-deb -x 覆盖 compat 符号链接的问题：
     # tar 解压时包内 usr/ 等目录条目会把链接覆盖成真实目录，新装包文件落入
     # compat 目录。**不复制**（几百 MB 会拖慢安装）——只给 compat 下命令补
     # bin/ 绝对链接（compat/bin 通常小），文件归位由 Java 层 fixUsrBin rename 完成。
-    # 注意：chmod/usr/bin 补链接等全量操作移到 --configure 分支（apt 批量安装只跑一次），
-    # 避免每个包都遍历几百个文件导致安装慢。
     COMPAT_USR="__D__{PREFIX}/data/data/com.termux/files/usr"
     if [ -d "__D__COMPAT_USR" ] && [ ! -L "__D__COMPAT_USR" ]; then
       for f in "__D__COMPAT_USR/bin/"*; do
@@ -573,8 +577,6 @@ log "called with mode=__D__MODE args=__D__ARGS recursive=__D__RECURSIVE"
 
 case "__D__MODE" in
   --unpack|--install|-i)
-    # 有新包待处理：清除收尾标记，让后续 --configure 做全量收尾
-    rm -f "__D__{PREFIX}/.dpkg_finalized" 2>/dev/null
     if [ "__D__RECURSIVE" = "1" ]; then
       # 递归处理目录
       for dir in __D__ARGS; do
@@ -594,35 +596,10 @@ case "__D__MODE" in
     ;;
   --configure|-a|--pending|--yet-to-unpack)
     # 配置阶段：跳过（文件已提取，无需配置）。
-    # apt 会对每个包调用 dpkg --configure，全量收尾（chmod + 补链接 + 脚本改写）
-    # 必须只做一次——用 .dpkg_finalized 标记：unpack 清除，configure 见标记存在则跳过。
-    # 避免 60 个包 × 全量遍历几百文件导致安装慢。
-    if [ -f "__D__{PREFIX}/.dpkg_finalized" ]; then
-      log "configure: skipped (already finalized)"
-      exit 0
-    fi
-    # 1. 设置命令可执行权限（dpkg-deb -x 不保留权限位）
-    for d in "__D__{PREFIX}/bin" "__D__{PREFIX}/libexec" "__D__{PREFIX}/lib/apt/methods" "__D__{PREFIX}/usr/bin"; do
-      if [ -d "__D__d" ]; then
-        chmod 755 "__D__d/"* 2>/dev/null
-      fi
-    done
-    # 2. 为 usr/bin 命令补 bin/ 符号链接（postinst 被跳过时缺失 → PATH 找不到 → 127）
-    for f in "__D__{PREFIX}/usr/bin/"*; do
-      [ -f "__D__f" ] || continue
-      b="__D__{PREFIX}/bin/$(basename "__D__f")"
-      [ -e "__D__b" ] || ln -sf "../usr/bin/$(basename "__D__f")" "__D__b" 2>/dev/null
-    done
-    # 3. 改写新装脚本的 Termux 硬编码路径（shebang 与内容）→ 自身 PREFIX 路径
-    for f in "__D__{PREFIX}/usr/bin/"*; do
-      [ -f "__D__f" ] || continue
-      if head -c 64 "__D__f" 2>/dev/null | grep -q "^#!"; then
-        sed -i "s|/data/data/com.termux/files/usr|__D__{PREFIX}|g" "__D__f" 2>/dev/null
-        chmod 755 "__D__f" 2>/dev/null
-      fi
-    done
-    touch "__D__{PREFIX}/.dpkg_finalized"
-    log "configure: finalized (chmod + links + script paths)"
+    # 注意：apt 对每个包都调用 dpkg --configure，此处必须保持 no-op——
+    # 任何全量操作（chmod/补链接/脚本改写）都会每包执行导致安装慢。
+    # 这些收尾全部由 Java 层在启动/命令前兜底（fixRootfsPermissions / refreshTermux）。
+    log "configure: skipped (no-op)"
     exit 0
     ;;
   --remove|-r|--purge|-P)
