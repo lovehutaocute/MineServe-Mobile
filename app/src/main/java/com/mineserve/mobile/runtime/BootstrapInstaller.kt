@@ -525,21 +525,12 @@ extract_deb() {
       echo "" >> "__D__STATUS"
       log "installed: __D__pkg __D__ver"
     fi
-    # 设置 bin/ 下所有文件可执行权限（dpkg-deb -x 不会保留 Unix 权限位）
-    if [ -d "__D__{PREFIX}/bin" ]; then
-      chmod 755 "__D__{PREFIX}/bin/"* 2>/dev/null
-      log "set executable: __D__{PREFIX}/bin/"
-    fi
-    if [ -d "__D__{PREFIX}/libexec" ]; then
-      chmod 755 "__D__{PREFIX}/libexec/"* 2>/dev/null
-    fi
-    if [ -d "__D__{PREFIX}/lib/apt/methods" ]; then
-      chmod 755 "__D__{PREFIX}/lib/apt/methods/"* 2>/dev/null
-    fi
     # 修复 dpkg-deb -x 覆盖 compat 符号链接的问题：
     # tar 解压时包内 usr/ 等目录条目会把链接覆盖成真实目录，新装包文件落入
     # compat 目录。**不复制**（几百 MB 会拖慢安装）——只给 compat 下命令补
-    # bin/ 绝对链接，文件归位由 Java 层 fixUsrBin 在启动/命令前用 rename 瞬时完成。
+    # bin/ 绝对链接（compat/bin 通常小），文件归位由 Java 层 fixUsrBin rename 完成。
+    # 注意：chmod/usr/bin 补链接等全量操作移到 --configure 分支（apt 批量安装只跑一次），
+    # 避免每个包都遍历几百个文件导致安装慢。
     COMPAT_USR="__D__{PREFIX}/data/data/com.termux/files/usr"
     if [ -d "__D__COMPAT_USR" ] && [ ! -L "__D__COMPAT_USR" ]; then
       for f in "__D__COMPAT_USR/bin/"*; do
@@ -549,12 +540,6 @@ extract_deb() {
       done
       log "compat dir: commands linked (fixUsrBin will relocate)"
     fi
-    # 为 usr/bin 新命令补 bin/ 符号链接（postinst 被跳过时缺失 → PATH 找不到 → 127）
-    for f in "__D__{PREFIX}/usr/bin/"*; do
-      [ -f "__D__f" ] || continue
-      b="__D__{PREFIX}/bin/$(basename "__D__f")"
-      [ -e "__D__b" ] || ln -sf "../usr/bin/$(basename "__D__f")" "__D__b" 2>/dev/null
-    done
   else
     log "ERROR: extract failed for __D__deb"
   fi
@@ -606,9 +591,21 @@ case "__D__MODE" in
     exit 0
     ;;
   --configure|-a|--pending|--yet-to-unpack)
-    # 配置阶段：跳过（文件已提取，无需配置）
-    # 改写新装脚本的 Termux 硬编码路径（shebang 与内容）→ 自身 PREFIX 路径，
-    # 使 pkg install 的脚本类命令立即可用（apt 批量安装最后会走此分支，只跑一次）
+    # 配置阶段：跳过（文件已提取，无需配置）。apt 批量安装最后只走此分支一次，
+    # 在此做全量收尾（chmod + 补 bin 链接 + 脚本路径改写），避免每个包都遍历。
+    # 1. 设置命令可执行权限（dpkg-deb -x 不保留权限位）
+    for d in "__D__{PREFIX}/bin" "__D__{PREFIX}/libexec" "__D__{PREFIX}/lib/apt/methods" "__D__{PREFIX}/usr/bin"; do
+      if [ -d "__D__d" ]; then
+        chmod 755 "__D__d/"* 2>/dev/null
+      fi
+    done
+    # 2. 为 usr/bin 命令补 bin/ 符号链接（postinst 被跳过时缺失 → PATH 找不到 → 127）
+    for f in "__D__{PREFIX}/usr/bin/"*; do
+      [ -f "__D__f" ] || continue
+      b="__D__{PREFIX}/bin/$(basename "__D__f")"
+      [ -e "__D__b" ] || ln -sf "../usr/bin/$(basename "__D__f")" "__D__b" 2>/dev/null
+    done
+    # 3. 改写新装脚本的 Termux 硬编码路径（shebang 与内容）→ 自身 PREFIX 路径
     for f in "__D__{PREFIX}/usr/bin/"*; do
       [ -f "__D__f" ] || continue
       if head -c 64 "__D__f" 2>/dev/null | grep -q "^#!"; then
@@ -616,7 +613,7 @@ case "__D__MODE" in
         chmod 755 "__D__f" 2>/dev/null
       fi
     done
-    log "configure: skipped (no-op)"
+    log "configure: done (chmod + links + script paths)"
     exit 0
     ;;
   --remove|-r|--purge|-P)
