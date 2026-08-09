@@ -167,17 +167,33 @@ class TermuxRuntime(context: Context) {
 
     /** 组合修复：命令可执行位 + 脚本路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int {
-        // 顺序关键：先归位 compat（fixUsrBin）再重建 java wrapper（fixJavaSymlinks），
-        // 否则 apt 装完 openjdk 后 wrapper 指向归位前的 jvm 路径 → libjli.so not found 崩溃；
-        // ensureAptConfigs 放最后（归位可能动到 etc/，最后统一重建 apt 配置）
-        val n = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() +
-            fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
-        try {
-            // jvm 不完整（杀后台/覆盖安装后 libjli.so 缺失）→ 自动重装 openjdk
-            ensureJvmComplete()
-            fixJavaSymlinks()
-        } catch (e: Exception) {
-            Log.w(TAG, "fixRootfsPermissions: fixJavaSymlinks failed: ${e.message}")
+        // 性能优化：健康环境下（标记新鲜 <24h）只做关键快检查（jvm 完整性、dpkg/apt 配置），
+        // 全量遍历修复（脚本路径、exec 位、wrapper 重建）24h 一次——避免每次启动都
+        // 全量校验依赖（用户反馈"每次重启都要验证一遍依赖"）。
+        val markFile = File(installer.rootDir.parentFile, ".fix_checked")
+        val fresh = markFile.exists() &&
+            System.currentTimeMillis() - markFile.lastModified() < 24 * 3600_000L
+        val n: Int
+        if (fresh) {
+            // 快路径：只做快检查（不遍历几百文件）
+            n = fixDpkgWrapper() + ensureAptConfigs()
+            try {
+                ensureJvmComplete()
+            } catch (e: Exception) {
+                Log.w(TAG, "fixRootfsPermissions: ensureJvmComplete failed: ${e.message}")
+            }
+        } else {
+            // 全量路径：完整自愈（顺序：先归位 compat 再重建 wrapper）
+            n = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() +
+                fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
+            try {
+                ensureJvmComplete()
+                fixJavaSymlinks()
+            } catch (e: Exception) {
+                Log.w(TAG, "fixRootfsPermissions: fixJavaSymlinks failed: ${e.message}")
+            }
+            // 全量校验完成，更新标记（记录健康时间点）
+            runCatching { markFile.writeText(System.currentTimeMillis().toString()) }
         }
         return n
     }
