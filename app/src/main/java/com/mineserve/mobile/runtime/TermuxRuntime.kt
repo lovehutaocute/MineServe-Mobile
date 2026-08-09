@@ -363,6 +363,13 @@ class TermuxRuntime(context: Context) {
     }
 
     /**
+     * Termux 会话命令执行前的快速自愈（幂等，毫秒级）：
+     * fixUsrBin（compat 归位 + 补 bin 链接）+ fixScriptsOnce（新装脚本 shebang/路径）。
+     * 覆盖 apt/pkg 新装包命令立即可用，无需重启应用/服务器。
+     */
+    fun refreshTermux(): Int = fixUsrBin() + fixScriptsOnce()
+
+    /**
      * 诊断单个命令的执行环境（Termux 会话命令失败时输出，便于定位根因）。
      * 返回多行文本：环境就绪状态 + bin/usr/bin 下命令文件类型/exec位/shebang +
      * /data/data/com.termux（Termux app 数据目录）是否存在。

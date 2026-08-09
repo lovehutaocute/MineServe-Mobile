@@ -136,6 +136,10 @@ class McViewModel(
         viewModelScope.launch {
             _termuxBusy.value = true
             try {
+                // 命令执行前快速自愈：apt/pkg 新装包命令立即可用，无需重启
+                withContext(Dispatchers.IO) {
+                    repo.termuxRuntime.refreshTermux()
+                }
                 appendTermux("$ " + command)
                 val exit = withContext(Dispatchers.IO) {
                     repo.termuxRuntime.execTermux(command) { line ->
