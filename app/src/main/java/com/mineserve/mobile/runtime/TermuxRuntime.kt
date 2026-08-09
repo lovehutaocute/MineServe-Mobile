@@ -322,6 +322,9 @@ class TermuxRuntime(context: Context) {
         } catch (_: Exception) { false }
         if (compatUsr.exists() && !compatIsLink && isRealDir(compatUsr)) {
             Log.w(TAG, "fixUsrBin: compat usr is real dir, moving then relinking")
+            // 归位前清理占用 jvm 的孤儿 MC 进程（服务器运行中杀后台/覆盖安装后，
+            // 旧 java 进程仍 mmap jvm 文件，此时移动 jvm 会导致 libjli.so 缺失）
+            killOrphanMcProcess(null)
             try {
                 // 特殊处理 jvm：目标不存在才**整体原子 rename**（一次到位，绝不逐文件），
                 // 目标已存在则跳过——避免反复归位移动 jvm（openjdk 几千文件）导致
@@ -356,7 +359,26 @@ class TermuxRuntime(context: Context) {
             }
         }
 
-        // 2. 从 compat（链接 → usr/bin）同步缺失文件到 usr/bin（兜底，只补缺失不覆盖）
+        // 2+3. 同步 compat 缺失文件 + 补 bin 链接（不归位，命令前自愈可用）
+        fixed += syncCompatAndLinks()
+
+        if (fixed > 0) {
+            installer.onLog?.invoke("[bootstrap] 补全 $fixed 个缺失命令/链接")
+        }
+        return fixed
+    }
+
+    /**
+     * 轻量自愈（命令执行前调用）：从 compat 同步缺失命令 + 为 usr/bin 补 bin 链接。
+     * **不触发归位**（不动 jvm/大目录）——避免服务器运行中移动 jvm 导致 libjli.so 缺失。
+     */
+    private fun syncCompatAndLinks(): Int {
+        val prefix = installer.rootDir.absolutePath
+        var fixed = 0
+        val usrBin = File(prefix, "usr/bin")
+        val binDir = File(prefix, "bin")
+        val compatUsrBin = File(prefix, "data/data/com.termux/files/usr/bin")
+        // 从 compat（链接 → usr/bin）同步缺失文件到 usr/bin（兜底，只补缺失不覆盖）
         usrBin.mkdirs()
         if (compatUsrBin.isDirectory) {
             compatUsrBin.listFiles()?.forEach { src ->
@@ -366,16 +388,15 @@ class TermuxRuntime(context: Context) {
                         src.copyTo(dst)
                         dst.setExecutable(true, false)
                         fixed++
-                        Log.i(TAG, "fixUsrBin: copied ${src.name} -> usr/bin/")
+                        Log.i(TAG, "syncCompatAndLinks: copied ${src.name} -> usr/bin/")
                     } catch (e: Exception) {
-                        Log.w(TAG, "fixUsrBin: copy ${src.name} failed: ${e.message}")
+                        Log.w(TAG, "syncCompatAndLinks: copy ${src.name} failed: ${e.message}")
                     }
                 }
             }
         }
-
-        // 3. 为 usr/bin 下每个命令补 bin/ 符号链接：dpkg-wrapper 跳过 configure，
-        //    postinst 未执行，apt 新装包（tree 等）没有 bin/ 链接 → PATH 找不到 → 127
+        // 为 usr/bin 下每个命令补 bin/ 符号链接：dpkg-wrapper 跳过 configure，
+        // postinst 未执行，apt 新装包（tree 等）没有 bin/ 链接 → PATH 找不到 → 127
         binDir.mkdirs()
         usrBin.listFiles()?.forEach { f ->
             if (!f.isFile) return@forEach
@@ -400,15 +421,11 @@ class TermuxRuntime(context: Context) {
                 } else {
                     android.system.Os.symlink("../usr/bin/${f.name}", link.absolutePath)
                     fixed++
-                    Log.i(TAG, "fixUsrBin: created bin/${f.name} -> usr/bin/${f.name}")
+                    Log.i(TAG, "syncCompatAndLinks: created bin/${f.name} -> usr/bin/${f.name}")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "fixUsrBin: link bin/${f.name} failed: ${e.message}")
+                Log.w(TAG, "syncCompatAndLinks: link bin/${f.name} failed: ${e.message}")
             }
-        }
-
-        if (fixed > 0) {
-            installer.onLog?.invoke("[bootstrap] 补全 $fixed 个缺失命令/链接")
         }
         return fixed
     }
@@ -499,10 +516,11 @@ class TermuxRuntime(context: Context) {
 
     /**
      * Termux 会话命令执行前的快速自愈（幂等，毫秒级）：
-     * fixUsrBin（compat 归位 + 补 bin 链接）+ fixScriptsOnce（新装脚本 shebang/路径）。
+     * syncCompatAndLinks（补 bin 链接 + compat 同步）+ fixScriptsOnce（新装脚本路径）。
      * 覆盖 apt/pkg 新装包命令立即可用，无需重启应用/服务器。
+     * 注意：**不触发归位**（不动 jvm/大目录），避免服务器运行中移动 jvm 导致 libjli.so 缺失。
      */
-    fun refreshTermux(): Int = fixUsrBin() + fixScriptsOnce()
+    fun refreshTermux(): Int = syncCompatAndLinks() + fixScriptsOnce()
 
     /**
      * 诊断单个命令的执行环境（Termux 会话命令失败时输出，便于定位根因）。
@@ -717,9 +735,9 @@ class TermuxRuntime(context: Context) {
      * 仍占着 world/session.lock → 新实例启动报 "already locked"）。
      * 只处理同 uid 的 java 进程且 cmdline 匹配该服务器目录或 MC 启动参数。
      */
-    private fun killOrphanMcProcess(serverDir: File) {
+    private fun killOrphanMcProcess(serverDir: File?) {
         try {
-            val target = serverDir.absolutePath
+            val target = serverDir?.absolutePath
             File("/proc").listFiles()?.forEach { f ->
                 val name = f.name
                 if (name.isEmpty() || !name.all { it.isDigit() }) return@forEach
@@ -727,7 +745,8 @@ class TermuxRuntime(context: Context) {
                     File(f, "cmdline").readText().replace('\u0000', ' ')
                 } catch (_: Exception) { return@forEach }
                 val isMc = cmdline.contains("java") &&
-                    (cmdline.contains(target) || (cmdline.contains(".jar") && cmdline.contains("nogui")))
+                    ((target != null && cmdline.contains(target)) ||
+                        (cmdline.contains(".jar") && cmdline.contains("nogui")))
                 if (isMc) {
                     val pid = name.toIntOrNull() ?: return@forEach
                     Log.w(TAG, "killOrphanMcProcess: killing orphan pid=$pid (${cmdline.take(140)})")
