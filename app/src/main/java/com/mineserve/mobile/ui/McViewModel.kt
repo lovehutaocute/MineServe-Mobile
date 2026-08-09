@@ -128,6 +128,11 @@ class McViewModel(
     /** 执行 Termux shell 命令（IO 线程，输出实时追加到 termuxLines，命令回显 $ cmd） */
     fun execTermuxCommand(command: String) {
         if (command.isBlank() || _termuxBusy.value) return
+        // 环境未初始化完成时禁止输入（bootstrap 下载/解压/装依赖中，命令必然失败）
+        if (!isBootstrapped.value) {
+            appendTermux("⏳ Termux 环境尚未初始化完成，请等待安装完成后重试")
+            return
+        }
         viewModelScope.launch {
             _termuxBusy.value = true
             try {
@@ -144,6 +149,8 @@ class McViewModel(
                         else -> ""
                     }
                     appendTermux("(退出码 $exit)$hint")
+                    // 失败时输出环境诊断，便于定位根因
+                    appendTermux(repo.termuxRuntime.diagnoseCommand(command))
                 }
             } catch (e: Exception) {
                 appendTermux("执行错误: ${e.message}")

@@ -223,6 +223,42 @@ class TermuxRuntime(context: Context) {
     /** 组合修复：命令可执行位 + 脚本解释器路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int = ensureRootfsExecutable() + fixScriptShebangs()
 
+    /**
+     * 诊断单个命令的执行环境（Termux 会话命令失败时输出，便于定位根因）。
+     * 返回多行文本：环境就绪状态 + bin/usr/bin 下命令文件类型/exec位/shebang +
+     * /data/data/com.termux（Termux app 数据目录）是否存在。
+     */
+    fun diagnoseCommand(cmd: String): String {
+        val prefix = installer.rootDir.absolutePath
+        val sb = StringBuilder()
+        sb.append("[诊断] 环境就绪: ${installer.isReady()}")
+        val first = cmd.trim().split(Regex("\\s+")).firstOrNull { it.isNotEmpty() }
+        if (first != null) {
+            sb.append("\n  bin/$first: ${fileInfo(File(prefix, "bin/$first"))}")
+            sb.append("\n  usr/bin/$first: ${fileInfo(File(prefix, "usr/bin/$first"))}")
+        }
+        sb.append("\n  /data/data/com.termux: ${if (File("/data/data/com.termux").exists()) "存在" else "不存在"}")
+        return sb.toString()
+    }
+
+    private fun fileInfo(f: File): String {
+        if (!f.exists()) return "不存在"
+        val isLink = try { java.nio.file.Files.isSymbolicLink(f.toPath()) } catch (_: Exception) { false }
+        val target = if (isLink) {
+            " → " + (try { java.nio.file.Files.readSymbolicLink(f.toPath()).toString() } catch (_: Exception) { "?" })
+        } else ""
+        val exec = if (f.canExecute()) "可执行" else "无exec位"
+        var shebang = ""
+        if (f.isFile && !isLink) {
+            try {
+                val head = f.bufferedReader().use { it.readLine() }?.take(100) ?: ""
+                if (head.startsWith("#!")) shebang = " | shebang: $head"
+            } catch (_: Exception) {}
+        }
+        val type = if (isLink) "符号链接" else if (f.isDirectory) "目录" else "文件"
+        return "$type$target $exec$shebang"
+    }
+
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
         executor.execStream(tag, *command, env = env)
 
@@ -257,6 +293,10 @@ class TermuxRuntime(context: Context) {
 
         onProgress(BootstrapInstaller.InstallPhase.POST_SETUP, 92)
         installer.onLog?.invoke("[bootstrap] 安装依赖包（JDK-25/wget）...")
+        // 关键时序：必须先修复 rootfs 可执行权限与脚本 shebang——apt-get 是 perl 脚本，
+        // shebang 硬编码指向 /data/data/com.termux/... 解释器，不修复则 apt-get 无法执行
+        // （退出码 126），JDK 永远装不完，bootstrap 陷入死循环。
+        fixRootfsPermissions()
         executor.execOnce("apt-get", "update", "--allow-insecure-repositories", "-y")
         // 安装 openjdk-25：Paper 26.x / MC 26.1+ 要求 Java 25+，openjdk-17 已不够
         executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "openjdk-25", "wget", "curl")
