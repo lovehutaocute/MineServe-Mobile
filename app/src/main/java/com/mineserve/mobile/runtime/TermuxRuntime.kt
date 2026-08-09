@@ -165,22 +165,27 @@ class TermuxRuntime(context: Context) {
         return fixed
     }
 
+    /** 组合修复：命令可执行位 + 脚本路径（启动时幂等调用） */
+    fun fixRootfsPermissions(): Int =
+        fixUsrBin() + ensureRootfsExecutable() + fixScriptsOnce() + fixAptSources()
+
     /**
-     * 修复脚本 shebang 解释器路径（幂等）。
+     * 修复脚本 shebang 解释器路径 + 内容中硬编码的 Termux 绝对路径（幂等，单次遍历）。
      *
-     * 背景：Termux 官方打包的脚本（pkg、apt-get、termux-* 等）shebang 硬编码为
-     * `#!/data/data/com.termux/files/usr/bin/xxx`（Termux 应用目录）。MineServe 进程
-     * execve 脚本时内核会先 exec 该解释器——那是**其他 app（com.termux）**目录下的文件，
-     * 跨 app 执行被拒 → "Permission denied"（退出码 126），即使脚本本身有 exec 位。
+     * 背景：Termux 官方打包的脚本（pkg、apt-get、termux-* 等）shebang 与内容里都硬编码
+     * /data/data/com.termux/files/usr/...（如 pkg 第 11 行调用 termux-setup-package-manager）。
+     * 这些路径指向其他 app（com.termux）目录，MineServe 进程跨 app 执行被拒 →
+     * "Permission denied"（退出码 126 / 1）。
      *
-     * 修复：把 shebang 中的 Termux 绝对路径改写为自身 rootfs 路径
-     * （/data/data/com.termux/files/usr/ → $PREFIX/usr/），使解释器指向 MineServe
-     * 自己的 bash/perl/python 等 ELF；`/usr/bin/env` 形式兜底为自身 coreutils env。
-     * 每次应用启动调用（幂等），已装环境也生效。
+     * 修复：把 shebang（第一行）与内容中的 Termux 路径改写为自身 rootfs 路径 $PREFIX；
+     * /usr/bin/env 形式兜底为自身 coreutils env。只处理以 #! 开头的文本脚本（跳过 ELF）。
+     *
+     * 性能：单次遍历 + 只读前 4KB 预检（已修复文件不命中即跳过全量 IO），
+     * 替代此前 fixScriptShebangs + fixScriptPaths 两次遍历的重复读写。
      *
      * @return 本次修复的脚本数
      */
-    fun fixScriptShebangs(): Int {
+    fun fixScriptsOnce(): Int {
         val prefix = installer.rootDir.absolutePath
         if (!File(prefix).isDirectory) return 0
         val termuxUsr = "/data/data/com.termux/files/usr"
@@ -192,8 +197,13 @@ class TermuxRuntime(context: Context) {
             File(prefix, rel).listFiles()?.forEach { f ->
                 if (!f.isFile) return@forEach
                 try {
-                    val head = java.io.RandomAccessFile(f, "r").use { it.readLine() } ?: return@forEach
+                    val len = f.length()
+                    val buf = ByteArray(minOf(len, 4096L).toInt())
+                    java.io.RandomAccessFile(f, "r").use { raf -> raf.readFully(buf) }
+                    val preview = String(buf, Charsets.UTF_8)
+                    val head = preview.substringBefore("\n")
                     if (!head.startsWith("#!")) return@forEach
+                    // shebang 改写
                     var newHead = head
                     if (head.contains(termuxUsr)) {
                         newHead = head
@@ -204,25 +214,28 @@ class TermuxRuntime(context: Context) {
                     if (newHead.contains("/usr/bin/env ")) {
                         newHead = newHead.replace("#!/usr/bin/env ", "#!$prefix/usr/bin/env ")
                     }
-                    if (newHead != head) {
+                    // 内容预检：前 4KB 是否含 Termux 路径（未命中跳过全量 IO）
+                    val needFull = preview.contains(termuxUsr)
+                    if (newHead != head || needFull) {
                         val content = f.readText()
-                        f.writeText(content.replaceFirst(head, newHead))
-                        f.setExecutable(true, false)
-                        fixed++
+                        var newContent = content
+                        if (needFull) newContent = content.replace(termuxUsr, prefix)
+                        if (newHead != head) newContent = newContent.replaceFirst(head, newHead)
+                        if (newContent != content) {
+                            f.writeText(newContent)
+                            f.setExecutable(true, false)
+                            fixed++
+                        }
                     }
                 } catch (_: Exception) {}
             }
         }
         if (fixed > 0) {
-            Log.i(TAG, "fixScriptShebangs: fixed $fixed scripts")
-            installer.onLog?.invoke("[bootstrap] 修复 $fixed 个脚本解释器路径")
+            Log.i(TAG, "fixScriptsOnce: fixed $fixed scripts")
+            installer.onLog?.invoke("[bootstrap] 修复 $fixed 个脚本路径")
         }
         return fixed
     }
-
-    /** 组合修复：命令可执行位 + 脚本解释器路径（启动时幂等调用） */
-    fun fixRootfsPermissions(): Int =
-        fixUsrBin() + ensureRootfsExecutable() + fixScriptShebangs() + fixScriptPaths() + fixAptSources()
 
     /**
      * 已装环境 apt 源 http → https（幂等）。
@@ -245,52 +258,6 @@ class TermuxRuntime(context: Context) {
             Log.w(TAG, "fixAptSources: ${e.message}")
             0
         }
-    }
-
-    /**
-     * 修复脚本内容中硬编码的 Termux 绝对路径（幂等）。
-     *
-     * 背景：pkg、termux-* 等脚本除 shebang 外，**内容里**还硬编码调用
-     * /data/data/com.termux/files/usr/bin/xxx（如 pkg 第 11 行调用
-     * termux-setup-package-manager）。这些路径指向其他 app（com.termux）目录，
-     * MineServe 进程跨 app 执行被拒 → Permission denied（退出码 1）。
-     *
-     * 修复：对 shebang 脚本（文本文件，跳过 ELF 避免损坏），把内容中的
-     * /data/data/com.termux/files/usr/ 全部替换为自身 rootfs 路径 $PREFIX。
-     * 只处理以 #! 开头的文本脚本。
-     *
-     * @return 本次修复的脚本数
-     */
-    fun fixScriptPaths(): Int {
-        val prefix = installer.rootDir.absolutePath
-        if (!File(prefix).isDirectory) return 0
-        val termuxUsr = "/data/data/com.termux/files/usr"
-        var fixed = 0
-        listOf(
-            "usr/bin", "bin", "libexec", "lib/apt/methods",
-            "usr/lib/apt/methods", "etc/profile.d", "etc/apt/apt.conf.d"
-        ).forEach { rel ->
-            File(prefix, rel).listFiles()?.forEach { f ->
-                if (!f.isFile) return@forEach
-                try {
-                    // 只处理文本脚本（以 #! 开头），跳过 ELF 二进制
-                    val head = f.bufferedReader().use { it.readLine() } ?: return@forEach
-                    if (!head.startsWith("#!")) return@forEach
-                    val content = f.readText()
-                    if (content.contains(termuxUsr)) {
-                        f.writeText(content.replace(termuxUsr, prefix))
-                        f.setExecutable(true, false)
-                        fixed++
-                        Log.i(TAG, "fixScriptPaths: patched ${f.absolutePath}")
-                    }
-                } catch (_: Exception) {}
-            }
-        }
-        if (fixed > 0) {
-            Log.i(TAG, "fixScriptPaths: fixed $fixed scripts")
-            installer.onLog?.invoke("[bootstrap] 修复 $fixed 个脚本内部路径")
-        }
-        return fixed
     }
 
     /**
