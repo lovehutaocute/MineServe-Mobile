@@ -167,7 +167,7 @@ class TermuxRuntime(context: Context) {
 
     /** 组合修复：命令可执行位 + 脚本路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int =
-        fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() + fixScriptsOnce() + fixAptSources()
+        fixDpkgWrapper() + ensureAptConfigs() + fixUsrBin() + ensureRootfsExecutable() + fixScriptsOnce() + fixAptSources()
 
     /**
      * 升级已装环境的 dpkg 包装脚本到新版（幂等）。
@@ -301,31 +301,25 @@ class TermuxRuntime(context: Context) {
         val compatUsr = File(compatDir, "usr")
         val compatUsrBin = File(compatUsr, "bin")
 
-        // 1. compat usr 若是真实目录（链接被 dpkg 覆盖/失效）→ 全量移动到 rootfs 对应位置
-        //    再重建符号链接。用 rename（同分区元数据操作，毫秒级）而非 copyRecursively——
-        //    否则 bootstrap 装完 60 个 apt 包（几百 MB）后全量复制一遍会慢好几倍。
+        // 1. compat usr 若是真实目录（链接被 dpkg 覆盖/失效）→ 安全移动到 rootfs 对应位置
+        //    再重建符号链接。用 rename（同分区元数据操作，毫秒级）而非复制。
+        //    安全关键：必须用 NOFOLLOW_LINKS 判断目录（File.isDirectory/walkTopDown 会
+        //    跟随符号链接，compat 若是链接会遍历整个 rootfs 并误删/误移文件——
+        //    曾导致 etc/apt/apt.conf 等配置丢失、usr/bin 大量缺失）。
         val compatIsLink = try {
             java.nio.file.Files.isSymbolicLink(compatUsr.toPath())
         } catch (_: Exception) { false }
-        if (compatUsr.exists() && !compatIsLink && compatUsr.isDirectory) {
+        if (compatUsr.exists() && !compatIsLink && isRealDir(compatUsr)) {
             Log.w(TAG, "fixUsrBin: compat usr is real dir, moving then relinking")
-            // 先移动文件（bin/lib/usr/bin/usr/lib/etc/share 全处理，含 apt 装的共享库），
-            // 用 renameTo 同分区瞬时完成；目录结构按 relativeTo 保留
             try {
-                compatUsr.walkTopDown()
-                    .sortedByDescending { it.absolutePath.length }
-                    .forEach { src ->
-                        if (src == compatUsr) return@forEach
-                        val rel = src.relativeTo(compatUsr)
-                        val dst = File(prefix, rel.path)
-                        if (src.isDirectory) {
-                            dst.mkdirs()
-                        } else if (src.isFile) {
-                            if (dst.exists()) dst.delete()
-                            src.renameTo(dst)
-                        }
+                // 只处理 compat 下的已知子目录，手动递归移动（不跟随链接）
+                listOf("bin", "lib", "usr", "etc", "share", "include", "libexec", "opt", "var", "libexec").forEach { sub ->
+                    val srcSub = File(compatUsr, sub)
+                    if (isRealDir(srcSub)) {
+                        moveTreeInto(srcSub, File(prefix, sub))
                     }
-                // 移动后补可执行位（rename 不改变权限，apt 解压文件权限来自 dpkg-deb 默认）
+                }
+                // 补可执行位（rename 不改变权限，dpkg-deb -x 解压文件权限来自默认）
                 listOf("bin", "usr/bin", "libexec", "lib/apt/methods", "usr/lib/apt/methods").forEach { rel ->
                     File(prefix, rel).listFiles()?.forEach { it.setExecutable(true, false) }
                 }
@@ -395,6 +389,74 @@ class TermuxRuntime(context: Context) {
         if (fixed > 0) {
             installer.onLog?.invoke("[bootstrap] 补全 $fixed 个缺失命令/链接")
         }
+        return fixed
+    }
+
+    /** 用 NOFOLLOW_LINKS 判断是否为真实目录（不跟随符号链接，防遍历逃逸破坏 rootfs） */
+    private fun isRealDir(f: File): Boolean = try {
+        java.nio.file.Files.isDirectory(f.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    } catch (_: Exception) { false }
+
+    /** 把 srcDir 的内容安全移动到 dstDir（递归合并，rename 同分区瞬时，不跟随符号链接） */
+    private fun moveTreeInto(srcDir: File, dstDir: File) {
+        dstDir.mkdirs()
+        srcDir.listFiles()?.forEach { entry ->
+            val dst = File(dstDir, entry.name)
+            if (isRealDir(entry)) {
+                moveTreeInto(entry, dst)
+            } else {
+                // 文件或符号链接：rename 移动（覆盖旧文件）
+                try {
+                    if (dst.exists()) dst.deleteRecursively()
+                    entry.renameTo(dst)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    /**
+     * 重建缺失的 apt 关键配置（apt.conf / sources.list / dpkg status）。
+     * 背景：fixUsrBin 误删曾导致 apt 报 "Unable to determine a suitable packaging system type"。
+     * 幂等：仅当文件缺失或为空时重建。
+     */
+    fun ensureAptConfigs(): Int {
+        val prefix = installer.rootDir.absolutePath
+        var fixed = 0
+        try {
+            File(prefix, "etc/apt").mkdirs()
+            File(prefix, "var/lib/dpkg").mkdirs()
+            val aptConf = File(prefix, "etc/apt/apt.conf")
+            if (!aptConf.exists() || aptConf.length() == 0L) {
+                aptConf.writeText(buildString {
+                    appendLine("Dir \"$prefix\";")
+                    appendLine("Dir::Prefix \"$prefix\";")
+                    appendLine("Dir::Etc \"$prefix/etc/apt\";")
+                    appendLine("Dir::State \"$prefix/var\";")
+                    appendLine("Dir::State::status \"$prefix/var/lib/dpkg/status\";")
+                    appendLine("Dir::Cache \"$prefix/var/cache\";")
+                    appendLine("Dir::Bin \"$prefix/bin\";")
+                    appendLine("Dir::Bin::dpkg \"$prefix/bin/dpkg\";")
+                    appendLine("DPkg \"$prefix/bin/dpkg\";")
+                    appendLine("Acquire::AllowInsecureRepositories \"true\";")
+                    appendLine("Acquire::https::Verify-Peer \"false\";")
+                    appendLine("Acquire::https::Verify-Host \"false\";")
+                    appendLine("APT::Get::AllowUnauthenticated \"true\";")
+                    appendLine("APT::Sandbox::User \"root\";")
+                    appendLine("APT::Sandbox::Seccomp \"false\";")
+                })
+                fixed++
+            }
+            val sources = File(prefix, "etc/apt/sources.list")
+            if (!sources.exists() || sources.length() == 0L) {
+                sources.writeText("deb https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main stable main\n")
+                fixed++
+            }
+            val status = File(prefix, "var/lib/dpkg/status")
+            if (!status.exists()) { status.writeText(""); fixed++ }
+        } catch (e: Exception) {
+            Log.w(TAG, "ensureAptConfigs: ${e.message}")
+        }
+        if (fixed > 0) installer.onLog?.invoke("[bootstrap] 重建 $fixed 个 apt 配置")
         return fixed
     }
 
