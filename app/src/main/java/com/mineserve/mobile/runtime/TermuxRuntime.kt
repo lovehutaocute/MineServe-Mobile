@@ -309,26 +309,88 @@ class TermuxRuntime(context: Context) {
     fun fixUsrBin(): Int {
         val prefix = installer.rootDir.absolutePath
         if (!File(prefix).isDirectory) return 0
-        val usrBin = File(prefix, "usr/bin")
-        val compatUsrBin = File(prefix, "data/data/com.termux/files/usr/bin")
-        if (!compatUsrBin.isDirectory) return 0
-        usrBin.mkdirs()
         var fixed = 0
-        compatUsrBin.listFiles()?.forEach { src ->
-            val dst = File(usrBin, src.name)
-            try {
+        val usrBin = File(prefix, "usr/bin")
+        val binDir = File(prefix, "bin")
+        val compatDir = File(prefix, "data/data/com.termux/files")
+        val compatUsr = File(compatDir, "usr")
+        val compatUsrBin = File(compatUsr, "bin")
+
+        // 1. compat usr 若是真实目录（链接被 dpkg 覆盖/失效）→ 先同步其 bin 内容到 usr/bin，
+        //    再重建符号链接，避免新装包文件困在 compat 目录导致 PATH 找不到
+        val compatIsLink = try {
+            java.nio.file.Files.isSymbolicLink(compatUsr.toPath())
+        } catch (_: Exception) { false }
+        if (compatUsr.exists() && !compatIsLink && compatUsr.isDirectory) {
+            Log.w(TAG, "fixUsrBin: compat usr is real dir, syncing then relinking")
+            File(compatUsr, "bin").listFiles()?.forEach { src ->
+                val dst = File(usrBin, src.name)
                 if (src.isFile && !dst.exists()) {
-                    src.copyTo(dst)
-                    dst.setExecutable(true, false)
-                    fixed++
-                    Log.i(TAG, "fixUsrBin: copied ${src.name} -> usr/bin/")
+                    try { src.copyTo(dst); dst.setExecutable(true, false); fixed++ } catch (_: Exception) {}
                 }
+            }
+            try {
+                compatUsr.deleteRecursively()
+                compatDir.mkdirs()
+                android.system.Os.symlink(prefix, compatUsr.absolutePath)
             } catch (e: Exception) {
-                Log.w(TAG, "fixUsrBin: copy ${src.name} failed: ${e.message}")
+                Log.w(TAG, "fixUsrBin: relink compat failed: ${e.message}")
             }
         }
+
+        // 2. 从 compat（链接 → usr/bin）同步缺失文件到 usr/bin（兜底，只补缺失不覆盖）
+        usrBin.mkdirs()
+        if (compatUsrBin.isDirectory) {
+            compatUsrBin.listFiles()?.forEach { src ->
+                val dst = File(usrBin, src.name)
+                if (src.isFile && !dst.exists()) {
+                    try {
+                        src.copyTo(dst)
+                        dst.setExecutable(true, false)
+                        fixed++
+                        Log.i(TAG, "fixUsrBin: copied ${src.name} -> usr/bin/")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "fixUsrBin: copy ${src.name} failed: ${e.message}")
+                    }
+                }
+            }
+        }
+
+        // 3. 为 usr/bin 下每个命令补 bin/ 符号链接：dpkg-wrapper 跳过 configure，
+        //    postinst 未执行，apt 新装包（tree 等）没有 bin/ 链接 → PATH 找不到 → 127
+        binDir.mkdirs()
+        usrBin.listFiles()?.forEach { f ->
+            if (!f.isFile) return@forEach
+            val link = File(binDir, f.name)
+            try {
+                val noFollowExists = java.nio.file.Files.exists(
+                    link.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS
+                )
+                if (noFollowExists) {
+                    // 断链则删除重建
+                    if (java.nio.file.Files.isSymbolicLink(link.toPath())) {
+                        val targetOk = try {
+                            val t = java.nio.file.Files.readSymbolicLink(link.toPath()).toString()
+                            File(binDir, t).canonicalFile.exists()
+                        } catch (_: Exception) { false }
+                        if (!targetOk) {
+                            link.delete()
+                            android.system.Os.symlink("../usr/bin/${f.name}", link.absolutePath)
+                            fixed++
+                        }
+                    }
+                } else {
+                    android.system.Os.symlink("../usr/bin/${f.name}", link.absolutePath)
+                    fixed++
+                    Log.i(TAG, "fixUsrBin: created bin/${f.name} -> usr/bin/${f.name}")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "fixUsrBin: link bin/${f.name} failed: ${e.message}")
+            }
+        }
+
         if (fixed > 0) {
-            installer.onLog?.invoke("[bootstrap] 补全 $fixed 个缺失命令（usr/bin）")
+            installer.onLog?.invoke("[bootstrap] 补全 $fixed 个缺失命令/链接")
         }
         return fixed
     }
