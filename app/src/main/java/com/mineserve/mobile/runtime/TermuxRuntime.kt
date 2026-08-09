@@ -166,8 +166,18 @@ class TermuxRuntime(context: Context) {
     }
 
     /** 组合修复：命令可执行位 + 脚本路径（启动时幂等调用） */
-    fun fixRootfsPermissions(): Int =
-        fixDpkgWrapper() + ensureAptConfigs() + fixUsrBin() + ensureRootfsExecutable() + fixScriptsOnce() + fixAptSources()
+    fun fixRootfsPermissions(): Int {
+        // 顺序关键：先归位 compat（fixUsrBin）再重建 java wrapper（fixJavaSymlinks），
+        // 否则 apt 装完 openjdk 后 wrapper 指向归位前的 jvm 路径 → libjli.so not found 崩溃
+        val n = fixDpkgWrapper() + ensureAptConfigs() + fixUsrBin() + ensureRootfsExecutable() +
+            fixScriptsOnce() + fixAptSources()
+        try {
+            fixJavaSymlinks()
+        } catch (e: Exception) {
+            Log.w(TAG, "fixRootfsPermissions: fixJavaSymlinks failed: ${e.message}")
+        }
+        return n
+    }
 
     /**
      * 升级已装环境的 dpkg 包装脚本到新版（幂等）。
@@ -405,10 +415,14 @@ class TermuxRuntime(context: Context) {
             if (isRealDir(entry)) {
                 moveTreeInto(entry, dst)
             } else {
-                // 文件或符号链接：rename 移动（覆盖旧文件）
+                // 文件或符号链接：优先 rename 移动（同分区瞬时）；失败则复制兜底，
+                // 防止 jvm 等大目录部分归位导致 libjli.so 缺失
                 try {
                     if (dst.exists()) dst.deleteRecursively()
-                    entry.renameTo(dst)
+                    if (!entry.renameTo(dst)) {
+                        entry.copyRecursively(dst, overwrite = true)
+                        entry.deleteRecursively()
+                    }
                 } catch (_: Exception) {}
             }
         }
@@ -585,7 +599,7 @@ class TermuxRuntime(context: Context) {
      * 文件实际落在了 $PREFIX/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/。
      * 所以需要从两个位置查找 java。
      */
-    private fun fixJavaSymlinks() {
+    fun fixJavaSymlinks() {
         val prefix = installer.rootDir.absolutePath
 
         // 查找 jvm 实际目录（优先 java-25-openjdk，回退 java-21/17）
