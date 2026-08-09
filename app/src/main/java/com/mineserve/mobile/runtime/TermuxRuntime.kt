@@ -168,9 +168,10 @@ class TermuxRuntime(context: Context) {
     /** 组合修复：命令可执行位 + 脚本路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int {
         // 顺序关键：先归位 compat（fixUsrBin）再重建 java wrapper（fixJavaSymlinks），
-        // 否则 apt 装完 openjdk 后 wrapper 指向归位前的 jvm 路径 → libjli.so not found 崩溃
-        val n = fixDpkgWrapper() + ensureAptConfigs() + fixUsrBin() + ensureRootfsExecutable() +
-            fixScriptsOnce() + fixAptSources()
+        // 否则 apt 装完 openjdk 后 wrapper 指向归位前的 jvm 路径 → libjli.so not found 崩溃；
+        // ensureAptConfigs 放最后（归位可能动到 etc/，最后统一重建 apt 配置）
+        val n = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() +
+            fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
         try {
             fixJavaSymlinks()
         } catch (e: Exception) {
@@ -411,11 +412,17 @@ class TermuxRuntime(context: Context) {
     private fun moveTreeInto(srcDir: File, dstDir: File) {
         dstDir.mkdirs()
         srcDir.listFiles()?.forEach { entry ->
+            // 跳过符号链接条目：链接一般指向 rootfs 自身（如 etc/apt 等），
+            // 移动链接并按 dst.deleteRecursively 处理会误删整个目标目录（apt.conf 丢失）
+            val isLink = try {
+                java.nio.file.Files.isSymbolicLink(entry.toPath())
+            } catch (_: Exception) { false }
+            if (isLink) return@forEach
             val dst = File(dstDir, entry.name)
             if (isRealDir(entry)) {
                 moveTreeInto(entry, dst)
             } else {
-                // 文件或符号链接：优先 rename 移动（同分区瞬时）；失败则复制兜底，
+                // 文件：优先 rename 移动（同分区瞬时）；失败则复制兜底，
                 // 防止 jvm 等大目录部分归位导致 libjli.so 缺失
                 try {
                     if (dst.exists()) dst.deleteRecursively()

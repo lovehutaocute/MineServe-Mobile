@@ -1160,7 +1160,7 @@
     <string name="ui_server_icon_hint">玩家在多人游戏列表看到的图标（64×64，重启服务器后生效）</string>
     <string name="ui_server_icon_updated">服务器图标已更新，重启服务器后生效</string>
     <string name="ui_server_icon_reset_done">已恢复默认图标</string>
-    <string name="ui_server_icon_running_warn">⚠️ 服务器运行中：更换/删除图标后需重启服务器，玩家列表才会更新</string>
+    <string name="ui_server_icon_running_warn">⚠️ 更换图标后生效步骤：① 重启服务器 ② 客户端删除该服务器重新添加（或重启游戏 / 重进服务器后退出）</string>
     <string name="ui_server_icon_fail">图标更新失败: %1$s</string>
     <string name="ui_server_icon_default">默认</string>
     <string name="mc_terminal">MC 终端</string>
