@@ -323,6 +323,16 @@ class TermuxRuntime(context: Context) {
         if (compatUsr.exists() && !compatIsLink && isRealDir(compatUsr)) {
             Log.w(TAG, "fixUsrBin: compat usr is real dir, moving then relinking")
             try {
+                // 特殊处理 jvm：目标不存在才**整体原子 rename**（一次到位，绝不逐文件），
+                // 目标已存在则跳过——避免反复归位移动 jvm（openjdk 几千文件）导致
+                // libjli.so/libjava.so 缺失（服务器运行时 refreshTermux 触发归位尤其危险）
+                val compatJvm = File(compatUsr, "lib/jvm")
+                val prefixJvm = File(prefix, "lib/jvm")
+                if (isRealDir(compatJvm) && !prefixJvm.exists()) {
+                    prefixJvm.parentFile?.mkdirs()
+                    runCatching { compatJvm.renameTo(prefixJvm) }
+                        .onSuccess { Log.i(TAG, "fixUsrBin: jvm atomically moved to $prefixJvm") }
+                }
                 // 只处理 compat 下的已知子目录，手动递归移动（不跟随链接）
                 listOf("bin", "lib", "usr", "etc", "share", "include", "libexec", "opt", "var", "libexec").forEach { sub ->
                     val srcSub = File(compatUsr, sub)
