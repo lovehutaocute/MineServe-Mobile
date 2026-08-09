@@ -1102,6 +1102,7 @@
     <string name="backup_ext_perm_action">去授权</string>
     <string name="backup_ext_title">外部备份</string>
     <string name="backup_ext_hint">备份保存到 /storage/emulated/0/世界与服务器的备份/（卸载或更新应用后保留）</string>
+    <string name="backup_ext_rename_rule">⚠️ 文件名的核心类型字段（server_目录_时间__核心.zip）用于还原时识别服务器核心，不建议修改；如需改名请保持此格式，否则核心类型无法识别（显示为未知）。</string>
     <string name="backup_ext_world">备份世界</string>
     <string name="backup_ext_server">备份整个服务器</string>
     <string name="backup_ext_refresh_hint">备份后点右上角刷新查看</string>

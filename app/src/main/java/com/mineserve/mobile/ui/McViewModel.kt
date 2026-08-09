@@ -1421,14 +1421,17 @@ class McViewModel(
         }
     }
 
-    /** 外部备份整个服务器（world+核心+配置+插件 → 外部目录） */
+    /** 外部备份整个服务器（world+核心+配置+插件 → 外部目录，文件名带核心类型） */
     fun backupServerToExternal() {
         if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
         val dirName = activeDirName() ?: run { _errorFlow.tryEmit(str(R.string.s212)); return }
+        // 当前服务器核心类型写入文件名（还原时据此识别核心）
+        val coreTag = config.value.installedCores
+            .firstOrNull { it.dirName == dirName }?.core?.displayName
         viewModelScope.launch {
             try {
                 val path = withContext(Dispatchers.IO) {
-                    backupManager.backupServerToExternal(dirName)
+                    backupManager.backupServerToExternal(dirName, coreTag)
                 }
                 if (path != null) {
                     _messageFlow.tryEmit("服务器备份完成: ${java.io.File(path).name}")
@@ -1511,19 +1514,15 @@ class McViewModel(
         }
     }
 
-    /** 请求还原服务器：解析目标目录名，存在同名则发冲突事件（UI 弹框） */
+    /** 请求还原服务器：解析目标目录名与核心类型，存在同名则发冲突事件（UI 弹框） */
     fun requestRestoreServer(zipName: String) {
         if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
-        val dirName = backupManager.parseServerDirFromZip(zipName)
-        if (dirName == null) {
-            _errorFlow.tryEmit("无法识别备份的服务器目录名")
-            return
-        }
+        val (dirName, coreTag) = backupManager.parseServerZipInfo(zipName)
         val target = java.io.File(repo.termuxRuntime.serversDir, dirName)
         if (target.exists()) {
             _restoreConflict.value = RestoreConflict(zipName, dirName)
         } else {
-            performRestoreServer(zipName, dirName, overwrite = false)
+            performRestoreServer(zipName, dirName, overwrite = false, coreTag = coreTag)
         }
     }
 
@@ -1531,12 +1530,13 @@ class McViewModel(
     fun confirmRestoreServer(overwrite: Boolean) {
         val conflict = _restoreConflict.value ?: return
         _restoreConflict.value = null
-        performRestoreServer(conflict.zipName, conflict.dirName, overwrite)
+        val coreTag = backupManager.parseServerZipInfo(conflict.zipName).second
+        performRestoreServer(conflict.zipName, conflict.dirName, overwrite, coreTag)
     }
 
     fun dismissRestoreConflict() { _restoreConflict.value = null }
 
-    private fun performRestoreServer(zipName: String, dirName: String, overwrite: Boolean) {
+    private fun performRestoreServer(zipName: String, dirName: String, overwrite: Boolean, coreTag: String? = null) {
         val file = java.io.File(com.mineserve.mobile.server.ExternalBackupStore.rootDir, zipName)
         viewModelScope.launch {
             try {
@@ -1545,7 +1545,7 @@ class McViewModel(
                 }
                 if (ok) {
                     // 注册到已安装核心列表并设为当前选中（否则概览/核心列表不显示）
-                    registerRestoredCore(dirName)
+                    registerRestoredCore(dirName, coreTag)
                     _messageFlow.tryEmit("服务器已还原: $zipName")
                 } else {
                     _errorFlow.tryEmit("服务器还原失败")
@@ -1558,9 +1558,9 @@ class McViewModel(
 
     /**
      * 把还原的服务器注册进已安装核心列表（config.installedCores）并设为当前选中。
-     * 核心类型无法从备份可靠判断，兜底标记为 Unknown（不影响启动，可在设置中调整）。
+     * 核心类型从备份文件名识别（coreTag），无法识别时标记 Unknown。
      */
-    private fun registerRestoredCore(dirName: String) {
+    private fun registerRestoredCore(dirName: String, coreTag: String? = null) {
         val cfg = config.value
         if (cfg.installedCores.any { it.dirName == dirName }) {
             // 已存在：只确保设为当前选中
@@ -1569,11 +1569,15 @@ class McViewModel(
             }
             return
         }
+        // 从 coreTag（核心 displayName）匹配枚举，未知则 Unknown
+        val core = com.mineserve.mobile.data.ServerCore.entries
+            .firstOrNull { it.displayName == coreTag }
+            ?: com.mineserve.mobile.data.ServerCore.Unknown
         updateConfig {
             it.copy(
                 installedCores = it.installedCores + com.mineserve.mobile.data.InstalledCore(
                     name = dirName,
-                    core = com.mineserve.mobile.data.ServerCore.Unknown,
+                    core = core,
                     version = "还原",
                     dirName = dirName
                 ),

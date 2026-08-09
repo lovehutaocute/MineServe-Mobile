@@ -266,6 +266,11 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(6.dp))
                 Text(stringResource(R.string.backup_ext_refresh_hint), color = Muted, fontSize = 10.sp)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    stringResource(R.string.backup_ext_rename_rule),
+                    color = Coral, fontSize = 10.sp, lineHeight = 14.sp
+                )
             }
 
             // 外部备份文件列表（导入/还原/删除）

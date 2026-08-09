@@ -140,12 +140,20 @@ class BackupManager(private val termux: TermuxRuntime) {
         return if (zipDirs(worlds, out)) out.absolutePath else null
     }
 
-    /** 外部备份整个服务器目录（world + 核心 jar + 配置 + 插件，排除 logs/session.lock） */
-    fun backupServerToExternal(dirName: String): String? {
+    /**
+     * 外部备份整个服务器目录（world + 核心 jar + 配置 + 插件，排除 logs/session.lock）。
+     * 文件名 server_{dir}_{ts}__{core}.zip（__ 后置核心类型，便于还原时识别核心；
+     * 旧格式无 __ 段兼容）。
+     */
+    fun backupServerToExternal(dirName: String, coreTag: String? = null): String? {
         if (!ExternalBackupStore.ensure()) return null
         val dir = serverDir(dirName)
         if (!dir.isDirectory) return null
-        val out = File(ExternalBackupStore.rootDir, "server_${dirName}_${ts()}.zip")
+        val base = "server_${dirName}_${ts()}"
+        val out = File(
+            ExternalBackupStore.rootDir,
+            if (coreTag.isNullOrBlank()) "$base.zip" else "${base}__$coreTag.zip"
+        )
         return if (zipDirFiltered(dir, out)) out.absolutePath else null
     }
 
@@ -197,14 +205,23 @@ class BackupManager(private val termux: TermuxRuntime) {
         } catch (e: Exception) { false }
     }
 
-    /** 从文件名 server_{dir}_{ts}.zip 解析原始服务器目录名（解析失败返回 null） */
-    fun parseServerDirFromZip(name: String): String? {
+    /**
+     * 解析服务器备份文件名 → (dirName, coreTag)。
+     * 格式：server_{dir}_{ts}__{core}.zip（__ 后置核心类型）；旧格式无 __ 段时 coreTag=null。
+     */
+    fun parseServerZipInfo(name: String): Pair<String, String?> {
         val base = name.removeSuffix(".zip")
+        val coreTag = if (base.contains("__")) base.substringAfterLast("__").ifBlank { null } else null
+        val dirPart = if (base.contains("__")) base.substringBeforeLast("__") else base
         // server_{dir}_{yyyyMMdd_HHmmss}
-        val parts = base.split("_")
-        if (parts.size < 3) return null
-        return parts.drop(1).dropLast(1).joinToString("_").ifBlank { null }
+        val parts = dirPart.split("_")
+        if (parts.size < 3) return "default" to coreTag
+        val dirName = parts.drop(1).dropLast(1).joinToString("_").ifBlank { "default" }
+        return dirName to coreTag
     }
+
+    /** 旧接口：只解析目录名（保留兼容） */
+    fun parseServerDirFromZip(name: String): String? = parseServerZipInfo(name).first
 
     /** 删除外部备份文件 */
     fun deleteExternalBackup(name: String): Boolean {
