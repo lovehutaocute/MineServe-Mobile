@@ -658,6 +658,16 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                         Text(stringResource(R.string.ui_server_icon_reset), color = Coral, fontSize = 12.sp)
                     }
                 }
+                // 服务器运行中：更换/删除图标不会立即生效，醒目提示需重启
+                if (state.isRunning) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.ui_server_icon_running_warn),
+                        color = Coral,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
             // ── 服务器地址 ──

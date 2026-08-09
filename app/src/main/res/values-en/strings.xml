@@ -1161,6 +1161,7 @@
     <string name="ui_server_icon_hint">Icon shown in the multiplayer server list (64×64, takes effect after server restart)</string>
     <string name="ui_server_icon_updated">Server icon updated. Restart the server to take effect.</string>
     <string name="ui_server_icon_reset_done">Default icon restored.</string>
+    <string name="ui_server_icon_running_warn">⚠️ Server running: restart the server after changing/removing the icon for it to appear in the player list</string>
     <string name="ui_server_icon_fail">Failed to update icon: %1$s</string>
     <string name="ui_server_icon_default">Default</string>
     <string name="mc_terminal">MC Terminal</string>

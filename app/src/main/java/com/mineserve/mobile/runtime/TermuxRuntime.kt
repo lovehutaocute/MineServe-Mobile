@@ -222,7 +222,30 @@ class TermuxRuntime(context: Context) {
 
     /** 组合修复：命令可执行位 + 脚本解释器路径（启动时幂等调用） */
     fun fixRootfsPermissions(): Int =
-        fixUsrBin() + ensureRootfsExecutable() + fixScriptShebangs() + fixScriptPaths()
+        fixUsrBin() + ensureRootfsExecutable() + fixScriptShebangs() + fixScriptPaths() + fixAptSources()
+
+    /**
+     * 已装环境 apt 源 http → https（幂等）。
+     * 安装时 sources.list 已用 https（postSetup 重写），此处兜底老环境：
+     * 把 sources.list 中 deb http:// 全部替换为 deb https://。
+     */
+    fun fixAptSources(): Int {
+        val prefix = installer.rootDir.absolutePath
+        val f = File(prefix, "etc/apt/sources.list")
+        if (!f.exists()) return 0
+        return try {
+            val content = f.readText()
+            val newContent = content.replace("deb http://", "deb https://")
+            if (newContent != content) {
+                f.writeText(newContent)
+                Log.i(TAG, "fixAptSources: http -> https")
+                1
+            } else 0
+        } catch (e: Exception) {
+            Log.w(TAG, "fixAptSources: ${e.message}")
+            0
+        }
+    }
 
     /**
      * 修复脚本内容中硬编码的 Termux 绝对路径（幂等）。

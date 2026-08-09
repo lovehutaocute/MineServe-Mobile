@@ -88,7 +88,8 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     val termuxBusy by vm.termuxBusy.collectAsState()
     var termuxInput by remember { mutableStateOf("") }
     var mcExpanded by remember { mutableStateOf(true) }
-    var termuxExpanded by remember { mutableStateOf(true) }
+    // Termux 会话默认收起（高级功能，默认折叠避免占用主界面）
+    var termuxExpanded by remember { mutableStateOf(false) }
     val context = LocalContext.current
     // 日志汉化开关（prefs，默认开启）；仅中文系统语言下生效
     val logPrefs = remember { context.getSharedPreferences("log_prefs", Context.MODE_PRIVATE) }
