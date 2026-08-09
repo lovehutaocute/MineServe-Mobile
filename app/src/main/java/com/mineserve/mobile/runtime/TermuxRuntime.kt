@@ -420,10 +420,16 @@ class TermuxRuntime(context: Context) {
             if (isLink) return@forEach
             val dst = File(dstDir, entry.name)
             if (isRealDir(entry)) {
+                // 目录：目标不存在时**整体 rename**（原子移动，防止 jvm 等几千文件
+                // 逐文件移动中途中断导致部分归位 → libjli.so 缺失）；目标已存在才递归合并
+                if (!dst.exists()) {
+                    try {
+                        if (entry.renameTo(dst)) return@forEach
+                    } catch (_: Exception) {}
+                }
                 moveTreeInto(entry, dst)
             } else {
-                // 文件：优先 rename 移动（同分区瞬时）；失败则复制兜底，
-                // 防止 jvm 等大目录部分归位导致 libjli.so 缺失
+                // 文件：优先 rename 移动（同分区瞬时）；失败则复制兜底
                 try {
                     if (dst.exists()) dst.deleteRecursively()
                     if (!entry.renameTo(dst)) {
