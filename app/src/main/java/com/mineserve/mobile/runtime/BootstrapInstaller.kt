@@ -573,6 +573,8 @@ log "called with mode=__D__MODE args=__D__ARGS recursive=__D__RECURSIVE"
 
 case "__D__MODE" in
   --unpack|--install|-i)
+    # 有新包待处理：清除收尾标记，让后续 --configure 做全量收尾
+    rm -f "__D__{PREFIX}/.dpkg_finalized" 2>/dev/null
     if [ "__D__RECURSIVE" = "1" ]; then
       # 递归处理目录
       for dir in __D__ARGS; do
@@ -591,8 +593,14 @@ case "__D__MODE" in
     exit 0
     ;;
   --configure|-a|--pending|--yet-to-unpack)
-    # 配置阶段：跳过（文件已提取，无需配置）。apt 批量安装最后只走此分支一次，
-    # 在此做全量收尾（chmod + 补 bin 链接 + 脚本路径改写），避免每个包都遍历。
+    # 配置阶段：跳过（文件已提取，无需配置）。
+    # apt 会对每个包调用 dpkg --configure，全量收尾（chmod + 补链接 + 脚本改写）
+    # 必须只做一次——用 .dpkg_finalized 标记：unpack 清除，configure 见标记存在则跳过。
+    # 避免 60 个包 × 全量遍历几百文件导致安装慢。
+    if [ -f "__D__{PREFIX}/.dpkg_finalized" ]; then
+      log "configure: skipped (already finalized)"
+      exit 0
+    fi
     # 1. 设置命令可执行权限（dpkg-deb -x 不保留权限位）
     for d in "__D__{PREFIX}/bin" "__D__{PREFIX}/libexec" "__D__{PREFIX}/lib/apt/methods" "__D__{PREFIX}/usr/bin"; do
       if [ -d "__D__d" ]; then
@@ -613,7 +621,8 @@ case "__D__MODE" in
         chmod 755 "__D__f" 2>/dev/null
       fi
     done
-    log "configure: done (chmod + links + script paths)"
+    touch "__D__{PREFIX}/.dpkg_finalized"
+    log "configure: finalized (chmod + links + script paths)"
     exit 0
     ;;
   --remove|-r|--purge|-P)
