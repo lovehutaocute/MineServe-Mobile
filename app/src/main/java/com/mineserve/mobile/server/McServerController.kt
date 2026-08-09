@@ -191,6 +191,7 @@ class McServerController(
             ServerCore.Vanilla -> resolveVanillaUrl(version)
             ServerCore.Velocity -> resolveVelocityUrl(version)
             ServerCore.BungeeCord -> resolveBungeeUrl()
+            ServerCore.Unknown -> throw IllegalArgumentException("未知核心类型，无法解析下载地址")
         }
     }
 
@@ -401,6 +402,7 @@ class McServerController(
             ServerCore.Quilt -> fetchQuiltVersions()
             ServerCore.Velocity -> fetchVelocityVersions()
             ServerCore.BungeeCord -> fetchBungeeVersions()
+            ServerCore.Unknown -> emptyList()
         }
     }
 

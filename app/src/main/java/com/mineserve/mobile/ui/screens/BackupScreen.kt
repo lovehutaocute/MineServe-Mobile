@@ -61,6 +61,7 @@ import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.theme.Coral
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Muted
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
@@ -87,6 +88,8 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     ) { uri: Uri? ->
         uri?.let { vm.importBackupToExternal(it) }
     }
+    // 待删除的外部备份文件（二次确认）
+    var pendingDeleteBackup by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
@@ -239,9 +242,44 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                             ) {
                                 Text(stringResource(R.string.backup_ext_restore), color = Indigo, fontSize = 11.sp)
                             }
+                            // 删除备份（二次确认）
+                            IconButton(
+                                onClick = { pendingDeleteBackup = f.name },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(Icons.Outlined.Delete, stringResource(R.string.backup_ext_delete), tint = Coral, modifier = Modifier.size(16.dp))
+                            }
                         }
                     }
                 }
+            }
+
+            // 删除外部备份二次确认
+            if (pendingDeleteBackup != null) {
+                AlertDialog(
+                    onDismissRequest = { pendingDeleteBackup = null },
+                    title = { Text(stringResource(R.string.backup_ext_delete_title), fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            stringResource(R.string.backup_ext_delete_content, pendingDeleteBackup!!),
+                            color = Muted, fontSize = 12.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            vm.deleteExternalBackup(pendingDeleteBackup!!)
+                            pendingDeleteBackup = null
+                            scope.launch { delay(500); refreshExtBackups() }
+                        }) {
+                            Text(stringResource(R.string.s401), color = Coral, fontWeight = FontWeight.SemiBold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { pendingDeleteBackup = null }) {
+                            Text(stringResource(R.string.s402), color = Muted)
+                        }
+                    }
+                )
             }
 
             // 服务器还原重名冲突对话框

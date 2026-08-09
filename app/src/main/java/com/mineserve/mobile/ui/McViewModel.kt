@@ -1452,9 +1452,23 @@ class McViewModel(
     /** 列出外部备份 zip（供备份页展示） */
     fun externalBackups(): List<java.io.File> = com.mineserve.mobile.server.ExternalBackupStore.listBackups()
 
-    /** 从手机其他位置导入备份 zip 到外部备份目录（SAF 选择） */
-    fun importBackupToExternal(uri: android.net.Uri) {
+    /** 删除外部备份文件 */
+    fun deleteExternalBackup(name: String) {
         viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    backupManager.deleteExternalBackup(name)
+                }
+                if (ok) _messageFlow.tryEmit("已删除备份: $name")
+                else _errorFlow.tryEmit("删除失败: $name")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("删除失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 从手机其他位置导入备份 zip 到外部备份目录（SAF 选择） */
+    fun importBackupToExternal(uri: android.net.Uri) {        viewModelScope.launch {
             try {
                 if (!com.mineserve.mobile.server.ExternalBackupStore.ensure()) {
                     _errorFlow.tryEmit("外部备份目录不可用")
@@ -1529,11 +1543,42 @@ class McViewModel(
                 val ok = withContext(Dispatchers.IO) {
                     backupManager.restoreServerFromExternal(file, dirName, overwrite)
                 }
-                if (ok) _messageFlow.tryEmit("服务器已还原: $zipName")
-                else _errorFlow.tryEmit("服务器还原失败")
+                if (ok) {
+                    // 注册到已安装核心列表并设为当前选中（否则概览/核心列表不显示）
+                    registerRestoredCore(dirName)
+                    _messageFlow.tryEmit("服务器已还原: $zipName")
+                } else {
+                    _errorFlow.tryEmit("服务器还原失败")
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit("服务器还原失败: ${e.message}")
             }
+        }
+    }
+
+    /**
+     * 把还原的服务器注册进已安装核心列表（config.installedCores）并设为当前选中。
+     * 核心类型无法从备份可靠判断，兜底标记为 Unknown（不影响启动，可在设置中调整）。
+     */
+    private fun registerRestoredCore(dirName: String) {
+        val cfg = config.value
+        if (cfg.installedCores.any { it.dirName == dirName }) {
+            // 已存在：只确保设为当前选中
+            if (cfg.activeCoreName != dirName) {
+                updateConfig { it.copy(activeCoreName = dirName) }
+            }
+            return
+        }
+        updateConfig {
+            it.copy(
+                installedCores = it.installedCores + com.mineserve.mobile.data.InstalledCore(
+                    name = dirName,
+                    core = com.mineserve.mobile.data.ServerCore.Unknown,
+                    version = "还原",
+                    dirName = dirName
+                ),
+                activeCoreName = dirName
+            )
         }
     }
 

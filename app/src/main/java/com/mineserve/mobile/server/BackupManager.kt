@@ -206,6 +206,12 @@ class BackupManager(private val termux: TermuxRuntime) {
         return parts.drop(1).dropLast(1).joinToString("_").ifBlank { null }
     }
 
+    /** 删除外部备份文件 */
+    fun deleteExternalBackup(name: String): Boolean {
+        val f = File(ExternalBackupStore.rootDir, name)
+        return f.exists() && f.isFile && f.delete()
+    }
+
     /**
      * 恢复快照：
      * 1. 若 MC 在运行，发送 stop 命令并轮询等待退出（最多 10s），超时则强制停止

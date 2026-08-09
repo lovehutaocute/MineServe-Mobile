@@ -1110,6 +1110,9 @@
     <string name="backup_ext_list_empty">No backups in external directory</string>
     <string name="backup_ext_restore">Restore</string>
     <string name="backup_ext_import">Import Backup</string>
+    <string name="backup_ext_delete">Delete</string>
+    <string name="backup_ext_delete_title">Delete Backup File</string>
+    <string name="backup_ext_delete_content">Delete backup file "%1$s"? This cannot be undone.</string>
     <string name="backup_conflict_title">Duplicate Server Detected</string>
     <string name="backup_conflict_content">Server directory "%1$s" already exists. Restoring will overwrite it (current world and configs will be lost). Overwrite?</string>
     <string name="backup_conflict_overwrite">Overwrite &amp; Restore</string>
