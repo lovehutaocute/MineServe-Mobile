@@ -308,11 +308,16 @@ class TermuxRuntime(context: Context) {
         } catch (_: Exception) { false }
         if (compatUsr.exists() && !compatIsLink && compatUsr.isDirectory) {
             Log.w(TAG, "fixUsrBin: compat usr is real dir, syncing then relinking")
-            File(compatUsr, "bin").listFiles()?.forEach { src ->
-                val dst = File(usrBin, src.name)
-                if (src.isFile && !dst.exists()) {
-                    try { src.copyTo(dst); dst.setExecutable(true, false); fixed++ } catch (_: Exception) {}
+            // 全量合并 compat 内容到 rootfs（bin/lib/usr/bin/usr/lib/etc/share 等），
+            // 不能只同步 bin/——apt 装的共享库（libandroid-spawn.so 等）在 lib/ 下，
+            // 漏掉会导致 java 的 libjvm.so dlopen 失败（library not found）
+            try {
+                compatUsr.copyRecursively(File(prefix), overwrite = true)
+                listOf("bin", "usr/bin", "libexec", "lib/apt/methods", "usr/lib/apt/methods").forEach { rel ->
+                    File(prefix, rel).listFiles()?.forEach { it.setExecutable(true, false) }
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "fixUsrBin: copy compat tree failed: ${e.message}")
             }
             try {
                 compatUsr.deleteRecursively()
@@ -544,6 +549,7 @@ class TermuxRuntime(context: Context) {
             File(jvmLibDir, "jli").absolutePath,
             compatUsrLib,
             "$prefix/lib",
+            "$prefix/usr/lib",
             "/system/lib64"
         ).joinToString(":")
         val javaHome = jvmDir.absolutePath
@@ -638,7 +644,7 @@ class TermuxRuntime(context: Context) {
             "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/lib/server"
         ).joinToString(":")
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
             "export TMPDIR='$prefix/tmp'; " +
