@@ -175,7 +175,21 @@ class McApplication : Application(), Configuration.Provider {
         }
 
         // 异步初始化 Termux 环境
-        startBootstrap()
+        // 环境已就绪：跳过 bootstrap 安装流程（避免每次启动都触发"安装依赖"UI），
+        // 仅由上方 fixRootfsPermissions 后台轻量自愈；未就绪才走完整安装
+        if (termuxRuntime.isReady()) {
+            _isBootstrapped.value = true
+            repository.updateServerState {
+                it.copy(
+                    currentProgress = 100,
+                    installSteps = com.mineserve.mobile.data.InstallStep.values().map { step ->
+                        com.mineserve.mobile.data.StepState(step, com.mineserve.mobile.data.StepStatus.Done)
+                    }
+                )
+            }
+        } else {
+            startBootstrap()
+        }
     }
 
     /** 启动/重试 bootstrap 初始化 */
