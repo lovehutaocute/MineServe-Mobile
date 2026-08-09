@@ -9,14 +9,18 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -48,6 +52,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.AlertDialog
@@ -90,6 +95,32 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     }
     // 待删除的外部备份文件（二次确认）
     var pendingDeleteBackup by remember { mutableStateOf<String?>(null) }
+    // 权限引导对话框（首次进入未授权弹一次）
+    var showPermDialog by remember { mutableStateOf(false) }
+    var permDialogShown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (!hasStoragePerm && !permDialogShown) {
+            permDialogShown = true
+            showPermDialog = true
+        }
+    }
+    // 跳转系统「所有文件访问」设置页
+    val openPermissionSettings: () -> Unit = {
+        try {
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                android.net.Uri.parse("package:" + context.packageName)
+            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            // 部分 ROM 无此 Activity，回退到应用详情设置
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.parse("package:" + context.packageName)
+            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        }
+    }
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
@@ -115,34 +146,69 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_backup), title = stringResource(R.string.s324))
 
-            // 外部备份权限引导（未授权时显示）
+            // 外部备份权限引导（未授权时显示，醒目样式）
             if (!hasStoragePerm) {
-                McCard(title = stringResource(R.string.backup_ext_perm_title)) {
-                    Text(stringResource(R.string.backup_ext_perm_content), color = Muted, fontSize = 11.sp)
-                    Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Coral.copy(alpha = 0.12f))
+                        .border(1.dp, Coral, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("⚠️", fontSize = 20.sp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                stringResource(R.string.backup_ext_perm_title),
+                                color = Coral, fontSize = 14.sp, fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                stringResource(R.string.backup_ext_perm_content),
+                                color = Muted, fontSize = 11.sp, lineHeight = 15.sp
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(10.dp))
                     Button(
-                        onClick = {
-                            try {
-                                val intent = android.content.Intent(
-                                    android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                                    android.net.Uri.parse("package:" + context.packageName)
-                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                            } catch (e: Exception) {
-                                // 部分 ROM 无此 Activity，回退到应用详情设置
-                                val intent = android.content.Intent(
-                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                    android.net.Uri.parse("package:" + context.packageName)
-                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                context.startActivity(intent)
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                        shape = RoundedCornerShape(8.dp)
+                        onClick = { openPermissionSettings() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Coral),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(stringResource(R.string.backup_ext_perm_action), color = Color.White, fontSize = 12.sp)
+                        Text(
+                            stringResource(R.string.backup_ext_perm_action) + " →",
+                            color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold
+                        )
                     }
                 }
+            }
+
+            // 首次进入未授权：弹框强制引导
+            if (showPermDialog) {
+                AlertDialog(
+                    onDismissRequest = { showPermDialog = false },
+                    title = { Text(stringResource(R.string.backup_ext_perm_title), fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            stringResource(R.string.backup_ext_perm_content),
+                            color = Muted, fontSize = 12.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { showPermDialog = false; openPermissionSettings() }) {
+                            Text(stringResource(R.string.backup_ext_perm_action), color = Coral, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showPermDialog = false }) {
+                            Text(stringResource(R.string.s402), color = Muted)
+                        }
+                    }
+                )
             }
 
             // 快照操作
