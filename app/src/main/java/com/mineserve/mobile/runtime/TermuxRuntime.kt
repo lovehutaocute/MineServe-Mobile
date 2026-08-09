@@ -173,6 +173,8 @@ class TermuxRuntime(context: Context) {
         val n = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() +
             fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
         try {
+            // jvm 不完整（杀后台/覆盖安装后 libjli.so 缺失）→ 自动重装 openjdk
+            ensureJvmComplete()
             fixJavaSymlinks()
         } catch (e: Exception) {
             Log.w(TAG, "fixRootfsPermissions: fixJavaSymlinks failed: ${e.message}")
@@ -326,15 +328,16 @@ class TermuxRuntime(context: Context) {
             // 旧 java 进程仍 mmap jvm 文件，此时移动 jvm 会导致 libjli.so 缺失）
             killOrphanMcProcess(null)
             try {
-                // 特殊处理 jvm：目标不存在才**整体原子 rename**（一次到位，绝不逐文件），
-                // 目标已存在则跳过——避免反复归位移动 jvm（openjdk 几千文件）导致
-                // libjli.so/libjava.so 缺失（服务器运行时 refreshTermux 触发归位尤其危险）
+                // 特殊处理 jvm：目标不存在**或损坏**（libjli.so/libjava.so 缺失）时，
+                // 用 compat 的完整 jvm 整体原子替换（先删目标再 rename，绝不逐文件）；
+                // 目标完整则跳过——避免反复移动 jvm 导致 libjli.so 缺失
                 val compatJvm = File(compatUsr, "lib/jvm")
                 val prefixJvm = File(prefix, "lib/jvm")
-                if (isRealDir(compatJvm) && !prefixJvm.exists()) {
+                if (isRealDir(compatJvm) && !jvmIsComplete(prefixJvm)) {
+                    prefixJvm.deleteRecursively()
                     prefixJvm.parentFile?.mkdirs()
                     runCatching { compatJvm.renameTo(prefixJvm) }
-                        .onSuccess { Log.i(TAG, "fixUsrBin: jvm atomically moved to $prefixJvm") }
+                        .onSuccess { Log.i(TAG, "fixUsrBin: jvm atomically replaced at $prefixJvm") }
                 }
                 // 只处理 compat 下的已知子目录，手动递归移动（不跟随链接）
                 listOf("bin", "lib", "usr", "etc", "share", "include", "libexec", "opt", "var", "libexec").forEach { sub ->
@@ -521,6 +524,38 @@ class TermuxRuntime(context: Context) {
      * 注意：**不触发归位**（不动 jvm/大目录），避免服务器运行中移动 jvm 导致 libjli.so 缺失。
      */
     fun refreshTermux(): Int = syncCompatAndLinks() + fixScriptsOnce()
+
+    /** 判断 jvm 目录是否完整（bin/java + libjli.so 或 libjava.so 存在） */
+    private fun jvmIsComplete(jvmRoot: File): Boolean {
+        if (!jvmRoot.isDirectory) return false
+        val jvmDir = jvmRoot.listFiles()?.firstOrNull { it.isDirectory && it.name.contains("openjdk") }
+            ?: return false
+        val binJava = File(jvmDir, "bin/java")
+        val libJli = File(jvmDir, "lib/jli/libjli.so")
+        val libJava = File(jvmDir, "lib/libjava.so")
+        return binJava.isFile && (libJli.isFile || libJava.isFile)
+    }
+
+    /**
+     * 启动时校验 jvm 完整性：不完整（如杀后台/覆盖安装后 libjli.so 缺失）→
+     * 自动 `apt-get install -f openjdk-25` 重装并重新归位，杜绝反复 libjli.so 崩溃。
+     */
+    fun ensureJvmComplete(): Int {
+        val prefix = installer.rootDir.absolutePath
+        val jvmRoot = File(prefix, "lib/jvm")
+        if (jvmIsComplete(jvmRoot)) return 0
+        Log.w(TAG, "ensureJvmComplete: jvm incomplete, reinstalling openjdk-25")
+        installer.onLog?.invoke("[bootstrap] jvm 不完整，重新安装 openjdk-25...")
+        try {
+            executor.execOnce("apt-get", "install", "--allow-unauthenticated", "-y", "-f", "openjdk-25")
+            // 重装后 jvm 可能在 compat，重新归位 + 重建 wrapper
+            fixUsrBin()
+            fixJavaSymlinks()
+        } catch (e: Exception) {
+            Log.w(TAG, "ensureJvmComplete: reinstall failed: ${e.message}")
+        }
+        return if (jvmIsComplete(jvmRoot)) 1 else 0
+    }
 
     /**
      * 诊断单个命令的执行环境（Termux 会话命令失败时输出，便于定位根因）。
