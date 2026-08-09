@@ -697,6 +697,42 @@ class TermuxRuntime(context: Context) {
     }
 
     /**
+     * 清理占用指定服务器目录的孤儿 java/MC 进程（app 重启后旧 MC 进程成为孤儿，
+     * 仍占着 world/session.lock → 新实例启动报 "already locked"）。
+     * 只处理同 uid 的 java 进程且 cmdline 匹配该服务器目录或 MC 启动参数。
+     */
+    private fun killOrphanMcProcess(serverDir: File) {
+        try {
+            val target = serverDir.absolutePath
+            File("/proc").listFiles()?.forEach { f ->
+                val name = f.name
+                if (name.isEmpty() || !name.all { it.isDigit() }) return@forEach
+                val cmdline = try {
+                    File(f, "cmdline").readText().replace('\u0000', ' ')
+                } catch (_: Exception) { return@forEach }
+                val isMc = cmdline.contains("java") &&
+                    (cmdline.contains(target) || (cmdline.contains(".jar") && cmdline.contains("nogui")))
+                if (isMc) {
+                    val pid = name.toIntOrNull() ?: return@forEach
+                    Log.w(TAG, "killOrphanMcProcess: killing orphan pid=$pid (${cmdline.take(140)})")
+                    emitLog("[startMc] 清理残留服务器进程 pid=$pid")
+                    runCatching { android.os.Process.killProcess(pid) }
+                    // 等待进程退出
+                    runCatching {
+                        val deadline = System.currentTimeMillis() + 3000
+                        while (System.currentTimeMillis() < deadline) {
+                            if (!File("/proc/$pid").exists()) break
+                            Thread.sleep(100)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "killOrphanMcProcess: ${e.message}")
+        }
+    }
+
+    /**
      * 直接用 ProcessBuilder 启动 MC 服务（不再依赖 tmux）。
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
      * onExit 回调在 MC 进程退出时触发。
@@ -712,6 +748,10 @@ class TermuxRuntime(context: Context) {
         val logFile = File(serverDir, "logs/latest.log")
         logFile.parentFile?.mkdirs()
         logFile.createNewFile()
+
+        // 清理占用该服务器目录的孤儿 java 进程（app 重启后旧 MC 进程成孤儿，
+        // 占着 world/session.lock → 新实例启动报 already locked）
+        killOrphanMcProcess(serverDir)
 
         // 探测 java 实际路径并自动修复符号链接
         val javaPath = ensureJavaReady() ?: run {
@@ -746,7 +786,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + " nogui"
+            "'$javaPath' -Djava.io.tmpdir='$prefix/tmp' -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + " nogui"
 
         Log.i(TAG, "startMc command: $javaCmd")
 
