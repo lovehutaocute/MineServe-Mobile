@@ -149,6 +149,63 @@ class BackupManager(private val termux: TermuxRuntime) {
         return if (zipDirFiltered(dir, out)) out.absolutePath else null
     }
 
+    /** 停止当前运行中的服务器（若在运行） */
+    private suspend fun stopServerIfRunning() {
+        if (termux.isMcRunning()) {
+            termux.sendCommand("stop")
+            var waited = 0
+            while (termux.isMcRunning() && waited < 10_000) { delay(500); waited += 500 }
+            if (termux.isMcRunning()) termux.stopMc()
+        }
+    }
+
+    /** 从外部 zip 还原世界（zip 内 world/world_nether/world_the_end 前缀） */
+    suspend fun restoreWorldFromExternal(file: File, dirName: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (!file.exists()) return@withContext false
+            stopServerIfRunning()
+            val serverDir = serverDir(dirName)
+            // 备份旧 world
+            listOf("world", "world_nether", "world_the_end").forEach { dim ->
+                val d = File(serverDir, dim)
+                if (d.exists()) {
+                    val bak = File(serverDir, "$dim.bak.${ts()}")
+                    if (!d.renameTo(bak)) d.deleteRecursively()
+                }
+            }
+            extractZipToDir(file, serverDir)
+            true
+        } catch (e: Exception) { false }
+    }
+
+    /**
+     * 从外部 zip 还原整个服务器（zip 内为服务器目录相对路径）。
+     * @param overwrite true 时覆盖同名目录，false 时目标存在则失败（用于重名检测）
+     */
+    suspend fun restoreServerFromExternal(file: File, targetDirName: String, overwrite: Boolean): Boolean = withContext(Dispatchers.IO) {
+        try {
+            if (!file.exists()) return@withContext false
+            stopServerIfRunning()
+            val target = serverDir(targetDirName)
+            if (target.exists()) {
+                if (!overwrite) return@withContext false
+                target.deleteRecursively()
+            }
+            target.mkdirs()
+            extractZipToDir(file, target)
+            true
+        } catch (e: Exception) { false }
+    }
+
+    /** 从文件名 server_{dir}_{ts}.zip 解析原始服务器目录名（解析失败返回 null） */
+    fun parseServerDirFromZip(name: String): String? {
+        val base = name.removeSuffix(".zip")
+        // server_{dir}_{yyyyMMdd_HHmmss}
+        val parts = base.split("_")
+        if (parts.size < 3) return null
+        return parts.drop(1).dropLast(1).joinToString("_").ifBlank { null }
+    }
+
     /**
      * 恢复快照：
      * 1. 若 MC 在运行，发送 stop 命令并轮询等待退出（最多 10s），超时则强制停止

@@ -1105,6 +1105,13 @@
     <string name="backup_ext_hint">Saved to /storage/emulated/0/世界与服务器的备份/ (kept after uninstall or app update)</string>
     <string name="backup_ext_world">Backup World</string>
     <string name="backup_ext_server">Backup Server</string>
+    <string name="backup_ext_refresh_hint">Tap refresh (top-right) after backup to see files</string>
+    <string name="backup_ext_list_title">External Backups (%1$d)</string>
+    <string name="backup_ext_list_empty">No backups in external directory</string>
+    <string name="backup_ext_restore">Restore</string>
+    <string name="backup_conflict_title">Duplicate Server Detected</string>
+    <string name="backup_conflict_content">Server directory "%1$s" already exists. Restoring will overwrite it (current world and configs will be lost). Overwrite?</string>
+    <string name="backup_conflict_overwrite">Overwrite &amp; Restore</string>
     <string name="update_later">Later</string>
     <string name="update_installing">Installing…</string>
     <string name="update_checking">Checking for updates…</string>

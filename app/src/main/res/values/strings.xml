@@ -1104,6 +1104,13 @@
     <string name="backup_ext_hint">备份保存到 /storage/emulated/0/世界与服务器的备份/（卸载或更新应用后保留）</string>
     <string name="backup_ext_world">备份世界</string>
     <string name="backup_ext_server">备份整个服务器</string>
+    <string name="backup_ext_refresh_hint">备份后点右上角刷新查看</string>
+    <string name="backup_ext_list_title">外部备份文件（%1$d）</string>
+    <string name="backup_ext_list_empty">外部目录暂无备份</string>
+    <string name="backup_ext_restore">还原</string>
+    <string name="backup_conflict_title">检测到重名服务器</string>
+    <string name="backup_conflict_content">目标服务器目录「%1$s」已存在，还原将覆盖它（当前世界与配置会丢失）。确定覆盖吗？</string>
+    <string name="backup_conflict_overwrite">覆盖还原</string>
     <string name="update_later">稍后再说</string>
     <string name="update_installing">安装中…</string>
     <string name="update_checking">正在检查更新…</string>

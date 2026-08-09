@@ -1403,8 +1403,7 @@ class McViewModel(
     }
 
     /** 外部备份整个世界（world+nether+end → 外部目录） */
-    fun backupWorldToExternal() {
-        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+    fun backupWorldToExternal() {        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
         val dirName = activeDirName() ?: run { _errorFlow.tryEmit(str(R.string.s212)); return }
         viewModelScope.launch {
             try {
@@ -1438,6 +1437,73 @@ class McViewModel(
                 }
             } catch (e: Exception) {
                 _errorFlow.tryEmit("服务器备份失败: ${e.message}")
+            }
+        }
+    }
+
+    // ── 外部备份导入/还原（含重名检测） ─────────────────────────────
+
+    /** 服务器还原重名冲突（UI 弹框询问） */
+    data class RestoreConflict(val zipName: String, val dirName: String)
+
+    private val _restoreConflict = kotlinx.coroutines.flow.MutableStateFlow<RestoreConflict?>(null)
+    val restoreConflict: kotlinx.coroutines.flow.StateFlow<RestoreConflict?> = _restoreConflict.asStateFlow()
+
+    /** 列出外部备份 zip（供备份页展示） */
+    fun externalBackups(): List<java.io.File> = com.mineserve.mobile.server.ExternalBackupStore.listBackups()
+
+    /** 从外部 zip 还原世界（zip 内 world/ 前缀） */
+    fun restoreWorldFromExternal(zipName: String) {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        val dirName = activeDirName() ?: run { _errorFlow.tryEmit(str(R.string.s212)); return }
+        val file = java.io.File(com.mineserve.mobile.server.ExternalBackupStore.rootDir, zipName)
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { backupManager.restoreWorldFromExternal(file, dirName) }
+                if (ok) _messageFlow.tryEmit("世界已还原: $zipName")
+                else _errorFlow.tryEmit("世界还原失败")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("世界还原失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 请求还原服务器：解析目标目录名，存在同名则发冲突事件（UI 弹框） */
+    fun requestRestoreServer(zipName: String) {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        val dirName = backupManager.parseServerDirFromZip(zipName)
+        if (dirName == null) {
+            _errorFlow.tryEmit("无法识别备份的服务器目录名")
+            return
+        }
+        val target = java.io.File(repo.termuxRuntime.serversDir, dirName)
+        if (target.exists()) {
+            _restoreConflict.value = RestoreConflict(zipName, dirName)
+        } else {
+            performRestoreServer(zipName, dirName, overwrite = false)
+        }
+    }
+
+    /** 确认还原服务器（overwrite=true 覆盖同名） */
+    fun confirmRestoreServer(overwrite: Boolean) {
+        val conflict = _restoreConflict.value ?: return
+        _restoreConflict.value = null
+        performRestoreServer(conflict.zipName, conflict.dirName, overwrite)
+    }
+
+    fun dismissRestoreConflict() { _restoreConflict.value = null }
+
+    private fun performRestoreServer(zipName: String, dirName: String, overwrite: Boolean) {
+        val file = java.io.File(com.mineserve.mobile.server.ExternalBackupStore.rootDir, zipName)
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    backupManager.restoreServerFromExternal(file, dirName, overwrite)
+                }
+                if (ok) _messageFlow.tryEmit("服务器已还原: $zipName")
+                else _errorFlow.tryEmit("服务器还原失败")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("服务器还原失败: ${e.message}")
             }
         }
     }

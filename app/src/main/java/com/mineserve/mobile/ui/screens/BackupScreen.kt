@@ -74,6 +74,12 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     var showDeleteWorldConfirm by remember { mutableStateOf(false) }
     // 外部备份权限（每次进入页面检查）
     val hasStoragePerm = com.mineserve.mobile.server.ExternalBackupStore.hasPermission(context)
+    // 外部备份文件列表
+    var extBackups by remember { mutableStateOf<List<java.io.File>>(emptyList()) }
+    fun refreshExtBackups() {
+        extBackups = com.mineserve.mobile.server.ExternalBackupStore.listBackups()
+    }
+    LaunchedEffect(Unit) { refreshExtBackups() }
 
     LaunchedEffect(Unit) { vm.loadSnapshots() }
     // 收集错误/操作消息，修复"点击无响应"（此前未收集，还原/错误无任何反馈）
@@ -182,6 +188,73 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                         shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)
                     ) { Text(stringResource(R.string.backup_ext_server), color = Color.White, fontSize = 12.sp) }
                 }
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.backup_ext_refresh_hint), color = Muted, fontSize = 10.sp)
+            }
+
+            // 外部备份文件列表（还原/删除）
+            McCard(
+                title = stringResource(R.string.backup_ext_list_title, extBackups.size),
+                trailing = {
+                    IconButton(onClick = { refreshExtBackups() }) {
+                        Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(18.dp))
+                    }
+                }
+            ) {
+                if (extBackups.isEmpty()) {
+                    EmptyHint(icon = Icons.Outlined.Archive, text = stringResource(R.string.backup_ext_list_empty))
+                } else {
+                    extBackups.forEachIndexed { i, f ->
+                        if (i > 0) Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Column(Modifier.weight(1f)) {
+                                Text(f.name, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
+                                Text(
+                                    formatBytesCompat(f.length()),
+                                    color = Muted, fontSize = 10.sp
+                                )
+                            }
+                            // 世界备份 → 还原世界；服务器备份 → 还原服务器（含重名检测）
+                            TextButton(
+                                onClick = {
+                                    if (f.name.startsWith("world_")) {
+                                        vm.restoreWorldFromExternal(f.name)
+                                    } else {
+                                        vm.requestRestoreServer(f.name)
+                                    }
+                                },
+                                enabled = isBootstrapped
+                            ) {
+                                Text(stringResource(R.string.backup_ext_restore), color = Indigo, fontSize = 11.sp)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 服务器还原重名冲突对话框
+            val conflict by vm.restoreConflict.collectAsState()
+            if (conflict != null) {
+                AlertDialog(
+                    onDismissRequest = { vm.dismissRestoreConflict() },
+                    title = { Text(stringResource(R.string.backup_conflict_title), fontWeight = FontWeight.Bold) },
+                    text = {
+                        Text(
+                            stringResource(R.string.backup_conflict_content, conflict!!.dirName),
+                            color = Muted, fontSize = 12.sp
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = { vm.confirmRestoreServer(true) }) {
+                            Text(stringResource(R.string.backup_conflict_overwrite), color = Coral, fontWeight = FontWeight.SemiBold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { vm.confirmRestoreServer(false) }) {
+                            Text(stringResource(R.string.s402), color = Muted)
+                        }
+                    }
+                )
             }
 
             // 世界管理（删除世界文件夹）
@@ -269,4 +342,11 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
             }
         )
     }
+}
+
+/** 友好显示文件大小 */
+private fun formatBytesCompat(bytes: Long): String {
+    if (bytes < 1024) return "$bytes B"
+    if (bytes < 1024 * 1024) return "%.1f KB".format(bytes / 1024.0)
+    return "%.1f MB".format(bytes / 1024.0 / 1024.0)
 }
