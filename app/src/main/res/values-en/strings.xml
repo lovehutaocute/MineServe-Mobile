@@ -415,12 +415,12 @@
     <string name="s397" formatted="false">Auto-restart when MC process exits abnormally (disabled by default to save power)</string>
     <string name="s398" formatted="false">JVM memory limit: %1$s MB (modify in Settings)</string>
     <string name="s399" formatted="false">Delete Runtime Environment</string>
-    <string name="s400" formatted="false">This will delete the Termux runtime environment (including all installed dependency packages and cache). "Confirm Delete" = delete then re-initialize automatically; "Force Delete" = thorough uninstall, re-install manually. This action cannot be undone.</string>
+    <string name="s400" formatted="false">This will delete the Termux runtime environment (dependency packages and cache). Saves and server cores (worlds, plugins, configs) will be kept. "Confirm Delete" = delete then re-initialize automatically; "Force Delete" = thorough uninstall, re-install manually. This action cannot be undone.</string>
     <string name="s401" formatted="false">Confirm Delete</string>
     <string name="force_delete" formatted="false">Force Delete</string>
     <string name="delete_deps" formatted="false">Delete Dependencies</string>
     <string name="delete_deps_title" formatted="false">Delete Dependencies</string>
-    <string name="delete_deps_content" formatted="false">This will directly delete the Termux runtime environment and all dependency files (Java, etc.), and will NOT re-install automatically. Re-install manually when needed. This action cannot be undone.</string>
+    <string name="delete_deps_content" formatted="false">This will directly delete the Termux runtime environment and all dependency files (Java, etc.). Saves and server cores (worlds, plugins, configs) will be kept, and it will NOT re-install automatically. Re-install manually when needed. This action cannot be undone.</string>
     <string name="s402" formatted="false">Cancel</string>
     <string name="s403" formatted="false">Slow download? View solutions →</string>
     <string name="s404" formatted="false">Back</string>

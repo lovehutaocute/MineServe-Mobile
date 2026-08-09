@@ -145,7 +145,37 @@ class BootstrapInstaller(private val context: Context) {
         }
 
         readyFile.delete()
+
+        // 数据保护：删除依赖/rootfs 时保留**存档（servers）与备份（snapshots）**
+        // —— servers 含世界存档、核心 jar、插件与配置，绝不能随依赖一起删。
+        val keepDir = File(context.filesDir, ".keep_data").apply { mkdirs() }
+        val serversSrc = File(rootDir, "home/servers")
+        val snapshotsSrc = File(rootDir, "home/snapshots")
+        val serversKeep = File(keepDir, "servers")
+        val snapshotsKeep = File(keepDir, "snapshots")
+        fun protect(src: File, dst: File) {
+            if (src.exists()) {
+                dst.deleteRecursively()
+                runCatching { src.renameTo(dst) }
+                    .onFailure { Log.w(TAG, "deleteBootstrap: protect ${src.name} failed: ${it.message}") }
+            }
+        }
+        protect(serversSrc, serversKeep)
+        protect(snapshotsSrc, snapshotsKeep)
+
         deleteRetry(rootDir)
+
+        // 删除完成后恢复存档与备份到新环境
+        fun restore(dst: File, src: File) {
+            if (src.exists()) {
+                dst.parentFile?.mkdirs()
+                runCatching { src.renameTo(dst) }
+                    .onFailure { Log.w(TAG, "deleteBootstrap: restore ${src.name} failed: ${it.message}") }
+            }
+        }
+        restore(serversSrc, serversKeep)
+        restore(snapshotsSrc, snapshotsKeep)
+        runCatching { keepDir.delete() }
         // 强制删除时额外清理 native / runtime / tmp 缓存
         if (force) {
             deleteRetry(nativeDir)

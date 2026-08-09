@@ -414,12 +414,12 @@
     <string name="s397">MC 进程异常退出时自动重启（默认关闭省电）</string>
     <string name="s398">JVM 内存上限：%1$s MB（在设置页修改）</string>
     <string name="s399">删除运行环境</string>
-    <string name="s400">将删除 Termux 运行环境（含依赖包与缓存）。「确认删除」= 删除后自动重新初始化；「强制删除」= 彻底卸载（更彻底），需手动重新安装。此操作不可撤销。</string>
+    <string name="s400">将删除 Termux 运行环境（依赖包与缓存），存档与服务器核心（世界、插件、配置）会保留。「确认删除」= 删除后自动重新初始化；「强制删除」= 彻底卸载（更彻底），需手动重新安装。此操作不可撤销。</string>
     <string name="s401">确认删除</string>
     <string name="force_delete">强制删除</string>
     <string name="delete_deps">删除依赖</string>
     <string name="delete_deps_title">删除依赖</string>
-    <string name="delete_deps_content">将直接删除 Termux 运行环境与所有依赖（Java 等）的文件，且不会自动重装，需要时请手动重新安装。此操作不可撤销。</string>
+    <string name="delete_deps_content">将直接删除 Termux 运行环境与所有依赖（Java 等）的文件，存档与服务器核心（世界、插件、配置）会保留，且不会自动重装，需要时请手动重新安装。此操作不可撤销。</string>
     <string name="s402">取消</string>
     <string name="s403">下载慢?查看解决方式 →</string>
     <string name="s404">返回</string>
