@@ -6,6 +6,16 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 外部存储备份：/storage/emulated/0/世界与服务器的备份/ -->
+    <!-- Android 11+ 写固定外部路径需「所有文件访问」；低版本用传统存储权限 -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+        tools:ignore="ScopedStorage" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="29" />
+
     <!-- 前台服务常驻通知（Android 9-） -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- Android 13+：specialUse 类型需配套权限 -->
