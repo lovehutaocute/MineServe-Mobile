@@ -165,6 +165,64 @@ class TermuxRuntime(context: Context) {
         return fixed
     }
 
+    /**
+     * 修复脚本 shebang 解释器路径（幂等）。
+     *
+     * 背景：Termux 官方打包的脚本（pkg、apt-get、termux-* 等）shebang 硬编码为
+     * `#!/data/data/com.termux/files/usr/bin/xxx`（Termux 应用目录）。MineServe 进程
+     * execve 脚本时内核会先 exec 该解释器——那是**其他 app（com.termux）**目录下的文件，
+     * 跨 app 执行被拒 → "Permission denied"（退出码 126），即使脚本本身有 exec 位。
+     *
+     * 修复：把 shebang 中的 Termux 绝对路径改写为自身 rootfs 路径
+     * （/data/data/com.termux/files/usr/ → $PREFIX/usr/），使解释器指向 MineServe
+     * 自己的 bash/perl/python 等 ELF；`/usr/bin/env` 形式兜底为自身 coreutils env。
+     * 每次应用启动调用（幂等），已装环境也生效。
+     *
+     * @return 本次修复的脚本数
+     */
+    fun fixScriptShebangs(): Int {
+        val prefix = installer.rootDir.absolutePath
+        if (!File(prefix).isDirectory) return 0
+        val termuxUsr = "/data/data/com.termux/files/usr"
+        var fixed = 0
+        listOf(
+            "usr/bin", "bin", "libexec", "lib/apt/methods",
+            "usr/lib/apt/methods", "etc/profile.d", "etc/apt/apt.conf.d"
+        ).forEach { rel ->
+            File(prefix, rel).listFiles()?.forEach { f ->
+                if (!f.isFile) return@forEach
+                try {
+                    val head = java.io.RandomAccessFile(f, "r").use { it.readLine() } ?: return@forEach
+                    if (!head.startsWith("#!")) return@forEach
+                    var newHead = head
+                    if (head.contains(termuxUsr)) {
+                        newHead = head
+                            .replace("$termuxUsr/bin/", "$prefix/usr/bin/")
+                            .replace("$termuxUsr/lib/", "$prefix/usr/lib/")
+                            .replace(termuxUsr, prefix)
+                    }
+                    if (newHead.contains("/usr/bin/env ")) {
+                        newHead = newHead.replace("#!/usr/bin/env ", "#!$prefix/usr/bin/env ")
+                    }
+                    if (newHead != head) {
+                        val content = f.readText()
+                        f.writeText(content.replaceFirst(head, newHead))
+                        f.setExecutable(true, false)
+                        fixed++
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        if (fixed > 0) {
+            Log.i(TAG, "fixScriptShebangs: fixed $fixed scripts")
+            installer.onLog?.invoke("[bootstrap] 修复 $fixed 个脚本解释器路径")
+        }
+        return fixed
+    }
+
+    /** 组合修复：命令可执行位 + 脚本解释器路径（启动时幂等调用） */
+    fun fixRootfsPermissions(): Int = ensureRootfsExecutable() + fixScriptShebangs()
+
     fun execStream(tag: String, vararg command: String, env: Map<String, String> = emptyMap()): Process =
         executor.execStream(tag, *command, env = env)
 
