@@ -1402,6 +1402,46 @@ class McViewModel(
         }
     }
 
+    /** 外部备份整个世界（world+nether+end → 外部目录） */
+    fun backupWorldToExternal() {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        val dirName = activeDirName() ?: run { _errorFlow.tryEmit(str(R.string.s212)); return }
+        viewModelScope.launch {
+            try {
+                val path = withContext(Dispatchers.IO) {
+                    backupManager.backupWorldToExternal(dirName)
+                }
+                if (path != null) {
+                    _messageFlow.tryEmit("世界备份完成: ${java.io.File(path).name}")
+                } else {
+                    _errorFlow.tryEmit("世界备份失败（无世界存档或外部目录不可写）")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("世界备份失败: ${e.message}")
+            }
+        }
+    }
+
+    /** 外部备份整个服务器（world+核心+配置+插件 → 外部目录） */
+    fun backupServerToExternal() {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        val dirName = activeDirName() ?: run { _errorFlow.tryEmit(str(R.string.s212)); return }
+        viewModelScope.launch {
+            try {
+                val path = withContext(Dispatchers.IO) {
+                    backupManager.backupServerToExternal(dirName)
+                }
+                if (path != null) {
+                    _messageFlow.tryEmit("服务器备份完成: ${java.io.File(path).name}")
+                } else {
+                    _errorFlow.tryEmit("服务器备份失败（外部目录不可写）")
+                }
+            } catch (e: Exception) {
+                _errorFlow.tryEmit("服务器备份失败: ${e.message}")
+            }
+        }
+    }
+
     // ── 备份恢复管理 ────────────────────────────────────────────────
 
     private val backupManager = BackupManager(repo.termuxRuntime)

@@ -79,6 +79,76 @@ class BackupManager(private val termux: TermuxRuntime) {
     /** 创建快照（封装 TermuxRuntime.createSnapshot，返回路径或 null） */
     fun createSnapshot(dirName: String): String? = termux.createSnapshot(dirName = dirName)
 
+    // ── 外部备份（/storage/emulated/0/世界与服务器的备份/） ─────────────
+
+    private fun serverDir(dirName: String): File =
+        File(termux.installer.rootDir, "home/servers/$dirName")
+
+    private fun ts(): String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+
+    /** 打包目录列表到 zip（保留顶层目录名） */
+    private fun zipDirs(dirs: List<File>, out: File): Boolean = try {
+        java.util.zip.ZipOutputStream(FileOutputStream(out)).use { zos ->
+            dirs.forEach { dir ->
+                if (dir.isDirectory) {
+                    dir.walkTopDown().forEach { f ->
+                        val rel = f.relativeTo(dir)
+                        if (f.isDirectory) {
+                            zos.putNextEntry(java.util.zip.ZipEntry(dir.name + "/" + rel.path + "/"))
+                            zos.closeEntry()
+                        } else {
+                            zos.putNextEntry(java.util.zip.ZipEntry(dir.name + "/" + rel.path))
+                            FileInputStream(f).use { it.copyTo(zos) }
+                            zos.closeEntry()
+                        }
+                    }
+                }
+            }
+        }
+        out.exists() && out.length() > 0
+    } catch (e: Exception) { out.delete(); false }
+
+    /** 打包整个目录到 zip（排除 logs/ 与 session.lock） */
+    private fun zipDirFiltered(dir: File, out: File): Boolean = try {
+        java.util.zip.ZipOutputStream(FileOutputStream(out)).use { zos ->
+            dir.walkTopDown().forEach { f ->
+                val rel = f.relativeTo(dir)
+                val relStr = rel.path.replace('\\', '/')
+                if (relStr == "logs" || relStr.startsWith("logs/") || relStr == "session.lock") return@forEach
+                if (f.isDirectory) {
+                    zos.putNextEntry(java.util.zip.ZipEntry(relStr + "/"))
+                    zos.closeEntry()
+                } else {
+                    zos.putNextEntry(java.util.zip.ZipEntry(relStr))
+                    FileInputStream(f).use { it.copyTo(zos) }
+                    zos.closeEntry()
+                }
+            }
+        }
+        out.exists() && out.length() > 0
+    } catch (e: Exception) { out.delete(); false }
+
+    /** 外部备份整个世界（world + world_nether + world_the_end）→ world_{dir}_{ts}.zip */
+    fun backupWorldToExternal(dirName: String): String? {
+        if (!ExternalBackupStore.ensure()) return null
+        val dir = serverDir(dirName)
+        val worlds = listOf(
+            File(dir, "world"), File(dir, "world_nether"), File(dir, "world_the_end")
+        )
+        if (!worlds.any { it.isDirectory }) return null
+        val out = File(ExternalBackupStore.rootDir, "world_${dirName}_${ts()}.zip")
+        return if (zipDirs(worlds, out)) out.absolutePath else null
+    }
+
+    /** 外部备份整个服务器目录（world + 核心 jar + 配置 + 插件，排除 logs/session.lock） */
+    fun backupServerToExternal(dirName: String): String? {
+        if (!ExternalBackupStore.ensure()) return null
+        val dir = serverDir(dirName)
+        if (!dir.isDirectory) return null
+        val out = File(ExternalBackupStore.rootDir, "server_${dirName}_${ts()}.zip")
+        return if (zipDirFiltered(dir, out)) out.absolutePath else null
+    }
+
     /**
      * 恢复快照：
      * 1. 若 MC 在运行，发送 stop 命令并轮询等待退出（最多 10s），超时则强制停止

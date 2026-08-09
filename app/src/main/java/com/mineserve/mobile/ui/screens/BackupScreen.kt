@@ -164,9 +164,28 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 }
             }
 
+            // 外部备份（保存到 /storage/emulated/0/世界与服务器的备份/，卸载保留）
+            McCard(title = stringResource(R.string.backup_ext_title)) {
+                Text(stringResource(R.string.backup_ext_hint), color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = { vm.backupWorldToExternal() },
+                        enabled = isBootstrapped && hasStoragePerm,
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                        shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)
+                    ) { Text(stringResource(R.string.backup_ext_world), color = Color.White, fontSize = 12.sp) }
+                    Button(
+                        onClick = { vm.backupServerToExternal() },
+                        enabled = isBootstrapped && hasStoragePerm,
+                        colors = ButtonDefaults.buttonColors(containerColor = Coral),
+                        shape = RoundedCornerShape(8.dp), modifier = Modifier.weight(1f)
+                    ) { Text(stringResource(R.string.backup_ext_server), color = Color.White, fontSize = 12.sp) }
+                }
+            }
+
             // 世界管理（删除世界文件夹）
-            McCard(title = stringResource(R.string.ui_world_delete)) {
-                Text(stringResource(R.string.ui_world_delete_hint), color = Muted, fontSize = 11.sp)
+            McCard(title = stringResource(R.string.ui_world_delete)) {                Text(stringResource(R.string.ui_world_delete_hint), color = Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = { showDeleteWorldConfirm = true },
