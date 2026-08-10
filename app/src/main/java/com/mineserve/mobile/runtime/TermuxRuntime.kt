@@ -380,7 +380,8 @@ class TermuxRuntime(context: Context) {
                     "export HOME='${File(installer.rootDir, "home").absolutePath}'; " +
                     "export TMPDIR='${File(installer.rootDir, "tmp").absolutePath}'; " +
                     "export PATH='${File(root, "bin").absolutePath}:/system/bin:/system/xbin'; " +
-                    "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -Xint -version"
+                    "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -Xint " +
+                        "-XX:-UseCompressedOops -XX:-UseCompressedClassPointers -version"
             ).apply {
                 redirectErrorStream(true)
             }.start()
@@ -1460,7 +1461,9 @@ class TermuxRuntime(context: Context) {
         val java8ExtraLibs = if (useAndroidJava8) {
             ":/vendor/lib64:/vendor/lib64/hw:/system_ext/lib64:${appContext.applicationInfo.nativeLibraryDir}"
         } else ""
-        val java8ExecutionMode = if (useAndroidJava8) "-Xint " else ""
+        val java8ExecutionMode = if (useAndroidJava8) {
+            "-Xint -XX:-UseCompressedOops -XX:-UseCompressedClassPointers "
+        } else ""
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
             "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64$java8ExtraLibs'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
