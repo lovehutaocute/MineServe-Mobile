@@ -207,16 +207,54 @@ class TermuxRuntime(context: Context) {
             emitLog("[java] Ubuntu 容器已存在但无法进入，未自动删除旧 rootfs；请在运行环境修复中重置 Ubuntu")
             return false
         }
-        emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
-        code = execOnceWithTimeout(900_000, "proot-distro", "install", "ubuntu")
+            emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
+        code = execOnceWithTimeout(
+            900_000, "proot-distro", "install", "ubuntu", env = prootEnvironment()
+        )
         return code == 0 && runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
     }
 
+    private fun prootEnvironment(): Map<String, String> {
+        val tmp = File(installer.rootDir, "tmp").apply { mkdirs() }.absolutePath
+        return mapOf("PROOT_TMP_DIR" to tmp, "TMPDIR" to tmp)
+    }
+
     private fun runUbuntu(command: String, timeoutMs: Long = 120_000): Int =
-        execOnceWithTimeout(
-            timeoutMs,
-            "proot-distro", "login", "ubuntu", "--", "/bin/sh", "-lc", command
-        )
+        if (!repairUbuntuRootfs()) {
+            emitLog("[java] Ubuntu rootfs 缺少可执行 shell，无法启动")
+            126
+        } else {
+            execOnceWithTimeout(
+                timeoutMs,
+                "proot-distro", "login", "ubuntu", "--", "/bin/sh", "-lc", command,
+                env = prootEnvironment()
+            )
+        }
+
+    /** Restore executable bits lost while proot-distro applies a rootfs layer. */
+    private fun repairUbuntuRootfs(): Boolean {
+        val rootfs = distroRootfs("ubuntu")
+        if (!rootfs.isDirectory) return false
+        var fixed = 0
+        val visited = mutableSetOf<String>()
+        listOf("bin", "sbin", "usr/bin", "usr/sbin").forEach { relative ->
+            File(rootfs, relative).listFiles()?.forEach { file ->
+                if (!file.isFile || !visited.add(file.canonicalPath)) return@forEach
+                if (!file.canExecute() && file.setExecutable(true, false)) fixed++
+            }
+        }
+        listOf(
+            "lib/ld-linux-aarch64.so.1",
+            "lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"
+        ).forEach { relative ->
+            val loader = File(rootfs, relative)
+            if (loader.isFile && !loader.canExecute() && loader.setExecutable(true, false)) fixed++
+        }
+        if (fixed > 0) emitLog("[bootstrap] 修复 $fixed 个 Ubuntu rootfs 命令可执行权限")
+        return listOf("bin/sh", "bin/bash", "usr/bin/bash")
+            .map { File(rootfs, it) }
+            .any { it.isFile && it.canExecute() }
+    }
 
     /** Run a Java 8 installer inside Ubuntu with only the selected server bound in. */
     fun runJava8Installer(jarPath: String, serverDir: File, timeoutMs: Long = 900_000): Int {
@@ -246,7 +284,8 @@ class TermuxRuntime(context: Context) {
         return execOnceWithTimeout(
             timeoutMs,
             prootDistro, "login", "ubuntu", "--bind", "${serverDir.absolutePath}:/srv/mineserve",
-            "--", "/bin/sh", "-lc", command
+            "--", "/bin/sh", "-lc", command,
+            env = prootEnvironment()
         )
     }
 
@@ -359,11 +398,13 @@ class TermuxRuntime(context: Context) {
         val roots = listOf(
             File(prefix, "bin"),
             File(prefix, "usr/bin"),
-            File(prefix, "etc/proot-distro")
+            File(prefix, "etc/proot-distro"),
+            File(prefix, "usr/etc/proot-distro"),
+            File(prefix, "usr/share/proot-distro")
         )
         var fixed = 0
         roots.filter { it.exists() }.forEach { root ->
-            val isConfigTree = root.path.endsWith("etc${File.separator}proot-distro")
+            val isConfigTree = root.path.contains("${File.separator}proot-distro")
             root.walkTopDown().filter { it.isFile && it.length() <= 512 * 1024 }.forEach { file ->
                 runCatching {
                     // ELF files can contain the old path in RPATH/debug strings.
