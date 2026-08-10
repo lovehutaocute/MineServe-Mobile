@@ -3,7 +3,6 @@ package com.mineserve.mobile.runtime
 import android.content.Context
 import android.util.Log
 import com.mineserve.mobile.data.JavaVersion
-import com.mineserve.mobile.data.MultiThreadDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
@@ -16,6 +15,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -159,16 +160,21 @@ class TermuxRuntime(context: Context) {
         marker.delete()
         return try {
             archive.parentFile?.mkdirs()
-            MultiThreadDownloader.download(
-                JAVA8_ANDROID_URL,
-                archive,
-                onProgress = { done, total, _ ->
-                    if (total > 0 && done % (512 * 1024L) < 64 * 1024L) {
-                        emitLog("[java] Java 8 下载进度：${done * 100 / total}%")
-                    }
-                },
-                onLog = { emitLog("[java] $it") }
-            )
+            var downloaded = false
+            var lastError: Exception? = null
+            for (url in JAVA8_ANDROID_URLS) {
+                try {
+                    emitLog("[java] Java 8 Runtime 下载源：$url")
+                    downloadJava8Archive(url, archive)
+                    downloaded = true
+                    break
+                } catch (e: Exception) {
+                    lastError = e
+                    archive.delete()
+                    emitLog("[java] 当前下载源失败：${e.message}，尝试备用源")
+                }
+            }
+            if (!downloaded) throw lastError ?: IllegalStateException("Java 8 Runtime 下载失败")
             if (!JAVA8_ANDROID_SHA256.equals(sha256File(archive), ignoreCase = true)) {
                 throw IllegalStateException("Java 8 Runtime SHA-256 校验失败")
             }
@@ -197,6 +203,54 @@ class TermuxRuntime(context: Context) {
         val java = isAndroidArm64Elf(File(root, "bin/java"))
         val jvm = File(root, "lib/aarch64/server/libjvm.so").isFile
         return marker && java && jvm
+    }
+
+    private fun downloadJava8Archive(url: String, target: File) {
+        var lastError: Exception? = null
+        repeat(3) { attempt ->
+            var connection: HttpURLConnection? = null
+            try {
+                connection = (URL(url).openConnection() as HttpURLConnection).apply {
+                    instanceFollowRedirects = true
+                    connectTimeout = 60_000
+                    readTimeout = 60_000
+                    setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
+                }
+                val code = connection.responseCode
+                if (code !in 200..299) throw IllegalStateException("HTTP $code")
+                val total = connection.contentLengthLong
+                var done = 0L
+                var lastReport = 0L
+                target.parentFile?.mkdirs()
+                connection.inputStream.use { input ->
+                    FileOutputStream(target).use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            val count = input.read(buffer)
+                            if (count <= 0) break
+                            output.write(buffer, 0, count)
+                            done += count
+                            if (done - lastReport >= 512 * 1024L) {
+                                lastReport = done
+                                val progress = if (total > 0) "${done * 100 / total}%" else "${done / 1024} KB"
+                                emitLog("[java] Java 8 下载进度：$progress")
+                            }
+                        }
+                    }
+                }
+                if (done == 0L || (total > 0 && done != total)) {
+                    throw IllegalStateException("下载内容不完整：$done/$total")
+                }
+                return
+            } catch (e: Exception) {
+                lastError = e
+                target.delete()
+                if (attempt < 2) emitLog("[java] 下载重试 ${attempt + 1}/2")
+            } finally {
+                connection?.disconnect()
+            }
+        }
+        throw lastError ?: IllegalStateException("Java 8 Runtime 下载失败")
     }
 
     private fun sha256File(file: File): String {
@@ -1620,6 +1674,10 @@ class TermuxRuntime(context: Context) {
         private const val TAG = "TermuxRuntime"
         private const val JAVA8_ANDROID_URL =
             "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz"
+        private val JAVA8_ANDROID_URLS = listOf(
+            JAVA8_ANDROID_URL,
+            "https://cdn.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz"
+        )
         private const val JAVA8_ANDROID_SHA256 =
             "DEED9083A1047AF1AFAF2D7F1A2DE4AE39FADF62C52881F075793E80274956CF"
     }
