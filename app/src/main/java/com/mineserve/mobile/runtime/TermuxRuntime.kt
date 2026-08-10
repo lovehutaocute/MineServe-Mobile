@@ -37,6 +37,7 @@ import java.util.zip.ZipOutputStream
  */
 class TermuxRuntime(context: Context) {
 
+    private val appContext = context.applicationContext
     internal val installer = BootstrapInstaller(context)
     private val executor = CommandExecutor(installer)
 
@@ -366,12 +367,20 @@ class TermuxRuntime(context: Context) {
             File(root, "lib/aarch64/server").absolutePath,
             File(root, "lib/aarch64/jli").absolutePath,
             File(installer.rootDir, "lib").absolutePath,
-            "/system/lib64"
+            "/system/lib64",
+            "/vendor/lib64",
+            "/vendor/lib64/hw",
+            "/system_ext/lib64",
+            appContext.applicationInfo.nativeLibraryDir
         ).joinToString(":")
         val process = runCatching {
             ProcessBuilder(
                 "/system/bin/sh", "-c",
-                "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -version"
+                "export JAVA_HOME='${root.absolutePath}'; " +
+                    "export HOME='${File(installer.rootDir, "home").absolutePath}'; " +
+                    "export TMPDIR='${File(installer.rootDir, "tmp").absolutePath}'; " +
+                    "export PATH='${File(root, "bin").absolutePath}:/system/bin:/system/xbin'; " +
+                    "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -version"
             ).apply {
                 redirectErrorStream(true)
             }.start()
@@ -380,7 +389,8 @@ class TermuxRuntime(context: Context) {
         val finished = process.waitFor(30, TimeUnit.SECONDS)
         if (!finished) process.destroyForcibly()
         if (!finished || process.exitValue() != 0) {
-            emitLog("[java] Java 8 Runtime 启动校验失败：${output.takeLast(240)}")
+            val excerpt = if (output.length <= 1600) output else output.take(1100) + "\n...\n" + output.takeLast(400)
+            emitLog("[java] Java 8 Runtime 启动校验失败：$excerpt")
         }
         return finished && process.exitValue() == 0 && output.contains("1.8.")
     }
@@ -1447,8 +1457,11 @@ class TermuxRuntime(context: Context) {
                 listOf("$candidate/lib", "$candidate/lib/server")
             }
         }.joinToString(":")
+        val java8ExtraLibs = if (useAndroidJava8) {
+            ":/vendor/lib64:/vendor/lib64/hw:/system_ext/lib64:${appContext.applicationInfo.nativeLibraryDir}"
+        } else ""
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64$java8ExtraLibs'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
             "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
