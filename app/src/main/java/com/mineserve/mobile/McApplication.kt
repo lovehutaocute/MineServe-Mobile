@@ -166,7 +166,7 @@ class McApplication : Application(), Configuration.Provider {
 
         // 设置 bootstrap 日志回调，推送到 consoleFlow
         termuxRuntime.setBootstrapLogCallback { msg ->
-            termuxRuntime.emitLog("[bootstrap] $msg")
+            termuxRuntime.emitLog(if (msg.startsWith("[bootstrap]")) msg else "[bootstrap] $msg")
         }
 
         // 设置 bootstrap 速度回调

@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.InstalledCore
+import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.ui.HeaderBlock
@@ -110,9 +111,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val context = androidx.compose.ui.platform.LocalContext.current
     val consoleLines by vm.consoleLines.map { it.takeLast(5) }.collectAsState(initial = emptyList())
     val isInstalling by vm.isInstalling.collectAsState()
+    val installedJava by vm.installedJava.collectAsState()
+    val javaOperation by vm.javaOperation.collectAsState()
     // 依赖是否已全部装齐（installSteps 全部 Done）
-    val depsInstalled = state.installSteps.isNotEmpty() &&
-        state.installSteps.all { it.status == com.mineserve.mobile.data.StepStatus.Done }
+    val dependencySteps = state.installSteps.filter { it.step != com.mineserve.mobile.data.InstallStep.Jdk }
+    val depsInstalled = dependencySteps.isNotEmpty() && dependencySteps.all {
+        it.status == com.mineserve.mobile.data.StepStatus.Done
+    }
+    val javaInstalled = JavaVersion.values().all { it in installedJava }
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
     val currentMirrorIndex by vm.currentMirrorIndex.collectAsState()
@@ -125,6 +131,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDeleteDepsConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
+    var showJavaDropdown by remember { mutableStateOf(false) }
     var switchInProgress by remember { mutableStateOf(false) }
     // 服务器图标选择器
     val iconPickerLauncher = rememberLauncherForActivityResult(
@@ -152,6 +159,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             vm.refreshInstalledPlugins()
         }
     }
+    LaunchedEffect(isBootstrapped) { vm.refreshJava() }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -169,6 +177,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
             HeroBlock(state = state, coreLabel = coreLabel)
+            if (!javaInstalled) JavaManagementCard(vm, installedJava, isInstalling, javaOperation)
 
             // ── 设备状态卡片（常规权限可采集） ──
             McCard(title = stringResource(R.string.s341)) {
@@ -230,15 +239,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // ── MC 终端入口（设备状态卡片下方） ──
-            Button(
+            OutlinedButton(
                 onClick = { vm.launchMcConsole(); onShowLogs() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
             ) {
-                Text(stringResource(R.string.s350), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.s350), color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
             // bootstrap 初始化进度（未完成时显示）
@@ -381,7 +389,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     onShowHelp = onShowDownloadHelp
                 )
                 Spacer(Modifier.height(8.dp))
-                state.installSteps.forEachIndexed { idx, step ->
+                dependencySteps.forEachIndexed { idx, step ->
                     val tag = when (step.status) {
                         com.mineserve.mobile.data.StepStatus.Done -> stringResource(R.string.s361)
                         com.mineserve.mobile.data.StepStatus.Active -> stringResource(R.string.s362)
@@ -537,42 +545,38 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     }
                 }
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Button(
-                        onClick = { vm.startServer() },
-                        enabled = !state.isRunning && isBootstrapped,
-                        colors = ButtonDefaults.buttonColors(containerColor = Mint),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
+                Text("Java 版本", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { showJavaDropdown = true },
+                        enabled = !state.isRunning,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text(config.selectedJavaVersion.displayName, color = Indigo) }
+                    DropdownMenu(
+                        expanded = showJavaDropdown,
+                        onDismissRequest = { showJavaDropdown = false }
                     ) {
-                        if (state.isRunning && state.runningSinceMs == 0L) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
+                        JavaVersion.values().forEach { version ->
+                            DropdownMenuItem(
+                                text = { Text(version.displayName) },
+                                onClick = { vm.setJavaVersion(version); showJavaDropdown = false }
                             )
-                            Spacer(Modifier.size(6.dp))
                         }
-                        Text(
-                            if (state.isRunning && state.runningSinceMs == 0L) stringResource(R.string.s379) else stringResource(R.string.s380),
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold
-                        )
                     }
-
+                }
+                Spacer(Modifier.height(8.dp))
+                if (state.isRunning) {
                     Button(
                         onClick = {
                             isStopping = true
                             vm.stopServer()
                             scope.launch { isStopping = false }
                         },
-                        enabled = !isStopping && state.isRunning,
+                        enabled = !isStopping,
                         colors = ButtonDefaults.buttonColors(containerColor = Coral),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         if (isStopping) {
                             CircularProgressIndicator(
@@ -587,6 +591,16 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                             color = Color.White,
                             fontWeight = FontWeight.SemiBold
                         )
+                    }
+                } else {
+                    Button(
+                        onClick = { vm.startServer() },
+                        enabled = isBootstrapped,
+                        colors = ButtonDefaults.buttonColors(containerColor = Mint),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(R.string.s380), color = Color.White, fontWeight = FontWeight.SemiBold)
                     }
                 }
                 Spacer(Modifier.height(8.dp))
@@ -751,6 +765,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
             }
             // QQ 交流群入口
+            if (javaInstalled) JavaManagementCard(vm, installedJava, isInstalling, javaOperation)
             QqGroupCard()
             Spacer(Modifier.height(16.dp))
         }
@@ -875,6 +890,59 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
  * - isBusy=true 时显示 busyText + 速度 + 旋转图标
  * - isBusy=false 时显示 idleText + 下载图标
  */
+@Composable
+private fun JavaManagementCard(
+    vm: McViewModel,
+    installed: Set<JavaVersion>,
+    busy: Boolean,
+    operation: String?
+) {
+    McCard(title = "Java 运行环境") {
+        Text("仅提供 Java 8、Java 17、Java 25", color = Muted, fontSize = 11.sp)
+        Text(
+            "注意：Java 8 使用 Android ARM64 适配版，非 Termux 官方源；仅兼容 ARM64 设备。",
+            color = Coral,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(8.dp))
+        if (operation != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Indigo)
+                Spacer(Modifier.width(8.dp))
+                Text(operation, color = Indigo, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        JavaVersion.values().forEach { version ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(version.displayName, modifier = Modifier.weight(1f), fontSize = 13.sp)
+                Text(
+                    if (version in installed) "已安装" else "未安装",
+                    color = if (version in installed) Mint else Muted,
+                    fontSize = 11.sp
+                )
+                if (version !in installed) {
+                    TextButton(onClick = { vm.installJava(version) }, enabled = !busy) {
+                        Text("安装", color = Indigo)
+                    }
+                }
+            }
+        }
+        if (installed.size == JavaVersion.values().size) {
+            OutlinedButton(
+                onClick = { vm.clearAndReinstallJava() },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) { Text("清除并重装 Java", color = Coral, fontSize = 12.sp) }
+        }
+    }
+}
+
 @Composable
 private fun DownloadHintHeader(
     isBusy: Boolean,

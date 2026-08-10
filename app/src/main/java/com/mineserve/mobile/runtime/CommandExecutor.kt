@@ -9,6 +9,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.io.RandomAccessFile
+import java.util.concurrent.TimeUnit
 
 /**
  * 命令执行器（Termux 原生模式，不依赖 proot）：
@@ -39,8 +40,10 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         // ProcessBuilder.environment() 在某些 Android 版本上可能不正确传递 PATH
         // LD_LIBRARY_PATH 需包含 usr/lib/（Termux compat 实际解压路径），否则 proot 找不到 libtalloc.so.2
         val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
-        val envSetup = "export PATH='$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsrLib:/system/lib64'; " +
+        val envSetup = "export PATH='$prefix/bin:$prefix/usr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'; " +
+            "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
+            "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
             "export TMPDIR='$prefix/tmp'; "
@@ -70,9 +73,11 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         ).joinToString(":")
         return mapOf(
             "HOME" to "$prefix/home",
-            "PATH" to "$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
+            "PATH" to "$prefix/bin:$prefix/usr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
             "TMPDIR" to "$prefix/tmp",
             "LD_LIBRARY_PATH" to libPath,
+            "FONTCONFIG_PATH" to "$prefix/etc/fonts",
+            "FONTCONFIG_FILE" to "$prefix/etc/fonts/fonts.conf",
             "PREFIX" to "$prefix",
             "TERM" to "xterm-256color",
             "LANG" to "en_US.UTF-8",
@@ -113,6 +118,46 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
             }
         }
         return process.waitFor()
+    }
+
+    /** Execute a setup command with an app-side deadline; coreutils timeout may be unavailable. */
+    fun execOnceWithTimeout(
+        timeoutMs: Long,
+        vararg command: String,
+        env: Map<String, String> = emptyMap()
+    ): Int {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execOnceWithTimeout[$timeoutMs]: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            redirectInput(File("/dev/null"))
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        val process = pb.start()
+        process.outputStream.close()
+        val reader = Thread {
+            runCatching {
+                BufferedReader(InputStreamReader(process.inputStream)).useLines { lines ->
+                    lines.forEach { line ->
+                        _consoleFlow.tryEmit(line)
+                        Log.d(TAG, "  | $line")
+                    }
+                }
+            }
+        }
+        reader.start()
+        val completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!completed) {
+            Log.w(TAG, "execOnceWithTimeout: command timed out after ${timeoutMs}ms")
+            process.destroy()
+            if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
+            reader.join(2_000)
+            return 124
+        }
+        reader.join(2_000)
+        return process.exitValue()
     }
 
     /**

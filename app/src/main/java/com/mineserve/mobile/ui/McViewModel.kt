@@ -13,6 +13,7 @@ import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.service.McForegroundService
 import android.net.Uri
 import com.mineserve.mobile.data.McConfig
+import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.ServerState
@@ -266,6 +267,12 @@ class McViewModel(
     /** 依赖安装中状态，UI 层据此控制按钮和加载动画 */
     private val _isInstalling = MutableStateFlow(false)
     val isInstalling: StateFlow<Boolean> = _isInstalling.asStateFlow()
+
+    private val _javaOperation = MutableStateFlow<String?>(null)
+    val javaOperation: StateFlow<String?> = _javaOperation.asStateFlow()
+
+    private val _installedJava = MutableStateFlow<Set<JavaVersion>>(emptySet())
+    val installedJava: StateFlow<Set<JavaVersion>> = _installedJava.asStateFlow()
 
     /** 局域网 IP（IPv4，非 loopback），用于 Network Tab 展示和一键复制 */
     private val _lanIp = MutableStateFlow("--")
@@ -650,6 +657,52 @@ class McViewModel(
                 repo.saveConfig(transform(config.value))
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s191, e.message))
+            }
+        }
+    }
+
+    fun refreshJava() {
+        if (isBootstrapped.value) _installedJava.value = repo.termuxRuntime.installedJavaVersions()
+    }
+
+    fun setJavaVersion(version: JavaVersion) = updateConfig { it.copy(selectedJavaVersion = version) }
+
+    fun installJava(version: JavaVersion) {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        _isInstalling.value = true
+        _javaOperation.value = "正在安装 ${version.displayName}，首次下载可能需要数分钟"
+        viewModelScope.launch {
+            try {
+                if (repo.termuxRuntime.installJava(version)) {
+                    refreshJava()
+                    _messageFlow.tryEmit("${version.displayName} 安装完成")
+                } else _errorFlow.tryEmit("${version.displayName} 安装失败")
+            } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "Java 安装失败") }
+            finally {
+                _javaOperation.value = null
+                _isInstalling.value = false
+            }
+        }
+    }
+
+    fun clearAndReinstallJava() {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        if (repo.termuxRuntime.isMcRunning()) {
+            _errorFlow.tryEmit("服务端运行中，请先停止服务端再重装 Java")
+            return
+        }
+        _isInstalling.value = true
+        _javaOperation.value = "正在清除并重装已安装的 Java 版本"
+        viewModelScope.launch {
+            try {
+                if (repo.termuxRuntime.clearAndReinstallJava()) {
+                    refreshJava()
+                    _messageFlow.tryEmit("Java 已清除并重装")
+                } else _errorFlow.tryEmit("Java 重装失败")
+            } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "Java 重装失败") }
+            finally {
+                _javaOperation.value = null
+                _isInstalling.value = false
             }
         }
     }

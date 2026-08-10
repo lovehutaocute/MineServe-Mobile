@@ -2,18 +2,25 @@ package com.mineserve.mobile.runtime
 
 import android.content.Context
 import android.util.Log
+import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.MultiThreadDownloader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.tukaani.xz.XZInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -113,8 +120,419 @@ class TermuxRuntime(context: Context) {
         return if (resolved != "java") resolved else null
     }
 
+    fun isJavaInstalled(version: JavaVersion): Boolean = if (version == JavaVersion.Java8) {
+        java8RuntimeReady()
+    } else {
+        javaCandidates(version).any {
+            File(it, "bin/java").exists() && File(it, "bin/java").canExecute()
+        }
+    }
+
+    fun installedJavaVersions(): Set<JavaVersion> = JavaVersion.values().filter(::isJavaInstalled).toSet()
+
+    suspend fun installJava(version: JavaVersion): Boolean = withContext(Dispatchers.IO) {
+        if (!isReady()) throw RuntimeException("Termux 环境未初始化")
+        if (version == JavaVersion.Java8) {
+            return@withContext installJava8AndroidRuntime()
+        }
+        emitLog("[java] 正在安装 ${version.displayName}")
+        emitLog("[java] ${version.displayName} 正在下载并配置，首次安装可能需要数分钟")
+        val code = execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", version.packageName)
+        if (code == 0) fixJavaSymlinks(version)
+        val installed = code == 0 && isJavaInstalled(version)
+        emitLog(if (installed) "[java] ${version.displayName} 安装完成" else "[java] ${version.displayName} 安装失败")
+        installed
+    }
+
+    /** Install Java 8 from the fixed Android ARM64 runtime archive. */
+    private suspend fun installJava8AndroidRuntime(): Boolean {
+        if (!android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" || it == "aarch64" }) {
+            emitLog("[java] Java 8 Android ARM64 runtime requires an ARM64 device")
+            return false
+        }
+        val prefix = installer.rootDir
+        val target = File(prefix, "lib/jvm/java-8-android")
+        val archive = File(prefix, "tmp/java8-android-arm64.tar.xz")
+        val marker = File(prefix, "java-8-android-ready")
+        emitLog("[java] 注意：Android ARM64 适配版，非 Termux 官方源；仅兼容 ARM64")
+        emitLog("[java] 正在下载并配置 Java 8，首次安装可能需要数分钟")
+        marker.delete()
+        return try {
+            archive.parentFile?.mkdirs()
+            MultiThreadDownloader.download(
+                JAVA8_ANDROID_URL,
+                archive,
+                onProgress = { done, total, _ ->
+                    if (total > 0 && done % (512 * 1024L) < 64 * 1024L) {
+                        emitLog("[java] Java 8 下载进度：${done * 100 / total}%")
+                    }
+                },
+                onLog = { emitLog("[java] $it") }
+            )
+            if (!JAVA8_ANDROID_SHA256.equals(sha256File(archive), ignoreCase = true)) {
+                throw IllegalStateException("Java 8 Runtime SHA-256 校验失败")
+            }
+            target.deleteRecursively()
+            extractJava8Archive(archive, target)
+            val java = File(target, "bin/java")
+            if (!isAndroidArm64Elf(java) || !verifyJava8Runtime(java, target)) {
+                throw IllegalStateException("Java 8 Runtime bin/java 校验失败")
+            }
+            marker.writeText("foldcraftlauncher-android-arm64\n")
+            emitLog("[java] Java 8 Android ARM64 运行时安装完成")
+            true
+        } catch (e: Exception) {
+            marker.delete()
+            target.deleteRecursively()
+            emitLog("[java] Java 8 安装失败：${e.message}")
+            false
+        } finally {
+            archive.delete()
+        }
+    }
+
+    private fun java8RuntimeReady(): Boolean {
+        val root = File(installer.rootDir, "lib/jvm/java-8-android")
+        val marker = File(installer.rootDir, "java-8-android-ready").isFile
+        val java = isAndroidArm64Elf(File(root, "bin/java"))
+        val jvm = File(root, "lib/aarch64/server/libjvm.so").isFile
+        return marker && java && jvm
+    }
+
+    private fun sha256File(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).buffered().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            var count: Int
+            while (input.read(buffer).also { count = it } >= 0) {
+                if (count > 0) digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun isAndroidArm64Elf(file: File): Boolean {
+        if (!file.isFile || !file.canExecute()) return false
+        return runCatching {
+            FileInputStream(file).use { input ->
+                val header = ByteArray(20)
+                if (input.read(header) != header.size) return false
+                header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
+                    header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte() &&
+                    header[4] == 2.toByte() && header[5] == 1.toByte() &&
+                    header[18] == 0xb7.toByte() && header[19] == 0.toByte()
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun extractJava8Archive(archive: File, target: File) {
+        target.mkdirs()
+        XZInputStream(FileInputStream(archive).buffered()).use { xz ->
+            TarArchiveInputStream(xz).use { tar ->
+                var entry = tar.nextTarEntry
+                val root = target.canonicalFile
+                while (entry != null) {
+                    val name = entry.name.removePrefix("./")
+                    val output = File(target, name)
+                    if (output.canonicalFile.path != root.path &&
+                        !output.canonicalFile.path.startsWith(root.path + File.separator)) {
+                        throw SecurityException("Java 8 archive contains an unsafe path")
+                    }
+                    if (entry.isDirectory) {
+                        output.mkdirs()
+                    } else if (!entry.isSymbolicLink && !entry.isLink) {
+                        output.parentFile?.mkdirs()
+                        FileOutputStream(output).use { tar.copyTo(it) }
+                        if (name.startsWith("bin/") || (entry.mode and 0x49) != 0) {
+                            output.setExecutable(true, false)
+                        }
+                    }
+                    entry = tar.nextTarEntry
+                }
+            }
+        }
+        File(target, "bin").listFiles()?.forEach { it.setExecutable(true, false) }
+    }
+
+    private fun verifyJava8Runtime(java: File, root: File): Boolean {
+        val process = runCatching {
+            ProcessBuilder(java.absolutePath, "-version").apply {
+                redirectErrorStream(true)
+                environment()["LD_LIBRARY_PATH"] = listOf(
+                    File(root, "lib/aarch64").absolutePath,
+                    File(root, "lib/aarch64/server").absolutePath,
+                    File(root, "lib/aarch64/jli").absolutePath,
+                    File(installer.rootDir, "lib").absolutePath,
+                    "/system/lib64"
+                ).joinToString(":")
+            }.start()
+        }.getOrNull() ?: return false
+        val output = process.inputStream.bufferedReader().use { it.readText() }
+        val finished = process.waitFor(30, TimeUnit.SECONDS)
+        if (!finished) process.destroyForcibly()
+        return finished && process.exitValue() == 0 && output.contains("1.8.")
+    }
+
+    @Suppress("UNUSED")
+    private suspend fun legacyJava8Debian(): Boolean {
+        val prefix = installer.rootDir
+        emitLog("[java] 注意：正在 Debian ARM64 glibc 环境安装 Java 8，非 Android 原生 Termux Java")
+        var code = execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot-distro")
+        if (code != 0) return false
+        // dpkg-wrapper skips maintainer scripts, so newly installed commands need
+        // the same path and executable repair as the bootstrap environment.
+        fixUsrBin()
+        fixScriptsOnce()
+        repairProotDistroPaths()
+        ensureRootfsExecutable()
+        repairProotLibraries()
+        installProotLauncher()
+        ensureRootfsExecutable()
+        // libtalloc is unpacked together with proot. Repair it only after apt has
+        // finished, then verify proot before creating a potentially large rootfs.
+        if (!verifyProot()) {
+            emitLog("[java] Java 8 环境依赖修复失败：proot 无法启动，请在概览页执行运行环境修复后重试")
+            return false
+        }
+        for (distro in listOf("debian", "ubuntu")) {
+            val distroBase = File(prefix, "var/lib/proot-distro/installed-rootfs/$distro")
+            if (!rootfsHasShell(distro)) {
+                if (distroBase.exists()) {
+                    emitLog("[java] 检测到不完整的 $distro 容器，正在重置后重新部署")
+                    val resetCode = execOnceWithTimeout(90_000, "proot-distro", "reset", distro)
+                    if (resetCode != 0 || !rootfsHasShell(distro)) {
+                        emitLog("[java] $distro rootfs reset failed; removing stale container")
+                        execOnceWithTimeout(30_000, "proot-distro", "remove", distro)
+                    }
+                } else {
+                    // proot-distro may retain the container registry even when the relocated rootfs directory is absent.
+                    emitLog("[java] $distro rootfs directory is missing; removing stale container record")
+                    execOnceWithTimeout(30_000, "proot-distro", "remove", distro)
+                }
+                emitLog("[java] 正在部署 $distro ARM64 环境，首次安装需要较长时间")
+                emitLog("[java] 正在下载 $distro ARM64 镜像，网络异常时最多等待 3 分钟")
+                code = execOnceWithTimeout(180_000, "proot-distro", "install", distro)
+                if (code != 0 || !rootfsHasShell(distro)) {
+                    emitLog("[java] $distro rootfs 部署失败或超时，跳过该环境，避免重复等待")
+                    continue
+                }
+            }
+            emitLog("[java] 正在 $distro 中安装 openjdk-8-jdk")
+            emitLog("[java] $distro rootfs ready: ${distroRootfs(distro).absolutePath}")
+            val apt = "apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+            code = execDistro(distro, "$apt update && DEBIAN_FRONTEND=noninteractive $apt install -y openjdk-8-jdk")
+            // Debian/Ubuntu rolling images may no longer publish OpenJDK 8. In that
+            // case use the maintained Eclipse Temurin ARM64 build inside glibc.
+            if (code != 0) {
+                emitLog("[java] $distro 软件源未提供 openjdk-8-jdk，改用 Temurin ARM64 Java 8（非 Termux 官方源）")
+                code = execDistro(distro,
+                    "$apt update && DEBIAN_FRONTEND=noninteractive $apt install -y ca-certificates curl tar && " +
+                        "mkdir -p /opt/temurin8 && curl -fL --retry 3 " +
+                        "'https://api.adoptium.net/v3/binary/latest/8/ga/linux/aarch64/jdk/hotspot/normal/eclipse?project=jdk' " +
+                        "-o /tmp/temurin8.tar.gz && rm -rf /opt/temurin8/* && " +
+                        "tar -xzf /tmp/temurin8.tar.gz -C /opt/temurin8 --strip-components=1 && " +
+                        "ln -sfn /opt/temurin8/bin/java /usr/local/bin/java && java -version"
+                )
+            }
+            if (code == 0) {
+                val verifyCode = execDistro(distro, "java -version")
+                if (verifyCode == 0) {
+                    File(prefix, "java8-debian-ready").writeText("$distro-arm64-openjdk-8\n")
+                    emitLog("[java] Java 8 ARM64 $distro 环境安装完成（非 Termux 官方源）")
+                    return true
+                }
+            }
+            emitLog("[java] $distro 中未能安装 openjdk-8-jdk，尝试下一个环境")
+        }
+        return false
+    }
+
+    suspend fun clearAndReinstallJava(): Boolean = withContext(Dispatchers.IO) {
+        if (!isReady()) throw RuntimeException("Termux 环境未初始化")
+        val versionsToRestore = installedJavaVersions()
+        if (versionsToRestore.isEmpty()) return@withContext true
+        emitLog("[java] 正在清除并重装 ${versionsToRestore.joinToString { it.displayName }}")
+        versionsToRestore.forEach { version ->
+            if (version != JavaVersion.Java8) {
+                execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "remove", "-y", version.packageName)
+            }
+            javaCandidates(version).forEach { File(it).deleteRecursively() }
+            if (version == JavaVersion.Java8) {
+                File(installer.rootDir, "java-8-android-ready").delete()
+            }
+        }
+        File(installer.rootDir, "bin/java").delete()
+        versionsToRestore.sortedBy { it.ordinal }.all { installJava(it) }
+    }
+
+    private fun javaCandidates(version: JavaVersion): List<String> {
+        val prefix = installer.rootDir.absolutePath
+        if (version == JavaVersion.Java8) {
+            return listOf("$prefix/lib/jvm/java-8-android")
+        }
+        val candidates = mutableListOf(
+            "$prefix/lib/jvm/${version.directoryName}",
+            "$prefix/data/data/com.termux/files/usr/lib/jvm/${version.directoryName}"
+        )
+        return candidates
+    }
+
+    private fun java8RuntimeDir(): File =
+        File(installer.rootDir, "lib/jvm/java-8-android")
+
+    private fun repairProotLibraries(): Boolean {
+        val prefix = installer.rootDir
+        val targetDir = File(prefix, "lib").apply { mkdirs() }
+        val sources = listOf(
+            File(prefix, "usr/lib/libtalloc.so.2"),
+            File(prefix, "data/data/com.termux/files/usr/lib/libtalloc.so.2"),
+            File(prefix, "usr/lib/libtalloc.so.2.4.3"),
+            File(prefix, "data/data/com.termux/files/usr/lib/libtalloc.so.2.4.3")
+        )
+        val target = File(targetDir, "libtalloc.so.2")
+        if (!target.isFile) {
+            val source = sources.firstOrNull { it.isFile }
+            if (source != null) runCatching { source.copyTo(target, overwrite = false) }
+        }
+        val repaired = target.isFile
+        emitLog(
+            if (repaired) "[bootstrap] proot 依赖已就绪: libtalloc.so.2"
+            else "[bootstrap] 警告: proot 依赖 libtalloc.so.2 未找到"
+        )
+        return repaired
+    }
+
+    /**
+     * proot-distro sanitizes LD_LIBRARY_PATH before it invokes proot.  The app's
+     * rootfs is relocated, so proot cannot rely on Termux's normal ELF rpath.
+     * Keep the actual binary aside and expose a tiny launcher which restores the
+     * required library path for both direct and proot-distro invocations.
+     */
+    private fun installProotLauncher() {
+        val prefix = installer.rootDir.absolutePath
+        val launcher = File(prefix, "bin/proot")
+        val binary = File(prefix, "bin/proot.bin")
+        if (!launcher.isFile && !launcher.exists()) return
+
+        // A prior install may replace the launcher with the package's ELF again.
+        // Rename only ELF files; never rename our shell launcher on repeated runs.
+        val isElf = runCatching {
+            launcher.inputStream().use { input ->
+                val header = ByteArray(4)
+                input.read(header) == 4 && header.contentEquals(byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))
+            }
+        }.getOrDefault(false)
+        if (isElf) {
+            if (binary.exists()) binary.delete()
+            if (!launcher.renameTo(binary)) {
+                emitLog("[bootstrap] 警告: 无法创建 proot 启动包装")
+                return
+            }
+        }
+        if (!binary.isFile) return
+        binary.setExecutable(true, false)
+        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        launcher.writeText(
+            "#!/system/bin/sh\n" +
+                "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'\n" +
+                "exec '$binary' \"${'$'}@\"\n"
+        )
+        launcher.setExecutable(true, false)
+        emitLog("[bootstrap] 已固定 proot 动态库启动环境")
+    }
+
+    private fun verifyProot(): Boolean {
+        val code = execOnce("proot", "--version")
+        if (code == 0) {
+            emitLog("[bootstrap] proot 启动校验通过")
+        }
+        return code == 0
+    }
+
+    /** Rewrite paths embedded in proot-distro metadata/scripts after relocation. */
+    private fun repairProotDistroPaths() {
+        val prefix = installer.rootDir.absolutePath
+        val oldPrefix = "/data/data/com.termux/files/usr"
+        val roots = listOf(
+            File(prefix, "bin"),
+            File(prefix, "usr/bin"),
+            File(prefix, "etc/proot-distro")
+        )
+        var fixed = 0
+        roots.filter { it.exists() }.forEach { root ->
+            val isConfigTree = root.path.endsWith("etc${File.separator}proot-distro")
+            root.walkTopDown().filter { it.isFile && it.length() <= 512 * 1024 }.forEach { file ->
+                runCatching {
+                    // ELF files can contain the old path in RPATH/debug strings.
+                    // Never read/write them as text: doing so corrupts proot.bin,
+                    // apt-get and every other native executable.
+                    val bytes = file.inputStream().use { input ->
+                        val head = ByteArray(4)
+                        val count = input.read(head)
+                        if (count == 4 && head.contentEquals(byteArrayOf(0x7f, 'E'.code.toByte(), 'L'.code.toByte(), 'F'.code.toByte()))) {
+                            return@runCatching
+                        }
+                        head
+                    }
+                    val content = file.readText()
+                    if (!isConfigTree && !content.startsWith("#!")) return@runCatching
+                    if (content.indexOf('\u0000') >= 0) return@runCatching
+                    if (content.contains(oldPrefix)) {
+                        file.writeText(content.replace(oldPrefix, prefix))
+                        if (!isConfigTree) file.setExecutable(true, false)
+                        fixed++
+                    }
+                }
+            }
+        }
+        // proot itself probes this path even when TMPDIR is inherited.
+        File(prefix, "tmp").mkdirs()
+        File(prefix, "data/data/com.termux/files/usr/tmp").mkdirs()
+        if (fixed > 0) emitLog("[bootstrap] 修复 $fixed 个 proot-distro 路径")
+    }
+
+    /** Run inside a deployed rootfs without proot-distro's hard-coded Termux paths. */
+    private fun execDistro(distro: String, command: String): Int {
+        val prefix = installer.rootDir.absolutePath
+        val rootfs = distroRootfs(distro)
+        val shell = when {
+            File(rootfs, "bin/bash").isFile -> "/bin/bash"
+            File(rootfs, "usr/bin/bash").isFile -> "/usr/bin/bash"
+            else -> null
+        }
+        if (shell == null) {
+            emitLog("[java] $distro rootfs 缺少 /usr/bin/bash，无法启动 glibc 环境")
+            return 126
+        }
+        return execOnce(
+            "proot", "--link2symlink", "-0", "-r", rootfs.absolutePath,
+            "-b", "/dev", "-b", "/proc", "-b", "/sys",
+            "-b", "$prefix/tmp:/tmp", "-w", "/root",
+            shell, "-c", command
+        )
+    }
+
+    private fun distroRootfs(distro: String): File {
+        val base = File(installer.rootDir, "var/lib/proot-distro/installed-rootfs/$distro")
+        val candidates = listOf(base, File(base, "rootfs"), File(base, "fs"))
+        return candidates.firstOrNull { root ->
+            File(root, "bin").exists() || File(root, "usr").exists()
+        } ?: base
+    }
+
+    private fun rootfsHasShell(distro: String): Boolean {
+        val root = distroRootfs(distro)
+        return File(root, "bin/bash").isFile || File(root, "usr/bin/bash").isFile
+    }
+
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
         executor.execOnce(*command, env = env)
+
+    fun execOnceWithTimeout(
+        timeoutMs: Long,
+        vararg command: String,
+        env: Map<String, String> = emptyMap()
+    ): Int = executor.execOnceWithTimeout(timeoutMs, *command, env = env)
 
     /**
      * 执行 Termux shell 命令，输出逐行回调（Termux 终端面板专用，不与 MC 日志混流）。
@@ -187,6 +605,49 @@ class TermuxRuntime(context: Context) {
      * 新版 wrapper 在解压后：归位 compat 链接 + 补 bin 链接 + --configure 时改写新装脚本路径。
      * 旧版（无 compat 归位逻辑）→ 用 ensureDpkgWrapper() 重写。
      */
+    /**
+     * 启动服务端前的幂等环境修复，只处理缺失或损坏的运行时文件。
+     */
+    fun autoRepairRuntime(javaVersion: JavaVersion, needsFonts: Boolean): Int {
+        if (!isReady()) return 0
+        val prefix = installer.rootDir
+        listOf(
+            File(prefix, "tmp"),
+            File(prefix, "home"),
+            File(prefix, "usr/bin"),
+            File(prefix, "etc/fonts"),
+            File(prefix, "var/lib/dpkg"),
+            File(prefix, "var/cache/apt/archives")
+        ).forEach { it.mkdirs() }
+
+        var repaired = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable()
+        repaired += fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
+        repaired += ensureJvmComplete()
+        fixJavaSymlinks(javaVersion)
+
+        if (needsFonts) {
+            val fontConfig = File(prefix, "etc/fonts/fonts.conf")
+            val fcCache = listOf(
+                File(prefix, "bin/fc-cache"),
+                File(prefix, "usr/bin/fc-cache"),
+                File(prefix, "data/data/com.termux/files/usr/bin/fc-cache")
+            ).firstOrNull { it.exists() && it.canExecute() }
+            if (!fontConfig.exists() || fcCache == null) {
+                emitLog("[repair] 正在补齐字体运行库...")
+                execOnce(
+                    "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
+                    "--allow-unauthenticated", "-y", "fontconfig", "ttf-dejavu"
+                )
+                repaired += fixUsrBin() + ensureRootfsExecutable()
+            }
+            if (execOnce("fc-cache", "-f") == 0) repaired++
+            else emitLog("[repair] 字体缓存生成失败，将继续使用无图形模式启动")
+        }
+
+        if (repaired > 0) emitLog("[repair] 自动修复完成，共处理 $repaired 项")
+        return repaired
+    }
+
     fun fixDpkgWrapper(): Int {
         val dpkg = File(installer.rootDir, "bin/dpkg")
         if (!dpkg.exists()) return 0
@@ -333,7 +794,7 @@ class TermuxRuntime(context: Context) {
                 // 目标完整则跳过——避免反复移动 jvm 导致 libjli.so 缺失
                 val compatJvm = File(compatUsr, "lib/jvm")
                 val prefixJvm = File(prefix, "lib/jvm")
-                if (isRealDir(compatJvm) && !jvmIsComplete(prefixJvm)) {
+                if (isRealDir(compatJvm) && !jvmRootHasCompleteJava(prefixJvm)) {
                     prefixJvm.deleteRecursively()
                     prefixJvm.parentFile?.mkdirs()
                     runCatching { compatJvm.renameTo(prefixJvm) }
@@ -525,36 +986,56 @@ class TermuxRuntime(context: Context) {
      */
     fun refreshTermux(): Int = syncCompatAndLinks() + fixScriptsOnce()
 
-    /** 判断 jvm 目录是否完整（bin/java + libjli.so 或 libjava.so 存在） */
-    private fun jvmIsComplete(jvmRoot: File): Boolean {
-        if (!jvmRoot.isDirectory) return false
-        val jvmDir = jvmRoot.listFiles()?.firstOrNull { it.isDirectory && it.name.contains("openjdk") }
-            ?: return false
+    /** 判断指定 Java 版本目录是否完整（bin/java + libjli.so 或 libjava.so 存在）。 */
+    private fun isJavaComplete(version: JavaVersion): Boolean {
+        if (version == JavaVersion.Java8) return java8RuntimeReady()
+        return javaCandidates(version).any { path ->
+        val jvmDir = File(path)
         val binJava = File(jvmDir, "bin/java")
         val libJli = File(jvmDir, "lib/jli/libjli.so")
         val libJava = File(jvmDir, "lib/libjava.so")
-        return binJava.isFile && (libJli.isFile || libJava.isFile)
+        binJava.isFile && (libJli.isFile || libJava.isFile)
+        }
     }
 
+    /** 用于 compat 归位：任意一个已知 JDK 完整即可避免移动整个 jvm 目录。 */
+    private fun jvmRootHasCompleteJava(jvmRoot: File): Boolean =
+        JavaVersion.values().any { version ->
+            File(jvmRoot, version.directoryName).let { jvmDir ->
+                File(jvmDir, "bin/java").isFile &&
+                    (File(jvmDir, "lib/jli/libjli.so").isFile || File(jvmDir, "lib/libjava.so").isFile)
+            }
+        }
+
     /**
-     * 启动时校验 jvm 完整性：不完整（如杀后台/覆盖安装后 libjli.so 缺失）→
-     * 自动 `apt-get install -f openjdk-25` 重装并重新归位，杜绝反复 libjli.so 崩溃。
+     * 启动时校验已安装的 JDK：不完整（如杀后台/覆盖安装后 libjli.so 缺失）时，
+     * 仅重装对应版本。未安装的 JDK 不会被隐式安装。
      */
     fun ensureJvmComplete(): Int {
-        val prefix = installer.rootDir.absolutePath
-        val jvmRoot = File(prefix, "lib/jvm")
-        if (jvmIsComplete(jvmRoot)) return 0
-        Log.w(TAG, "ensureJvmComplete: jvm incomplete, reinstalling openjdk-25")
-        installer.onLog?.invoke("[bootstrap] jvm 不完整，重新安装 openjdk-25...")
-        try {
-            executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "-f", "openjdk-25")
-            // 重装后 jvm 可能在 compat，重新归位 + 重建 wrapper
-            fixUsrBin()
-            fixJavaSymlinks()
-        } catch (e: Exception) {
-            Log.w(TAG, "ensureJvmComplete: reinstall failed: ${e.message}")
+        var repaired = 0
+        JavaVersion.values().forEach { version ->
+            if (!isJavaInstalled(version) || isJavaComplete(version)) return@forEach
+
+            installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境不完整，正在修复...")
+            if (version == JavaVersion.Java8) {
+                val repairedJava8 = runBlocking { installJava8AndroidRuntime() }
+                if (repairedJava8) repaired++
+                else installer.onLog?.invoke("[bootstrap] Java 8 Android ARM64 运行时自动修复失败")
+                return@forEach
+            }
+            val code = execOnce(
+                "apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--reinstall",
+                "--allow-unauthenticated", "-y", version.packageName
+            )
+            if (code == 0 && isJavaComplete(version)) {
+                repaired++
+                installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境已修复")
+            } else {
+                installer.onLog?.invoke("[bootstrap] 警告: ${version.displayName} 运行环境修复失败")
+            }
         }
-        return if (jvmIsComplete(jvmRoot)) 1 else 0
+        fixJavaSymlinks()
+        return repaired
     }
 
     /**
@@ -649,7 +1130,7 @@ class TermuxRuntime(context: Context) {
         fixRootfsPermissions()
         executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "update", "--allow-insecure-repositories", "-y")
         // 安装 openjdk-25：Paper 26.x / MC 26.1+ 要求 Java 25+，openjdk-17 已不够
-        executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "openjdk-25", "wget", "curl")
+        executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "wget", "curl")
         executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "clean")
 
         // 修复 openjdk 符号链接：dpkg-wrapper 的 configure 是 no-op，
@@ -661,8 +1142,8 @@ class TermuxRuntime(context: Context) {
     }
 
     /**
-     * 修复 openjdk-17 命令可用性（wrapper 脚本方案）。
-     * Termux openjdk-17 实际安装在 $PREFIX/lib/jvm/java-17-openjdk/，
+     * 修复默认 OpenJDK 命令可用性（wrapper 脚本方案）。
+     * Termux OpenJDK 实际安装在 $PREFIX/lib/jvm/java-xx-openjdk/，
      * 但 dpkg-wrapper 跳过了 configure，post-install 脚本未执行，
      * 需要手动在 $PREFIX/bin/ 下创建 java/javac/jar 等命令。
      *
@@ -673,23 +1154,28 @@ class TermuxRuntime(context: Context) {
      *
      * 注意：由于 dpkg-deb -x 解压 deb 时 compat 符号链接被覆盖，
      * 文件实际落在了 $PREFIX/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/。
-     * 所以需要从两个位置查找 java。
+     * 所以需要从两个位置查找 java。默认 wrapper 选择已安装的最高版本。
      */
-    fun fixJavaSymlinks() {
+    fun fixJavaSymlinks(preferredVersion: JavaVersion? = null) {
         val prefix = installer.rootDir.absolutePath
 
-        // 查找 jvm 实际目录（优先 java-25-openjdk，回退 java-21/17）
-        val jvmCandidates = listOf(
-            File(prefix, "lib/jvm/java-25-openjdk"),
-            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-25-openjdk"),
-            File(prefix, "lib/jvm/java-21-openjdk"),
-            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-21-openjdk"),
-            File(prefix, "lib/jvm/java-17-openjdk"),
-            File(prefix, "data/data/com.termux/files/usr/lib/jvm/java-17-openjdk")
-        )
-        val jvmDir = jvmCandidates.firstOrNull { it.exists() }
+        val selectedVersion = (preferredVersion?.takeIf(::isJavaComplete)
+            ?: JavaVersion.values().sortedByDescending { it.ordinal }.firstOrNull(::isJavaComplete))
+            ?: run {
+                if (installedJavaVersions().isNotEmpty()) {
+                    installer.onLog?.invoke("[bootstrap] 警告: 未找到完整的 OpenJDK 安装目录，跳过 wrapper 修复")
+                }
+                Log.w(TAG, "fixJavaSymlinks: no complete JDK found")
+                return
+            }
+        if (selectedVersion == JavaVersion.Java8) {
+            Log.i(TAG, "fixJavaSymlinks: Java 8 uses the Android ARM64 runtime; no Termux wrapper needed")
+            return
+        }
+        val jvmCandidates = javaCandidates(selectedVersion).map(::File)
+        val jvmDir = jvmCandidates.firstOrNull { it.isDirectory }
         if (jvmDir == null) {
-            installer.onLog?.invoke("[bootstrap] 警告: 未找到 openjdk 安装目录，跳过符号链接修复")
+            installer.onLog?.invoke("[bootstrap] 警告: 未找到完整的 OpenJDK 安装目录，跳过 wrapper 修复")
             Log.w(TAG, "fixJavaSymlinks: jvmDir not found in candidates: ${jvmCandidates.map { it.absolutePath }}")
             return
         }
@@ -761,7 +1247,7 @@ class TermuxRuntime(context: Context) {
                 Log.w(TAG, "fixJavaSymlinks: batch chmod failed: $out")
             }
         }
-        installer.onLog?.invoke("[bootstrap] openjdk-17 wrapper 脚本创建完成: $created 个命令已就绪")
+        installer.onLog?.invoke("[bootstrap] ${selectedVersion.displayName} wrapper 脚本已创建完成: $created 个命令已就绪")
         Log.i(TAG, "fixJavaSymlinks: created $created wrappers in $termuxBinDir")
     }
 
@@ -807,7 +1293,7 @@ class TermuxRuntime(context: Context) {
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
      * onExit 回调在 MC 进程退出时触发。
      */
-    fun startMc(jarPath: String, maxHeapMb: Int, dirName: String, onExit: (Int) -> Unit, launchArgs: String? = null): Process {
+    fun startMc(jarPath: String, maxHeapMb: Int, dirName: String, javaVersion: JavaVersion = JavaVersion.Java17, onExit: (Int) -> Unit, launchArgs: String? = null): Process {
         Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m dirName=$dirName")
 
         // 如果已有进程在运行，先停止
@@ -823,8 +1309,9 @@ class TermuxRuntime(context: Context) {
         // 占着 world/session.lock → 新实例启动报 already locked）
         killOrphanMcProcess(serverDir)
 
-        // 探测 java 实际路径并自动修复符号链接
-        val javaPath = ensureJavaReady() ?: run {
+        val useAndroidJava8 = javaVersion == JavaVersion.Java8
+        // 探测 Termux Java 实际路径；Java 8 使用 Debian glibc 环境中的 java。
+        val javaPath = resolveJavaPath(prefix, javaVersion) ?: run {
             emitLog("[startMc] 错误: java 未找到，openjdk 可能未安装。请删除 Termux 环境后重新初始化")
             throw RuntimeException("java not found in Termux environment")
         }
@@ -837,26 +1324,31 @@ class TermuxRuntime(context: Context) {
         // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，文件实际落在此处
         val compatUsr = "$prefix/data/data/com.termux/files/usr"
         // jvmLibDir：从 javaPath 推导其父目录的 lib 子目录（javaPath = .../bin/java → 父=bin → 父=jvm目录 → lib）
-        val jvmLibDir = File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath ?: "$prefix/lib/jvm/java-25-openjdk/lib"
-        // 兜底：包含所有可能的 jvm lib 目录（java-25/21/17），兼容已安装的多个 JDK
-        val allJvmLibs = listOf(
-            "$prefix/lib/jvm/java-25-openjdk/lib",
-            "$prefix/lib/jvm/java-25-openjdk/lib/server",
-            "$prefix/lib/jvm/java-21-openjdk/lib",
-            "$prefix/lib/jvm/java-21-openjdk/lib/server",
-            "$prefix/lib/jvm/java-17-openjdk/lib",
-            "$prefix/lib/jvm/java-17-openjdk/lib/server",
-            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/lib",
-            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/lib/server"
-        ).joinToString(":")
-        val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
+        val jvmLibDir = if (useAndroidJava8) {
+            File(javaPath).parentFile?.parentFile?.let { File(it, "lib/aarch64") }?.absolutePath
+        } else {
+            File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath
+        } ?: "$prefix/lib/jvm/java-25-openjdk/lib"
+        // 兜底：将每个受支持版本及 compat 路径加入库搜索路径。
+        val allJvmLibs = JavaVersion.values().flatMap { version ->
+            javaCandidates(version).flatMap { candidate ->
+                listOf("$candidate/lib", "$candidate/lib/server")
+            }
+        }.joinToString(":")
+        val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
             "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
+            "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
+            "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' -Djava.io.tmpdir='$prefix/tmp' -Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + " nogui"
+            "'$javaPath' -Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
+            "-Doshi.util.use.jna=false -Djna.nosys=true " +
+            "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
+            "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
+            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + " nogui"
 
         Log.i(TAG, "startMc command: $javaCmd")
 
@@ -998,20 +1490,22 @@ class TermuxRuntime(context: Context) {
      * 4. 通过 find 命令查找
      * 找不到时返回 "java"，让 shell 报错（便于诊断）
      */
-    private fun resolveJavaPath(prefix: String): String {
+    private fun resolveJavaPath(prefix: String, version: JavaVersion? = null): String? {
+        if (version != null) {
+            return javaCandidates(version).map { "$it/bin/java" }
+                .firstOrNull { File(it).exists() && File(it).canExecute() }
+        }
         // 候选路径列表（含 compat 目录下的实际路径）
-        val candidates = listOf(
-            "$prefix/bin/java",
-            "$prefix/lib/jvm/java-25-openjdk/bin/java",
-            "$prefix/lib/jvm/java-21-openjdk/bin/java",
-            "$prefix/lib/jvm/java-17-openjdk/bin/java",
-            // deb 解压实际落点：compat 符号链接被 deb 内的目录结构覆盖后，
-            // 文件实际解到了 $PREFIX/data/data/com.termux/files/usr/...
-            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-25-openjdk/bin/java",
-            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-21-openjdk/bin/java",
-            "$prefix/data/data/com.termux/files/usr/lib/jvm/java-17-openjdk/bin/java",
-            "/system/bin/java"
-        )
+        val candidates = buildList {
+            add("$prefix/bin/java")
+            JavaVersion.values().sortedByDescending { it.ordinal }.forEach { supportedVersion ->
+                addAll(javaCandidates(supportedVersion).map { "$it/bin/java" })
+            }
+            // 兼容旧环境中曾安装的 Java 21。
+            add("$prefix/lib/jvm/java-21-openjdk/bin/java")
+            add("$prefix/data/data/com.termux/files/usr/lib/jvm/java-21-openjdk/bin/java")
+            add("/system/bin/java")
+        }
         for (path in candidates) {
             val f = File(path)
             if (f.exists() && f.canExecute()) {
@@ -1045,7 +1539,7 @@ class TermuxRuntime(context: Context) {
         // 兜底：返回 "java"，让 shell 报错
         Log.w(TAG, "resolveJavaPath: java not found in any candidate path, fallback to 'java'")
         emitLog("[startMc] 错误: java 未找到，请检查 openjdk-17 是否已安装")
-        return "java"
+        return candidates.firstOrNull { File(it).exists() && File(it).canExecute() }
     }
 
     /**
@@ -1122,5 +1616,11 @@ class TermuxRuntime(context: Context) {
         }
     }
 
-    companion object { private const val TAG = "TermuxRuntime" }
+    companion object {
+        private const val TAG = "TermuxRuntime"
+        private const val JAVA8_ANDROID_URL =
+            "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz"
+        private const val JAVA8_ANDROID_SHA256 =
+            "DEED9083A1047AF1AFAF2D7F1A2DE4AE39FADF62C52881F075793E80274956CF"
+    }
 }

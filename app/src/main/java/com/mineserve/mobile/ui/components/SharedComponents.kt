@@ -149,12 +149,12 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(
                 Brush.linearGradient(colors = listOf(Indigo, IndigoDark))
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 18.dp, vertical = 16.dp)
     ) {
         Column {
             // 启动中：isRunning 且尚未完成启动（runningSinceMs == 0）
@@ -264,12 +264,12 @@ fun McCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(18.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, Line)
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(18.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -283,7 +283,7 @@ fun McCard(
                 )
                 trailing?.invoke()
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(14.dp))
             content()
         }
     }

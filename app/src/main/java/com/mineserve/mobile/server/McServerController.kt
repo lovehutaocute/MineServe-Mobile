@@ -2,6 +2,7 @@ package com.mineserve.mobile.server
 
 import android.util.Log
 import com.mineserve.mobile.data.InstallStep
+import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.InstalledCore
 import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.MultiThreadDownloader
@@ -33,6 +34,27 @@ class McServerController(
     private val termux: TermuxRuntime,
     private val repo: ServerRepository
 ) {
+
+    private suspend fun runInstallerWithRetry(
+        jarPath: String,
+        serverDir: File,
+        label: String,
+        tempDir: File
+    ): Int {
+        var lastCode = 1
+        repeat(3) { attempt ->
+            lastCode = termux.execOnce(
+                "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
+                "-jar", jarPath, "--installServer", serverDir.absolutePath
+            )
+            if (lastCode == 0) return 0
+            if (attempt < 2) {
+                termux.emitLog("[install] $label 安装失败，${attempt + 2}/3 次重试前等待网络恢复...")
+                delay((attempt + 1) * 2000L)
+            }
+        }
+        return lastCode
+    }
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -77,12 +99,17 @@ class McServerController(
             if (!termux.isReady()) {
                 throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
             }
-            val steps = InstallStep.values()
+            val steps = InstallStep.values().filter { it != InstallStep.Jdk }
             steps.forEachIndexed { idx, step ->
                 repo.markStep(step, StepStatus.Active, idx * (100 / steps.size))
                 val code = when (step) {
-                    InstallStep.Jdk -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "openjdk-25")
-                    InstallStep.Wget -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "wget")
+                    InstallStep.Jdk -> 0
+                    InstallStep.Wget -> termux.execOnce(
+                        "apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y",
+                        "wget", "fontconfig", "ttf-dejavu"
+                    ).also {
+                        if (it == 0) termux.execOnce("fc-cache", "-f")
+                    }
                     InstallStep.Frp -> termux.execOnce("/system/bin/sh", "-c",
                         "which frpc >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=60 install --allow-unauthenticated -y frp")
                     InstallStep.Rclone -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "rclone")
@@ -138,9 +165,18 @@ class McServerController(
         // NeoForge/Quilt：下载的是 installer.jar，执行安装命令生成启动环境（首次需下载依赖）
         if (config.selectedCore.needsInstaller) {
             termux.emitLog("[install] 正在执行 ${config.selectedCore.displayName} installer，首次安装需下载依赖，请耐心等待...")
+            val installerTempDir = File(termux.installer.rootDir, "tmp").apply { mkdirs() }
             when (config.selectedCore) {
+                ServerCore.Forge -> {
+                    val code = runInstallerWithRetry(
+                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir
+                    )
+                    if (code != 0) throw RuntimeException("Forge installer 执行失败 (exit=$code)")
+                }
                 ServerCore.NeoForge -> {
-                    val code = termux.execOnce("java", "-jar", jarPath, "--installServer", serverDir.absolutePath)
+                    val code = runInstallerWithRetry(
+                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir
+                    )
                     if (code != 0) throw RuntimeException("NeoForge installer 执行失败 (exit=$code)")
                 }
                 ServerCore.Quilt -> {
@@ -577,6 +613,9 @@ class McServerController(
                 throw RuntimeException("依赖安装失败，请先安装依赖后再启动服务器")
             }
         }
+        if (!termux.isJavaInstalled(config.selectedJavaVersion)) {
+            throw RuntimeException("${config.selectedJavaVersion.displayName} 未安装，请先在 Java 管理卡片中安装")
+        }
         // 找到当前选用的核心
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
@@ -604,7 +643,23 @@ class McServerController(
         // 若用户在下载页选过 Quilt 后切到 Paper 启动，会误判启动方式导致失败。
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
         val coreType = activeCore?.core ?: config.selectedCore
+        termux.autoRepairRuntime(
+            javaVersion = config.selectedJavaVersion,
+            needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
+        )
+        if (coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) {
+            // Forge/NeoForge 初始化 Minecraft 字体配置；旧环境可能在安装依赖前已下载核心。
+            termux.execOnce(
+                "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
+                "--allow-unauthenticated", "-y", "fontconfig", "ttf-dejavu"
+            )
+            termux.execOnce("fc-cache", "-f")
+        }
         val launchArgs = when (coreType) {
+            ServerCore.Forge -> serverDir.walkTopDown()
+                .firstOrNull { it.name == "unix_args.txt" }
+                ?.let { "@${it.absolutePath}" }
+                ?: throw RuntimeException("Forge 启动文件 unix_args.txt 缺失，请重新下载安装核心")
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
                 ?.let { "@${it.absolutePath}" }
@@ -620,6 +675,7 @@ class McServerController(
             jarPath = jarPath,
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
+            javaVersion = config.selectedJavaVersion,
             onExit = { code ->
                 repo.updateServerState { it.copy(isRunning = false) }
                 Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")

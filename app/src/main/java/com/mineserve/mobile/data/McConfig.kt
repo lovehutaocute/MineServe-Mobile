@@ -28,7 +28,7 @@ enum class ServerCore(val displayName: String) {
     val supportsBridge: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
 
     /** 是否需 installer 流程（下载 installer.jar 后需执行安装命令生成启动环境） */
-    val needsInstaller: Boolean get() = this == NeoForge || this == Quilt
+    val needsInstaller: Boolean get() = this == Forge || this == NeoForge || this == Quilt
 }
 
 /**
@@ -108,6 +108,13 @@ enum class InstallStep(val label: String) {
 }
 
 @Serializable
+enum class JavaVersion(val displayName: String, val packageName: String, val directoryName: String) {
+    Java8("Java 8", "openjdk-8-jdk", "java-8-openjdk"),
+    Java17("Java 17", "openjdk-17", "java-17-openjdk"),
+    Java25("Java 25", "openjdk-25", "java-25-openjdk")
+}
+
+@Serializable
 enum class StepStatus { Done, Active, Wait }
 
 @Serializable
@@ -148,6 +155,7 @@ data class McConfig(
     val boreServerAddr: String = "",
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
+    val selectedJavaVersion: JavaVersion = JavaVersion.Java17,
     val keepWifiLock: Boolean = true,
     val keepCpuWakelock: Boolean = true,
     /** 自动备份间隔（分钟），0 表示关闭 */
@@ -186,5 +194,6 @@ data class ServerState(
     },
     val currentProgress: Int = 0           // 0-100 安装进度
 ) {
-    val isInstallComplete: Boolean get() = installSteps.all { it.status == StepStatus.Done }
+    val isInstallComplete: Boolean get() = installSteps.filter { it.step != InstallStep.Jdk }.isNotEmpty() &&
+        installSteps.filter { it.step != InstallStep.Jdk }.all { it.status == StepStatus.Done }
 }

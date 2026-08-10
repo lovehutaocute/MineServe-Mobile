@@ -1,0 +1,6 @@
+#!/bin/sh
+top="$(git rev-parse --show-toplevel)"
+mirror="$top/../MCServerManager.git-backup"
+log="$top/.git-backup.log"
+git --git-dir="$mirror" fetch --prune "$top" "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" >>"$log" 2>&1 || echo "$(date -u +%FT%TZ) mirror backup failed" >>"$log"
+exit 0
