@@ -39,14 +39,19 @@ class McServerController(
         jarPath: String,
         serverDir: File,
         label: String,
-        tempDir: File
+        tempDir: File,
+        javaVersion: JavaVersion
     ): Int {
         var lastCode = 1
         repeat(3) { attempt ->
-            lastCode = termux.execOnce(
-                "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
-                "-jar", jarPath, "--installServer", serverDir.absolutePath
-            )
+            lastCode = if (javaVersion == JavaVersion.Java8) {
+                termux.runJava8Installer(jarPath, serverDir)
+            } else {
+                termux.execOnce(
+                    "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
+                    "-jar", jarPath, "--installServer", serverDir.absolutePath
+                )
+            }
             if (lastCode == 0) return 0
             if (attempt < 2) {
                 termux.emitLog("[install] $label 安装失败，${attempt + 2}/3 次重试前等待网络恢复...")
@@ -169,21 +174,33 @@ class McServerController(
             when (config.selectedCore) {
                 ServerCore.Forge -> {
                     val code = runInstallerWithRetry(
-                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir
+                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir,
+                        config.selectedJavaVersion
                     )
                     if (code != 0) throw RuntimeException("Forge installer 执行失败 (exit=$code)")
                 }
                 ServerCore.NeoForge -> {
                     val code = runInstallerWithRetry(
-                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir
+                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir,
+                        config.selectedJavaVersion
                     )
                     if (code != 0) throw RuntimeException("NeoForge installer 执行失败 (exit=$code)")
                 }
                 ServerCore.Quilt -> {
-                    val code = termux.execOnce(
-                        "java", "-jar", jarPath, "install", "server", config.mcVersion,
-                        "--install-dir=${serverDir.absolutePath}", "--download-server"
-                    )
+                    val code = if (config.selectedJavaVersion == JavaVersion.Java8) {
+                        val guestJar = "/srv/mineserve/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
+                        termux.runJava8Command(
+                            serverDir,
+                            "export JAVA_HOME=/opt/mineserve-java8; cd /srv/mineserve && " +
+                                "exec /opt/mineserve-java8/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
+                                "install server '${config.mcVersion}' --install-dir=/srv/mineserve --download-server"
+                        )
+                    } else {
+                        termux.execOnce(
+                            "java", "-jar", jarPath, "install", "server", config.mcVersion,
+                            "--install-dir=${serverDir.absolutePath}", "--download-server"
+                        )
+                    }
                     if (code != 0) throw RuntimeException("Quilt installer 执行失败 (exit=$code)")
                 }
                 else -> {}
@@ -647,7 +664,8 @@ class McServerController(
             javaVersion = config.selectedJavaVersion,
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
-        if (coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) {
+        if ((coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) &&
+            config.selectedJavaVersion != JavaVersion.Java8) {
             // Forge/NeoForge 初始化 Minecraft 字体配置；旧环境可能在安装依赖前已下载核心。
             termux.execOnce(
                 "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",

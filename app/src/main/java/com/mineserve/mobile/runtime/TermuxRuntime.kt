@@ -9,15 +9,10 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.tukaani.xz.XZInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
-import java.net.HttpURLConnection
-import java.net.URL
-import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -123,7 +118,7 @@ class TermuxRuntime(context: Context) {
     }
 
     fun isJavaInstalled(version: JavaVersion): Boolean = if (version == JavaVersion.Java8) {
-        java8RuntimeReady()
+        java8UbuntuReady()
     } else {
         javaCandidates(version).any {
             File(it, "bin/java").exists() && File(it, "bin/java").canExecute()
@@ -135,7 +130,7 @@ class TermuxRuntime(context: Context) {
     suspend fun installJava(version: JavaVersion): Boolean = withContext(Dispatchers.IO) {
         if (!isReady()) throw RuntimeException("Termux 环境未初始化")
         if (version == JavaVersion.Java8) {
-            return@withContext installJava8AndroidRuntime()
+            return@withContext installJava8Ubuntu()
         }
         emitLog("[java] 正在安装 ${version.displayName}")
         emitLog("[java] ${version.displayName} 正在下载并配置，首次安装可能需要数分钟")
@@ -146,264 +141,58 @@ class TermuxRuntime(context: Context) {
         installed
     }
 
-    /** Install Java 8 from the fixed Android ARM64 runtime archive. */
-    private suspend fun installJava8AndroidRuntime(): Boolean {
-        if (!android.os.Build.SUPPORTED_ABIS.any { it == "arm64-v8a" || it == "aarch64" }) {
-            emitLog("[java] Java 8 Android ARM64 runtime requires an ARM64 device")
-            return false
-        }
+    /** Install Java 8 inside the Ubuntu ARM64 glibc container. */
+    private suspend fun installJava8Ubuntu(): Boolean {
         val prefix = installer.rootDir
-        val target = File(prefix, "lib/jvm/java-8-android")
-        val universalArchive = File(prefix, "tmp/java8-android-universal.tar.xz")
-        val archive = File(prefix, "tmp/java8-android-arm64.tar.xz")
-        val marker = File(prefix, "java-8-android-ready")
-        emitLog("[java] 注意：Android ARM64 适配版，非 Termux 官方源；仅兼容 ARM64")
-        emitLog("[java] 正在下载并配置 Java 8，首次安装可能需要数分钟")
+        val marker = File(prefix, "java-8-ubuntu-ready")
+        emitLog("[java] 注意：正在 Ubuntu ARM64 glibc 环境安装 Java 8，非 Termux 官方源")
+        emitLog("[java] Java 8 仅在 Ubuntu 内运行，不会修改 Java 17/25")
         marker.delete()
         return try {
-            archive.parentFile?.mkdirs()
-            target.deleteRecursively()
-            var universalDownloaded = false
-            var universalError: Exception? = null
-            for (url in JAVA8_UNIVERSAL_URLS) {
-                try {
-                    emitLog("[java] Java 8 通用运行库下载源：$url")
-                    downloadJava8Archive(url, universalArchive)
-                    universalDownloaded = true
-                    break
-                } catch (e: Exception) {
-                    universalError = e
-                    universalArchive.delete()
-                    emitLog("[java] 通用运行库下载源失败：${e.message}，尝试备用源")
-                }
+            if (!prepareUbuntuRuntime()) {
+                throw IllegalStateException("Ubuntu 容器无法启动，请先修复运行环境")
             }
-            if (!universalDownloaded) {
-                throw universalError ?: IllegalStateException("Java 8 通用运行库下载失败")
-            }
-            if (!JAVA8_UNIVERSAL_SHA256.equals(sha256File(universalArchive), ignoreCase = true)) {
-                throw IllegalStateException("Java 8 通用运行库 SHA-256 校验失败")
-            }
-            extractJava8Archive(universalArchive, target)
-            var downloaded = false
-            var lastError: Exception? = null
-            for (url in JAVA8_ANDROID_URLS) {
-                try {
-                    emitLog("[java] Java 8 Runtime 下载源：$url")
-                    downloadJava8Archive(url, archive)
-                    downloaded = true
-                    break
-                } catch (e: Exception) {
-                    lastError = e
-                    archive.delete()
-                    emitLog("[java] 当前下载源失败：${e.message}，尝试备用源")
-                }
-            }
-            if (!downloaded) throw lastError ?: IllegalStateException("Java 8 Runtime 下载失败")
-            if (!JAVA8_ANDROID_SHA256.equals(sha256File(archive), ignoreCase = true)) {
-                throw IllegalStateException("Java 8 Runtime SHA-256 校验失败")
-            }
-            extractJava8Archive(archive, target)
-            unpackJava8PackFiles(target)
-            val java = File(target, "bin/java")
-            java.setExecutable(true, false)
-            if (!isAndroidArm64Elf(java) || !verifyJava8Runtime(java, target)) {
-                throw IllegalStateException("Java 8 Runtime bin/java 校验失败")
-            }
-            marker.writeText("foldcraftlauncher-android-arm64\n")
-            emitLog("[java] Java 8 Android ARM64 运行时安装完成")
+            emitLog("[java] 正在 Ubuntu 中安装 ARM64 glibc Java 8，首次安装可能需要数分钟")
+            val code = runUbuntu(
+                "export DEBIAN_FRONTEND=noninteractive; " +
+                    "apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 && " +
+                    "apt-get install -y ca-certificates curl tar fontconfig fonts-dejavu-core && " +
+                    "rm -rf /opt/mineserve-java8 /tmp/mineserve-java8.tar.gz && " +
+                    "mkdir -p /opt/mineserve-java8 && " +
+                    "curl -fL --retry 3 --connect-timeout 20 --max-time 600 " +
+                    "'https://api.adoptium.net/v3/binary/latest/8/ga/linux/aarch64/jdk/hotspot/normal/eclipse?project=jdk' " +
+                    "-o /tmp/mineserve-java8.tar.gz && " +
+                    "tar -xzf /tmp/mineserve-java8.tar.gz -C /opt/mineserve-java8 --strip-components=1 && " +
+                    "test -x /opt/mineserve-java8/bin/java && " +
+                    "/opt/mineserve-java8/bin/java -version 2>&1 | grep -q '1\\.8\\.'",
+                timeoutMs = 900_000
+            )
+            if (code != 0) throw IllegalStateException("Ubuntu 内 Java 8 校验失败（exit=$code）")
+            marker.writeText("ubuntu-arm64-glibc-temurin8\n")
+            emitLog("[java] Ubuntu ARM64 glibc Java 8 安装并校验完成")
             true
         } catch (e: Exception) {
             marker.delete()
-            target.deleteRecursively()
-            emitLog("[java] Java 8 安装失败：${e.message}")
+            emitLog("[java] Ubuntu Java 8 安装失败：${e.message}")
             false
-        } finally {
-            universalArchive.delete()
-            archive.delete()
         }
     }
 
-    private fun java8RuntimeReady(): Boolean {
-        val root = File(installer.rootDir, "lib/jvm/java-8-android")
-        val marker = File(installer.rootDir, "java-8-android-ready").isFile
-        val javaFile = File(root, "bin/java")
-        javaFile.setExecutable(true, false)
-        val java = isAndroidArm64Elf(javaFile)
-        val jvm = File(root, "lib/aarch64/server/libjvm.so").isFile
-        val rt = File(root, "lib/rt.jar").isFile
-        return marker && java && jvm && rt
+    private fun java8UbuntuReady(): Boolean {
+        val rootfs = distroRootfs("ubuntu")
+        val javaHome = File(rootfs, "opt/mineserve-java8")
+        return File(installer.rootDir, "java-8-ubuntu-ready").isFile &&
+            File(javaHome, "bin/java").isFile &&
+            File(javaHome, "lib/server/libjvm.so").isFile &&
+            File(javaHome, "release").isFile
     }
 
-    private fun downloadJava8Archive(url: String, target: File) {
-        var lastError: Exception? = null
-        repeat(3) { attempt ->
-            var connection: HttpURLConnection? = null
-            try {
-                connection = (URL(url).openConnection() as HttpURLConnection).apply {
-                    instanceFollowRedirects = true
-                    connectTimeout = 60_000
-                    readTimeout = 60_000
-                    setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
-                }
-                val code = connection.responseCode
-                if (code !in 200..299) throw IllegalStateException("HTTP $code")
-                val total = connection.contentLengthLong
-                var done = 0L
-                var lastReport = 0L
-                target.parentFile?.mkdirs()
-                connection.inputStream.use { input ->
-                    FileOutputStream(target).use { output ->
-                        val buffer = ByteArray(64 * 1024)
-                        while (true) {
-                            val count = input.read(buffer)
-                            if (count <= 0) break
-                            output.write(buffer, 0, count)
-                            done += count
-                            if (done - lastReport >= 512 * 1024L) {
-                                lastReport = done
-                                val progress = if (total > 0) "${done * 100 / total}%" else "${done / 1024} KB"
-                                emitLog("[java] Java 8 下载进度：$progress")
-                            }
-                        }
-                    }
-                }
-                if (done == 0L || (total > 0 && done != total)) {
-                    throw IllegalStateException("下载内容不完整：$done/$total")
-                }
-                return
-            } catch (e: Exception) {
-                lastError = e
-                target.delete()
-                if (attempt < 2) emitLog("[java] 下载重试 ${attempt + 1}/2")
-            } finally {
-                connection?.disconnect()
-            }
-        }
-        throw lastError ?: IllegalStateException("Java 8 Runtime 下载失败")
-    }
-
-    private fun sha256File(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        FileInputStream(file).buffered().use { input ->
-            val buffer = ByteArray(64 * 1024)
-            var count: Int
-            while (input.read(buffer).also { count = it } >= 0) {
-                if (count > 0) digest.update(buffer, 0, count)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    private fun isAndroidArm64Elf(file: File): Boolean {
-        if (!file.isFile) return false
-        return runCatching {
-            FileInputStream(file).use { input ->
-                val header = ByteArray(20)
-                if (input.read(header) != header.size) return false
-                header[0] == 0x7f.toByte() && header[1] == 'E'.code.toByte() &&
-                    header[2] == 'L'.code.toByte() && header[3] == 'F'.code.toByte() &&
-                    header[4] == 2.toByte() && header[5] == 1.toByte() &&
-                    header[18] == 0xb7.toByte() && header[19] == 0.toByte()
-            }
-        }.getOrDefault(false)
-    }
-
-    private fun extractJava8Archive(archive: File, target: File) {
-        target.mkdirs()
-        XZInputStream(FileInputStream(archive).buffered()).use { xz ->
-            TarArchiveInputStream(xz).use { tar ->
-                var entry = tar.nextTarEntry
-                val root = target.canonicalFile
-                while (entry != null) {
-                    val name = entry.name.removePrefix("./")
-                    val output = File(target, name)
-                    if (output.canonicalFile.path != root.path &&
-                        !output.canonicalFile.path.startsWith(root.path + File.separator)) {
-                        throw SecurityException("Java 8 archive contains an unsafe path")
-                    }
-                    if (entry.isDirectory) {
-                        output.mkdirs()
-                    } else if (!entry.isSymbolicLink && !entry.isLink) {
-                        output.parentFile?.mkdirs()
-                        FileOutputStream(output).use { tar.copyTo(it) }
-                        if (name.startsWith("bin/") || (entry.mode and 0x49) != 0) {
-                            output.setExecutable(true, false)
-                        }
-                    }
-                    entry = tar.nextTarEntry
-                }
-            }
-        }
-        File(target, "bin").listFiles()?.forEach { it.setExecutable(true, false) }
-    }
-
-    private fun unpackJava8PackFiles(root: File) {
-        val unpack200 = File(root, "bin/unpack200")
-        if (!unpack200.isFile) throw IllegalStateException("Java 8 Runtime 缺少 unpack200")
-        unpack200.setExecutable(true, false)
-        val libPath = listOf(
-            File(root, "lib/aarch64").absolutePath,
-            File(root, "lib/aarch64/server").absolutePath,
-            File(root, "lib/aarch64/jli").absolutePath,
-            "/system/lib64"
-        ).joinToString(":")
-        root.walkTopDown().filter { it.isFile && it.name.endsWith(".pack") }.toList().forEach { packed ->
-            val output = File(packed.parentFile, packed.name.removeSuffix(".pack"))
-            val command = "export LD_LIBRARY_PATH='$libPath'; exec '${unpack200.absolutePath}' -r '${packed.absolutePath}' '${output.absolutePath}'"
-            val process = ProcessBuilder("/system/bin/sh", "-c", command).apply {
-                redirectErrorStream(true)
-            }.start()
-            val outputText = process.inputStream.bufferedReader().use { it.readText() }
-            if (!process.waitFor(60, TimeUnit.SECONDS) || process.exitValue() != 0 || !output.isFile) {
-                process.destroyForcibly()
-                throw IllegalStateException("unpack200 失败：${packed.relativeTo(root)} ${outputText.takeLast(160)}")
-            }
-        }
-    }
-
-    private fun verifyJava8Runtime(java: File, root: File): Boolean {
-        val libPath = listOf(
-            File(root, "lib/aarch64").absolutePath,
-            File(root, "lib/aarch64/server").absolutePath,
-            File(root, "lib/aarch64/jli").absolutePath,
-            File(installer.rootDir, "lib").absolutePath,
-            "/system/lib64",
-            "/vendor/lib64",
-            "/vendor/lib64/hw",
-            "/system_ext/lib64",
-            appContext.applicationInfo.nativeLibraryDir
-        ).joinToString(":")
-        val process = runCatching {
-            ProcessBuilder(
-                "/system/bin/sh", "-c",
-                "export JAVA_HOME='${root.absolutePath}'; " +
-                    "export HOME='${File(installer.rootDir, "home").absolutePath}'; " +
-                    "export TMPDIR='${File(installer.rootDir, "tmp").absolutePath}'; " +
-                    "export PATH='${File(root, "bin").absolutePath}:/system/bin:/system/xbin'; " +
-                    "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -Xint " +
-                        "-XX:-UseCompressedOops -XX:-UseCompressedClassPointers -version"
-            ).apply {
-                redirectErrorStream(true)
-            }.start()
-        }.getOrNull() ?: return false
-        val output = process.inputStream.bufferedReader().use { it.readText() }
-        val finished = process.waitFor(30, TimeUnit.SECONDS)
-        if (!finished) process.destroyForcibly()
-        if (!finished || process.exitValue() != 0) {
-            val excerpt = if (output.length <= 1600) output else output.take(1100) + "\n...\n" + output.takeLast(400)
-            emitLog("[java] Java 8 Runtime 启动校验失败：$excerpt")
-        }
-        return finished && process.exitValue() == 0 && output.contains("1.8.")
-    }
-
-    @Suppress("UNUSED")
-    private suspend fun legacyJava8Debian(): Boolean {
-        val prefix = installer.rootDir
-        emitLog("[java] 注意：正在 Debian ARM64 glibc 环境安装 Java 8，非 Android 原生 Termux Java")
-        var code = execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot-distro")
+    private fun prepareUbuntuRuntime(): Boolean {
+        var code = execOnce(
+            "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
+            "--allow-unauthenticated", "-y", "proot-distro"
+        )
         if (code != 0) return false
-        // dpkg-wrapper skips maintainer scripts, so newly installed commands need
-        // the same path and executable repair as the bootstrap environment.
         fixUsrBin()
         fixScriptsOnce()
         repairProotDistroPaths()
@@ -411,63 +200,54 @@ class TermuxRuntime(context: Context) {
         repairProotLibraries()
         installProotLauncher()
         ensureRootfsExecutable()
-        // libtalloc is unpacked together with proot. Repair it only after apt has
-        // finished, then verify proot before creating a potentially large rootfs.
-        if (!verifyProot()) {
-            emitLog("[java] Java 8 环境依赖修复失败：proot 无法启动，请在概览页执行运行环境修复后重试")
+        if (!verifyProot()) return false
+
+        if (runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0) return true
+        if (distroRootfs("ubuntu").isDirectory) {
+            emitLog("[java] Ubuntu 容器已存在但无法进入，未自动删除旧 rootfs；请在运行环境修复中重置 Ubuntu")
             return false
         }
-        for (distro in listOf("debian", "ubuntu")) {
-            val distroBase = File(prefix, "var/lib/proot-distro/installed-rootfs/$distro")
-            if (!rootfsHasShell(distro)) {
-                if (distroBase.exists()) {
-                    emitLog("[java] 检测到不完整的 $distro 容器，正在重置后重新部署")
-                    val resetCode = execOnceWithTimeout(90_000, "proot-distro", "reset", distro)
-                    if (resetCode != 0 || !rootfsHasShell(distro)) {
-                        emitLog("[java] $distro rootfs reset failed; removing stale container")
-                        execOnceWithTimeout(30_000, "proot-distro", "remove", distro)
-                    }
-                } else {
-                    // proot-distro may retain the container registry even when the relocated rootfs directory is absent.
-                    emitLog("[java] $distro rootfs directory is missing; removing stale container record")
-                    execOnceWithTimeout(30_000, "proot-distro", "remove", distro)
-                }
-                emitLog("[java] 正在部署 $distro ARM64 环境，首次安装需要较长时间")
-                emitLog("[java] 正在下载 $distro ARM64 镜像，网络异常时最多等待 3 分钟")
-                code = execOnceWithTimeout(180_000, "proot-distro", "install", distro)
-                if (code != 0 || !rootfsHasShell(distro)) {
-                    emitLog("[java] $distro rootfs 部署失败或超时，跳过该环境，避免重复等待")
-                    continue
-                }
-            }
-            emitLog("[java] 正在 $distro 中安装 openjdk-8-jdk")
-            emitLog("[java] $distro rootfs ready: ${distroRootfs(distro).absolutePath}")
-            val apt = "apt-get -o Acquire::Retries=1 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-            code = execDistro(distro, "$apt update && DEBIAN_FRONTEND=noninteractive $apt install -y openjdk-8-jdk")
-            // Debian/Ubuntu rolling images may no longer publish OpenJDK 8. In that
-            // case use the maintained Eclipse Temurin ARM64 build inside glibc.
-            if (code != 0) {
-                emitLog("[java] $distro 软件源未提供 openjdk-8-jdk，改用 Temurin ARM64 Java 8（非 Termux 官方源）")
-                code = execDistro(distro,
-                    "$apt update && DEBIAN_FRONTEND=noninteractive $apt install -y ca-certificates curl tar && " +
-                        "mkdir -p /opt/temurin8 && curl -fL --retry 3 " +
-                        "'https://api.adoptium.net/v3/binary/latest/8/ga/linux/aarch64/jdk/hotspot/normal/eclipse?project=jdk' " +
-                        "-o /tmp/temurin8.tar.gz && rm -rf /opt/temurin8/* && " +
-                        "tar -xzf /tmp/temurin8.tar.gz -C /opt/temurin8 --strip-components=1 && " +
-                        "ln -sfn /opt/temurin8/bin/java /usr/local/bin/java && java -version"
-                )
-            }
-            if (code == 0) {
-                val verifyCode = execDistro(distro, "java -version")
-                if (verifyCode == 0) {
-                    File(prefix, "java8-debian-ready").writeText("$distro-arm64-openjdk-8\n")
-                    emitLog("[java] Java 8 ARM64 $distro 环境安装完成（非 Termux 官方源）")
-                    return true
-                }
-            }
-            emitLog("[java] $distro 中未能安装 openjdk-8-jdk，尝试下一个环境")
-        }
-        return false
+        emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
+        code = execOnceWithTimeout(900_000, "proot-distro", "install", "ubuntu")
+        return code == 0 && runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
+    }
+
+    private fun runUbuntu(command: String, timeoutMs: Long = 120_000): Int =
+        execOnceWithTimeout(
+            timeoutMs,
+            "proot-distro", "login", "ubuntu", "--", "/bin/sh", "-lc", command
+        )
+
+    /** Run a Java 8 installer inside Ubuntu with only the selected server bound in. */
+    fun runJava8Installer(jarPath: String, serverDir: File, timeoutMs: Long = 900_000): Int {
+        val guestDir = "/srv/mineserve"
+        val guestJar = "$guestDir/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
+        val command = "export JAVA_HOME=/opt/mineserve-java8; " +
+            "export TMPDIR=/tmp; export HOME=/root; cd '$guestDir' && " +
+            "exec /opt/mineserve-java8/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
+            "--installServer '$guestDir'"
+        return execUbuntuBound(
+            serverDir,
+            command,
+            timeoutMs
+        )
+    }
+
+    /** Execute a caller-provided Java 8 setup command inside the Ubuntu container. */
+    fun runJava8Command(serverDir: File, command: String, timeoutMs: Long = 900_000): Int =
+        execUbuntuBound(serverDir, command, timeoutMs)
+
+    private fun execUbuntuBound(serverDir: File, command: String, timeoutMs: Long): Int {
+        val prefix = installer.rootDir.absolutePath
+        val prootDistro = listOf(
+            File(prefix, "bin/proot-distro"),
+            File(prefix, "usr/bin/proot-distro")
+        ).firstOrNull { it.isFile }?.absolutePath ?: "proot-distro"
+        return execOnceWithTimeout(
+            timeoutMs,
+            prootDistro, "login", "ubuntu", "--bind", "${serverDir.absolutePath}:/srv/mineserve",
+            "--", "/bin/sh", "-lc", command
+        )
     }
 
     suspend fun clearAndReinstallJava(): Boolean = withContext(Dispatchers.IO) {
@@ -481,7 +261,10 @@ class TermuxRuntime(context: Context) {
             }
             javaCandidates(version).forEach { File(it).deleteRecursively() }
             if (version == JavaVersion.Java8) {
+                File(installer.rootDir, "java-8-ubuntu-ready").delete()
                 File(installer.rootDir, "java-8-android-ready").delete()
+                File(installer.rootDir, "lib/jvm/java-8-android").deleteRecursively()
+                runUbuntu("rm -rf /opt/mineserve-java8", 120_000)
             }
         }
         File(installer.rootDir, "bin/java").delete()
@@ -491,7 +274,7 @@ class TermuxRuntime(context: Context) {
     private fun javaCandidates(version: JavaVersion): List<String> {
         val prefix = installer.rootDir.absolutePath
         if (version == JavaVersion.Java8) {
-            return listOf("$prefix/lib/jvm/java-8-android")
+            return emptyList()
         }
         val candidates = mutableListOf(
             "$prefix/lib/jvm/${version.directoryName}",
@@ -499,9 +282,6 @@ class TermuxRuntime(context: Context) {
         )
         return candidates
     }
-
-    private fun java8RuntimeDir(): File =
-        File(installer.rootDir, "lib/jvm/java-8-android")
 
     private fun repairProotLibraries(): Boolean {
         val prefix = installer.rootDir
@@ -614,38 +394,12 @@ class TermuxRuntime(context: Context) {
         if (fixed > 0) emitLog("[bootstrap] 修复 $fixed 个 proot-distro 路径")
     }
 
-    /** Run inside a deployed rootfs without proot-distro's hard-coded Termux paths. */
-    private fun execDistro(distro: String, command: String): Int {
-        val prefix = installer.rootDir.absolutePath
-        val rootfs = distroRootfs(distro)
-        val shell = when {
-            File(rootfs, "bin/bash").isFile -> "/bin/bash"
-            File(rootfs, "usr/bin/bash").isFile -> "/usr/bin/bash"
-            else -> null
-        }
-        if (shell == null) {
-            emitLog("[java] $distro rootfs 缺少 /usr/bin/bash，无法启动 glibc 环境")
-            return 126
-        }
-        return execOnce(
-            "proot", "--link2symlink", "-0", "-r", rootfs.absolutePath,
-            "-b", "/dev", "-b", "/proc", "-b", "/sys",
-            "-b", "$prefix/tmp:/tmp", "-w", "/root",
-            shell, "-c", command
-        )
-    }
-
     private fun distroRootfs(distro: String): File {
         val base = File(installer.rootDir, "var/lib/proot-distro/installed-rootfs/$distro")
         val candidates = listOf(base, File(base, "rootfs"), File(base, "fs"))
         return candidates.firstOrNull { root ->
             File(root, "bin").exists() || File(root, "usr").exists()
         } ?: base
-    }
-
-    private fun rootfsHasShell(distro: String): Boolean {
-        val root = distroRootfs(distro)
-        return File(root, "bin/bash").isFile || File(root, "usr/bin/bash").isFile
     }
 
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
@@ -734,6 +488,23 @@ class TermuxRuntime(context: Context) {
     fun autoRepairRuntime(javaVersion: JavaVersion, needsFonts: Boolean): Int {
         if (!isReady()) return 0
         val prefix = installer.rootDir
+        if (javaVersion == JavaVersion.Java8) {
+            val ready = java8UbuntuReady() || runBlocking { installJava8Ubuntu() }
+            if (!ready) {
+                emitLog("[repair] Java 8 Ubuntu ARM64 运行环境不可用")
+                return 0
+            }
+            if (needsFonts) {
+                val code = runUbuntu(
+                    "export DEBIAN_FRONTEND=noninteractive; " +
+                        "apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 && " +
+                        "apt-get install -y ca-certificates fontconfig fonts-dejavu-core && fc-cache -f",
+                    300_000
+                )
+                if (code != 0) emitLog("[repair] Ubuntu 字体运行库修复失败，将继续尝试无图形模式启动")
+            }
+            return 0
+        }
         listOf(
             File(prefix, "tmp"),
             File(prefix, "home"),
@@ -1111,7 +882,7 @@ class TermuxRuntime(context: Context) {
 
     /** 判断指定 Java 版本目录是否完整（bin/java + libjli.so 或 libjava.so 存在）。 */
     private fun isJavaComplete(version: JavaVersion): Boolean {
-        if (version == JavaVersion.Java8) return java8RuntimeReady()
+        if (version == JavaVersion.Java8) return java8UbuntuReady()
         return javaCandidates(version).any { path ->
         val jvmDir = File(path)
         val binJava = File(jvmDir, "bin/java")
@@ -1123,7 +894,7 @@ class TermuxRuntime(context: Context) {
 
     /** 用于 compat 归位：任意一个已知 JDK 完整即可避免移动整个 jvm 目录。 */
     private fun jvmRootHasCompleteJava(jvmRoot: File): Boolean =
-        JavaVersion.values().any { version ->
+        JavaVersion.values().filter { it != JavaVersion.Java8 }.any { version ->
             File(jvmRoot, version.directoryName).let { jvmDir ->
                 File(jvmDir, "bin/java").isFile &&
                     (File(jvmDir, "lib/jli/libjli.so").isFile || File(jvmDir, "lib/libjava.so").isFile)
@@ -1141,9 +912,9 @@ class TermuxRuntime(context: Context) {
 
             installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境不完整，正在修复...")
             if (version == JavaVersion.Java8) {
-                val repairedJava8 = runBlocking { installJava8AndroidRuntime() }
+                val repairedJava8 = runBlocking { installJava8Ubuntu() }
                 if (repairedJava8) repaired++
-                else installer.onLog?.invoke("[bootstrap] Java 8 Android ARM64 运行时自动修复失败")
+                else installer.onLog?.invoke("[bootstrap] Java 8 Ubuntu ARM64 运行时自动修复失败")
                 return@forEach
             }
             val code = execOnce(
@@ -1292,7 +1063,7 @@ class TermuxRuntime(context: Context) {
                 return
             }
         if (selectedVersion == JavaVersion.Java8) {
-            Log.i(TAG, "fixJavaSymlinks: Java 8 uses the Android ARM64 runtime; no Termux wrapper needed")
+            Log.i(TAG, "fixJavaSymlinks: Java 8 runs inside Ubuntu; no Termux wrapper needed")
             return
         }
         val jvmCandidates = javaCandidates(selectedVersion).map(::File)
@@ -1411,6 +1182,78 @@ class TermuxRuntime(context: Context) {
         }
     }
 
+    /** Start Java 8 in Ubuntu/glibc; the host server directory is exposed as /srv/mineserve. */
+    private fun startMcInUbuntu(
+        jarPath: String,
+        maxHeapMb: Int,
+        serverDir: File,
+        onExit: (Int) -> Unit,
+        launchArgs: String?,
+        logFile: File
+    ): Process {
+        if (!java8UbuntuReady()) {
+            emitLog("[startMc] Java 8 Ubuntu ARM64 运行环境未安装或不完整")
+            throw RuntimeException("Java 8 Ubuntu runtime is not ready")
+        }
+        val guestDir = "/srv/mineserve"
+        val guestJar = "$guestDir/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
+        val guestLaunchArgs = launchArgs?.replace(serverDir.absolutePath, guestDir)
+        val javaArguments = guestLaunchArgs ?: "-jar '$guestJar'"
+        val command = "export JAVA_HOME=/opt/mineserve-java8; " +
+            "export PATH=\"/opt/mineserve-java8/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; " +
+            "export TMPDIR=/tmp; export HOME=/root; export FONTCONFIG_PATH=/etc/fonts; " +
+            "cd '$guestDir' && exec /opt/mineserve-java8/bin/java " +
+            "-Djava.awt.headless=true -Djava.io.tmpdir=/tmp " +
+            "-Doshi.util.use.jna=false -Djna.nosys=true " +
+            "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
+            "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
+            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments nogui"
+        val prefix = installer.rootDir.absolutePath
+        val prootDistro = listOf(
+            File(prefix, "bin/proot-distro"),
+            File(prefix, "usr/bin/proot-distro")
+        ).firstOrNull { it.isFile }?.absolutePath ?: "proot-distro"
+        val process = ProcessBuilder(
+            prootDistro, "login", "ubuntu", "--bind", "${serverDir.absolutePath}:$guestDir",
+            "--", "/bin/sh", "-lc", command
+        ).apply {
+            redirectErrorStream(true)
+            directory(serverDir)
+            environment().putAll(executor.termuxEnv())
+        }.start()
+        Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
+        emitLog("[startMc] java 路径: Ubuntu:/opt/mineserve-java8/bin/java")
+        mcProcess = process
+        mcStdin = process.outputStream
+        Thread({
+            try {
+                val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(
+                    java.io.FileOutputStream(logFile, true), Charsets.UTF_8), 8192)
+                val reader = process.inputStream.bufferedReader()
+                var line = reader.readLine()
+                var lineCount = 0
+                while (line != null) {
+                    executor.emit(line)
+                    writer.appendLine(line)
+                    if (++lineCount % 50 == 0) writer.flush()
+                    line = reader.readLine()
+                }
+                writer.flush()
+                writer.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "Ubuntu Java 8 stdout reader error: ${e.message}")
+            }
+        }, "mc-ubuntu-stdout-reader").start()
+        Thread({
+            val code = process.waitFor()
+            Log.w(TAG, "Ubuntu Java 8 MC process exited code=$code")
+            mcProcess = null
+            mcStdin = null
+            onExit(code)
+        }, "mc-ubuntu-watch").start()
+        return process
+    }
+
     /**
      * 直接用 ProcessBuilder 启动 MC 服务（不再依赖 tmux）。
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
@@ -1432,8 +1275,11 @@ class TermuxRuntime(context: Context) {
         // 占着 world/session.lock → 新实例启动报 already locked）
         killOrphanMcProcess(serverDir)
 
-        val useAndroidJava8 = javaVersion == JavaVersion.Java8
-        // 探测 Termux Java 实际路径；Java 8 使用 Debian glibc 环境中的 java。
+        if (javaVersion == JavaVersion.Java8) {
+            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile)
+        }
+
+        // Java 17/25 continue to use the existing Termux-hosted launch path.
         val javaPath = resolveJavaPath(prefix, javaVersion) ?: run {
             emitLog("[startMc] 错误: java 未找到，openjdk 可能未安装。请删除 Termux 环境后重新初始化")
             throw RuntimeException("java not found in Termux environment")
@@ -1447,25 +1293,16 @@ class TermuxRuntime(context: Context) {
         // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，文件实际落在此处
         val compatUsr = "$prefix/data/data/com.termux/files/usr"
         // jvmLibDir：从 javaPath 推导其父目录的 lib 子目录（javaPath = .../bin/java → 父=bin → 父=jvm目录 → lib）
-        val jvmLibDir = if (useAndroidJava8) {
-            File(javaPath).parentFile?.parentFile?.let { File(it, "lib/aarch64") }?.absolutePath
-        } else {
-            File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath
-        } ?: "$prefix/lib/jvm/java-25-openjdk/lib"
+        val jvmLibDir = File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath
+            ?: "$prefix/lib/jvm/java-25-openjdk/lib"
         // 兜底：将每个受支持版本及 compat 路径加入库搜索路径。
         val allJvmLibs = JavaVersion.values().flatMap { version ->
             javaCandidates(version).flatMap { candidate ->
                 listOf("$candidate/lib", "$candidate/lib/server")
             }
         }.joinToString(":")
-        val java8ExtraLibs = if (useAndroidJava8) {
-            ":/vendor/lib64:/vendor/lib64/hw:/system_ext/lib64:${appContext.applicationInfo.nativeLibraryDir}"
-        } else ""
-        val java8ExecutionMode = if (useAndroidJava8) {
-            "-Xint -XX:-UseCompressedOops -XX:-UseCompressedClassPointers "
-        } else ""
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64$java8ExtraLibs'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
             "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
@@ -1473,7 +1310,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' ${java8ExecutionMode}-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
+            "'$javaPath' -Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
@@ -1750,21 +1587,5 @@ class TermuxRuntime(context: Context) {
 
     companion object {
         private const val TAG = "TermuxRuntime"
-        private const val JAVA8_ANDROID_URL =
-            "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz"
-        private val JAVA8_ANDROID_URLS = listOf(
-            "https://cdn.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz",
-            "https://fastly.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz",
-            JAVA8_ANDROID_URL
-        )
-        private const val JAVA8_ANDROID_SHA256 =
-            "DEED9083A1047AF1AFAF2D7F1A2DE4AE39FADF62C52881F075793E80274956CF"
-        private const val JAVA8_UNIVERSAL_SHA256 =
-            "150072CFA1D9E037C31E4BF9770AA5470AE46D0BFEFD366B7CE5B2F940EDE3F3"
-        private val JAVA8_UNIVERSAL_URLS = listOf(
-            "https://cdn.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/universal.tar.xz",
-            "https://fastly.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/universal.tar.xz",
-            "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/universal.tar.xz"
-        )
     }
 }

@@ -900,7 +900,7 @@ private fun JavaManagementCard(
     McCard(title = "Java 运行环境") {
         Text("仅提供 Java 8、Java 17、Java 25", color = Muted, fontSize = 11.sp)
         Text(
-            "注意：Java 8 使用 Android ARM64 适配版，非 Termux 官方源；仅兼容 ARM64 设备。",
+            "注意：Java 8 使用 Ubuntu ARM64 glibc 原生运行库，非 Termux 官方源；需要 Ubuntu 容器。",
             color = Coral,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold

@@ -109,7 +109,7 @@ enum class InstallStep(val label: String) {
 
 @Serializable
 enum class JavaVersion(val displayName: String, val packageName: String, val directoryName: String) {
-    Java8("Java 8", "openjdk-8-jdk", "java-8-openjdk"),
+    Java8("Java 8", "ubuntu-java8", "java-8-ubuntu"),
     Java17("Java 17", "openjdk-17", "java-17-openjdk"),
     Java25("Java 25", "openjdk-25", "java-25-openjdk")
 }
