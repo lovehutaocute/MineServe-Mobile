@@ -153,6 +153,7 @@ class TermuxRuntime(context: Context) {
         }
         val prefix = installer.rootDir
         val target = File(prefix, "lib/jvm/java-8-android")
+        val universalArchive = File(prefix, "tmp/java8-android-universal.tar.xz")
         val archive = File(prefix, "tmp/java8-android-arm64.tar.xz")
         val marker = File(prefix, "java-8-android-ready")
         emitLog("[java] 注意：Android ARM64 适配版，非 Termux 官方源；仅兼容 ARM64")
@@ -160,6 +161,28 @@ class TermuxRuntime(context: Context) {
         marker.delete()
         return try {
             archive.parentFile?.mkdirs()
+            target.deleteRecursively()
+            var universalDownloaded = false
+            var universalError: Exception? = null
+            for (url in JAVA8_UNIVERSAL_URLS) {
+                try {
+                    emitLog("[java] Java 8 通用运行库下载源：$url")
+                    downloadJava8Archive(url, universalArchive)
+                    universalDownloaded = true
+                    break
+                } catch (e: Exception) {
+                    universalError = e
+                    universalArchive.delete()
+                    emitLog("[java] 通用运行库下载源失败：${e.message}，尝试备用源")
+                }
+            }
+            if (!universalDownloaded) {
+                throw universalError ?: IllegalStateException("Java 8 通用运行库下载失败")
+            }
+            if (!JAVA8_UNIVERSAL_SHA256.equals(sha256File(universalArchive), ignoreCase = true)) {
+                throw IllegalStateException("Java 8 通用运行库 SHA-256 校验失败")
+            }
+            extractJava8Archive(universalArchive, target)
             var downloaded = false
             var lastError: Exception? = null
             for (url in JAVA8_ANDROID_URLS) {
@@ -178,8 +201,8 @@ class TermuxRuntime(context: Context) {
             if (!JAVA8_ANDROID_SHA256.equals(sha256File(archive), ignoreCase = true)) {
                 throw IllegalStateException("Java 8 Runtime SHA-256 校验失败")
             }
-            target.deleteRecursively()
             extractJava8Archive(archive, target)
+            unpackJava8PackFiles(target)
             val java = File(target, "bin/java")
             java.setExecutable(true, false)
             if (!isAndroidArm64Elf(java) || !verifyJava8Runtime(java, target)) {
@@ -194,6 +217,7 @@ class TermuxRuntime(context: Context) {
             emitLog("[java] Java 8 安装失败：${e.message}")
             false
         } finally {
+            universalArchive.delete()
             archive.delete()
         }
     }
@@ -205,7 +229,8 @@ class TermuxRuntime(context: Context) {
         javaFile.setExecutable(true, false)
         val java = isAndroidArm64Elf(javaFile)
         val jvm = File(root, "lib/aarch64/server/libjvm.so").isFile
-        return marker && java && jvm
+        val rt = File(root, "lib/rt.jar").isFile
+        return marker && java && jvm && rt
     }
 
     private fun downloadJava8Archive(url: String, target: File) {
@@ -309,6 +334,30 @@ class TermuxRuntime(context: Context) {
             }
         }
         File(target, "bin").listFiles()?.forEach { it.setExecutable(true, false) }
+    }
+
+    private fun unpackJava8PackFiles(root: File) {
+        val unpack200 = File(root, "bin/unpack200")
+        if (!unpack200.isFile) throw IllegalStateException("Java 8 Runtime 缺少 unpack200")
+        unpack200.setExecutable(true, false)
+        val libPath = listOf(
+            File(root, "lib/aarch64").absolutePath,
+            File(root, "lib/aarch64/server").absolutePath,
+            File(root, "lib/aarch64/jli").absolutePath,
+            "/system/lib64"
+        ).joinToString(":")
+        root.walkTopDown().filter { it.isFile && it.name.endsWith(".pack") }.toList().forEach { packed ->
+            val output = File(packed.parentFile, packed.name.removeSuffix(".pack"))
+            val command = "export LD_LIBRARY_PATH='$libPath'; exec '${unpack200.absolutePath}' -r '${packed.absolutePath}' '${output.absolutePath}'"
+            val process = ProcessBuilder("/system/bin/sh", "-c", command).apply {
+                redirectErrorStream(true)
+            }.start()
+            val outputText = process.inputStream.bufferedReader().use { it.readText() }
+            if (!process.waitFor(60, TimeUnit.SECONDS) || process.exitValue() != 0 || !output.isFile) {
+                process.destroyForcibly()
+                throw IllegalStateException("unpack200 失败：${packed.relativeTo(root)} ${outputText.takeLast(160)}")
+            }
+        }
     }
 
     private fun verifyJava8Runtime(java: File, root: File): Boolean {
@@ -1693,5 +1742,12 @@ class TermuxRuntime(context: Context) {
         )
         private const val JAVA8_ANDROID_SHA256 =
             "DEED9083A1047AF1AFAF2D7F1A2DE4AE39FADF62C52881F075793E80274956CF"
+        private const val JAVA8_UNIVERSAL_SHA256 =
+            "150072CFA1D9E037C31E4BF9770AA5470AE46D0BFEFD366B7CE5B2F940EDE3F3"
+        private val JAVA8_UNIVERSAL_URLS = listOf(
+            "https://cdn.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/universal.tar.xz",
+            "https://fastly.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/universal.tar.xz",
+            "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/universal.tar.xz"
+        )
     }
 }
