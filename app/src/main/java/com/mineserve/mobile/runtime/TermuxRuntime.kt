@@ -380,7 +380,7 @@ class TermuxRuntime(context: Context) {
                     "export HOME='${File(installer.rootDir, "home").absolutePath}'; " +
                     "export TMPDIR='${File(installer.rootDir, "tmp").absolutePath}'; " +
                     "export PATH='${File(root, "bin").absolutePath}:/system/bin:/system/xbin'; " +
-                    "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -version"
+                    "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -Xint -version"
             ).apply {
                 redirectErrorStream(true)
             }.start()
@@ -1460,6 +1460,7 @@ class TermuxRuntime(context: Context) {
         val java8ExtraLibs = if (useAndroidJava8) {
             ":/vendor/lib64:/vendor/lib64/hw:/system_ext/lib64:${appContext.applicationInfo.nativeLibraryDir}"
         } else ""
+        val java8ExecutionMode = if (useAndroidJava8) "-Xint " else ""
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
             "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64$java8ExtraLibs'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
@@ -1469,7 +1470,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' -Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
+            "'$javaPath' ${java8ExecutionMode}-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
