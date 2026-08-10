@@ -181,6 +181,7 @@ class TermuxRuntime(context: Context) {
             target.deleteRecursively()
             extractJava8Archive(archive, target)
             val java = File(target, "bin/java")
+            java.setExecutable(true, false)
             if (!isAndroidArm64Elf(java) || !verifyJava8Runtime(java, target)) {
                 throw IllegalStateException("Java 8 Runtime bin/java 校验失败")
             }
@@ -200,7 +201,9 @@ class TermuxRuntime(context: Context) {
     private fun java8RuntimeReady(): Boolean {
         val root = File(installer.rootDir, "lib/jvm/java-8-android")
         val marker = File(installer.rootDir, "java-8-android-ready").isFile
-        val java = isAndroidArm64Elf(File(root, "bin/java"))
+        val javaFile = File(root, "bin/java")
+        javaFile.setExecutable(true, false)
+        val java = isAndroidArm64Elf(javaFile) && javaFile.canExecute()
         val jvm = File(root, "lib/aarch64/server/libjvm.so").isFile
         return marker && java && jvm
     }
@@ -266,7 +269,7 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun isAndroidArm64Elf(file: File): Boolean {
-        if (!file.isFile || !file.canExecute()) return false
+        if (!file.isFile) return false
         return runCatching {
             FileInputStream(file).use { input ->
                 val header = ByteArray(20)
@@ -1675,8 +1678,9 @@ class TermuxRuntime(context: Context) {
         private const val JAVA8_ANDROID_URL =
             "https://raw.githubusercontent.com/FCL-Team/FoldCraftLauncher/292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz"
         private val JAVA8_ANDROID_URLS = listOf(
-            JAVA8_ANDROID_URL,
-            "https://cdn.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz"
+            "https://cdn.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz",
+            "https://fastly.jsdelivr.net/gh/FCL-Team/FoldCraftLauncher@292325e2d5824fb693601fc5c9ae8c8cff171e8e/FCL/src/main/jreAssets/app_runtime/java/jre8/bin-arm64.tar.xz",
+            JAVA8_ANDROID_URL
         )
         private const val JAVA8_ANDROID_SHA256 =
             "DEED9083A1047AF1AFAF2D7F1A2DE4AE39FADF62C52881F075793E80274956CF"
