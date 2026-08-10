@@ -203,7 +203,7 @@ class TermuxRuntime(context: Context) {
         val marker = File(installer.rootDir, "java-8-android-ready").isFile
         val javaFile = File(root, "bin/java")
         javaFile.setExecutable(true, false)
-        val java = isAndroidArm64Elf(javaFile) && javaFile.canExecute()
+        val java = isAndroidArm64Elf(javaFile)
         val jvm = File(root, "lib/aarch64/server/libjvm.so").isFile
         return marker && java && jvm
     }
@@ -312,21 +312,27 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun verifyJava8Runtime(java: File, root: File): Boolean {
+        val libPath = listOf(
+            File(root, "lib/aarch64").absolutePath,
+            File(root, "lib/aarch64/server").absolutePath,
+            File(root, "lib/aarch64/jli").absolutePath,
+            File(installer.rootDir, "lib").absolutePath,
+            "/system/lib64"
+        ).joinToString(":")
         val process = runCatching {
-            ProcessBuilder(java.absolutePath, "-version").apply {
+            ProcessBuilder(
+                "/system/bin/sh", "-c",
+                "export LD_LIBRARY_PATH='$libPath'; exec '${java.absolutePath}' -version"
+            ).apply {
                 redirectErrorStream(true)
-                environment()["LD_LIBRARY_PATH"] = listOf(
-                    File(root, "lib/aarch64").absolutePath,
-                    File(root, "lib/aarch64/server").absolutePath,
-                    File(root, "lib/aarch64/jli").absolutePath,
-                    File(installer.rootDir, "lib").absolutePath,
-                    "/system/lib64"
-                ).joinToString(":")
             }.start()
         }.getOrNull() ?: return false
         val output = process.inputStream.bufferedReader().use { it.readText() }
         val finished = process.waitFor(30, TimeUnit.SECONDS)
         if (!finished) process.destroyForcibly()
+        if (!finished || process.exitValue() != 0) {
+            emitLog("[java] Java 8 Runtime 启动校验失败：${output.takeLast(240)}")
+        }
         return finished && process.exitValue() == 0 && output.contains("1.8.")
     }
 
@@ -1550,7 +1556,10 @@ class TermuxRuntime(context: Context) {
     private fun resolveJavaPath(prefix: String, version: JavaVersion? = null): String? {
         if (version != null) {
             return javaCandidates(version).map { "$it/bin/java" }
-                .firstOrNull { File(it).exists() && File(it).canExecute() }
+                .firstOrNull {
+                    val file = File(it)
+                    file.exists() && (version == JavaVersion.Java8 || file.canExecute())
+                }
         }
         // 候选路径列表（含 compat 目录下的实际路径）
         val candidates = buildList {
