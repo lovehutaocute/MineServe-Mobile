@@ -43,6 +43,8 @@ class McForegroundService : Service() {
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    // ponytail: one active server process, so one service-wide backup lock is enough.
+    @Volatile private var autoBackupRunning = false
 
     override fun onCreate() {
         super.onCreate()
@@ -124,6 +126,7 @@ class McForegroundService : Service() {
                             app.repository.configFlow.first()
                         }.getOrNull()
                         if (config != null) {
+                            maybeAutoBackup(config)
                             // list 命令获取在线玩家数（所有核心支持）
                             termux.sendCommand("list")
                             // Paper 核心额外发送 tps 命令
@@ -144,6 +147,32 @@ class McForegroundService : Service() {
     /**
      * 唤醒锁 + Wi-Fi 锁，确保 MC 进程在屏幕熄灭时仍可接收玩家连接
      */
+    private fun maybeAutoBackup(config: com.mineserve.mobile.data.McConfig) {
+        val active = config.installedCores.find { it.name == config.activeCoreName } ?: return
+        val intervalMs = config.autoBackupIntervalMin * 60_000L
+        if (intervalMs <= 0 || autoBackupRunning) return
+        val prefs = getSharedPreferences("auto_backup", MODE_PRIVATE)
+        val key = "last_${active.dirName}"
+        if (System.currentTimeMillis() - prefs.getLong(key, 0L) < intervalMs) return
+        autoBackupRunning = true
+        scope.launch {
+            try {
+                termux.emitLog("[backup] 正在自动备份 ${active.name}")
+                termux.sendCommand("save-all")
+                kotlinx.coroutines.delay(1_000L)
+                val path = termux.createSnapshot(config.maxSnapshots, active.dirName)
+                if (path != null) {
+                    prefs.edit().putLong(key, System.currentTimeMillis()).apply()
+                    termux.emitLog("[backup] 自动备份完成: ${java.io.File(path).name}")
+                } else termux.emitLog("[backup] 自动备份失败：未找到可备份的世界目录")
+            } catch (e: Exception) {
+                termux.emitLog("[backup] 自动备份失败: ${e.message}")
+            } finally {
+                autoBackupRunning = false
+            }
+        }
+    }
+
     private suspend fun acquireLocks() {
         val app = McApplication.get(this)
         val config = runCatching {

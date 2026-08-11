@@ -63,6 +63,7 @@ import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.EmptyHint
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
+import com.mineserve.mobile.ui.SegPill
 import com.mineserve.mobile.ui.theme.Coral
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Muted
@@ -76,6 +77,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
+    val config by vm.config.collectAsState()
     val snapshots by vm.snapshots.collectAsState()
     var isSnapshotting by remember { mutableStateOf(false) }
     var showDeleteWorldConfirm by remember { mutableStateOf(false) }
@@ -145,6 +147,18 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
             modifier = Modifier.fillMaxSize().padding(paddingValues).verticalScroll(rememberScrollState())
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_backup), title = stringResource(R.string.s324))
+
+            McCard(title = "自动备份") {
+                Text("仅在服务端运行时创建本地世界快照，自动保留数量使用当前备份设置。", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0 to "关闭", 30 to "30分钟", 60 to "1小时", 180 to "3小时").forEach { (minutes, label) ->
+                        SegPill(text = label, selected = config.autoBackupIntervalMin == minutes) {
+                            vm.setAutoBackupInterval(minutes)
+                        }
+                    }
+                }
+            }
 
             // 外部备份权限引导（未授权时显示，醒目样式）
             if (!hasStoragePerm) {

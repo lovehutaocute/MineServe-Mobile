@@ -176,6 +176,15 @@ class McServerController(
         downloadCoreTo(jarPath, config, dirName, onProgress)
         // 在新核心目录下创建 eula.txt 和 plugins/ 目录
         val serverDir = termux.serverDirFor(dirName)
+        if (config.selectedCore == ServerCore.PowerNukkitX) {
+            val properties = File(serverDir, "server.properties")
+            val current = if (properties.exists()) properties.readText() else ""
+            val portLine = "server-port=${config.localPort}"
+            val updated = if (Regex("(?m)^server-port=.*$").containsMatchIn(current)) {
+                current.replace(Regex("(?m)^server-port=.*$"), portLine)
+            } else "$current${if (current.isNotEmpty() && !current.endsWith("\n")) "\n" else ""}$portLine\n"
+            properties.writeText(updated)
+        }
         // NeoForge/Quilt：下载的是 installer.jar，执行安装命令生成启动环境（首次需下载依赖）
         if (config.selectedCore.needsInstaller) {
             termux.emitLog("[install] 正在执行 ${config.selectedCore.displayName} installer，首次安装需下载依赖，请耐心等待...")
@@ -253,6 +262,7 @@ class McServerController(
             ServerCore.Vanilla -> resolveVanillaUrl(version)
             ServerCore.Velocity -> resolveVelocityUrl(version)
             ServerCore.BungeeCord -> resolveBungeeUrl()
+            ServerCore.PowerNukkitX -> resolvePowerNukkitXUrl()
             ServerCore.Unknown -> throw IllegalArgumentException("未知核心类型，无法解析下载地址")
         }
     }
@@ -403,6 +413,15 @@ class McServerController(
         return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
     }
 
+    private fun resolvePowerNukkitXUrl(): String {
+        val release = fetchJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")
+        return release["assets"]?.jsonArray
+            ?.map { it.jsonObject }
+            ?.firstOrNull { it["name"]?.jsonPrimitive?.content == "powernukkitx.jar" }
+            ?.get("browser_download_url")?.jsonPrimitive?.content
+            ?: throw RuntimeException("PowerNukkitX: latest release has no powernukkitx.jar asset")
+    }
+
     // ── NeoForge：maven-metadata 按所选 MC 版本匹配 NeoForge 版本 installer ──
 
     private fun resolveNeoForgeUrl(version: String): String {
@@ -464,6 +483,7 @@ class McServerController(
             ServerCore.Quilt -> fetchQuiltVersions()
             ServerCore.Velocity -> fetchVelocityVersions()
             ServerCore.BungeeCord -> fetchBungeeVersions()
+            ServerCore.PowerNukkitX -> fetchPowerNukkitXVersions()
             ServerCore.Unknown -> emptyList()
         }
     }
@@ -486,6 +506,10 @@ class McServerController(
     }
 
     private fun fetchBungeeVersions(): List<String> = listOf("latest")
+
+    private fun fetchPowerNukkitXVersions(): List<String> = try {
+        listOf(fetchJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")["tag_name"]?.jsonPrimitive?.content ?: "latest")
+    } catch (_: Exception) { listOf("latest") }
 
     private fun fetchNeoForgeVersions(): List<String> = DEFAULT_MC_VERSIONS
 
@@ -645,6 +669,9 @@ class McServerController(
         // 找到当前选用的核心
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
+        if (activeCore.core == ServerCore.PowerNukkitX && config.selectedJavaVersion == JavaVersion.Java8) {
+            throw RuntimeException("PowerNukkitX 需要 Java 17 或 Java 25")
+        }
         val jarFile = termux.serverJarFileFor(activeCore.dirName)
         if (!jarFile.exists()) {
             throw RuntimeException("核心 ${activeCore.name} 的 server.jar 不存在，请重新下载")

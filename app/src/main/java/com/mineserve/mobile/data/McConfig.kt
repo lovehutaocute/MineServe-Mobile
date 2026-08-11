@@ -16,6 +16,7 @@ enum class ServerCore(val displayName: String) {
     Vanilla("Vanilla"),
     Velocity("Velocity"),
     BungeeCord("BungeeCord"),
+    PowerNukkitX("PowerNukkitX"),
     Unknown("未知");
 
     /** 是否支持 Bukkit/Spigot/Paper 插件体系 */

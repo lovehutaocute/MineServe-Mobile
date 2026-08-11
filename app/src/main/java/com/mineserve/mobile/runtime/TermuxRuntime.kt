@@ -1944,21 +1944,21 @@ class TermuxRuntime(context: Context) {
     fun createSnapshot(maxSnapshots: Int = 0, dirName: String = "default"): String? {
         val serverDir = File(installer.rootDir, "home/servers/$dirName")
         // MC 1.16+ 维度目录与 world 平级：world / world_nether / world_the_end
-        val worldDir = File(serverDir, "world")
+        val worlds = listOf("world", "world_nether", "world_the_end", "worlds")
+            .map { File(serverDir, it) }
+            .filter { it.isDirectory }
         val snapshotDir = File(installer.rootDir, "home/snapshots").apply { mkdirs() }
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
         val outFile = File(snapshotDir, "world_$ts.zip")
 
-        if (!worldDir.exists()) {
+        if (worlds.isEmpty()) {
             Log.w(TAG, "createSnapshot: world 目录不存在")
             return null
         }
         return try {
             ZipOutputStream(FileOutputStream(outFile)).use { zos ->
                 // 同步备份主世界、地狱、末地三个维度目录（存在的才打包，zip 保留目录层级）
-                val dirs = listOf(worldDir, File(serverDir, "world_nether"), File(serverDir, "world_the_end"))
-                    .filter { it.exists() }
-                dirs.forEach { root ->
+                worlds.forEach { root ->
                     root.walkTopDown().forEach { file ->
                         val relPath = file.relativeTo(serverDir).path
                         if (file.isDirectory) {

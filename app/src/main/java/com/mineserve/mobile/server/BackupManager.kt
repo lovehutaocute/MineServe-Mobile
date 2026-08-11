@@ -133,7 +133,7 @@ class BackupManager(private val termux: TermuxRuntime) {
         if (!ExternalBackupStore.ensure()) return null
         val dir = serverDir(dirName)
         val worlds = listOf(
-            File(dir, "world"), File(dir, "world_nether"), File(dir, "world_the_end")
+            File(dir, "world"), File(dir, "world_nether"), File(dir, "world_the_end"), File(dir, "worlds")
         )
         if (!worlds.any { it.isDirectory }) return null
         val out = File(ExternalBackupStore.rootDir, "world_${dirName}_${ts()}.zip")
@@ -174,7 +174,7 @@ class BackupManager(private val termux: TermuxRuntime) {
             stopServerIfRunning()
             val serverDir = serverDir(dirName)
             // 备份旧 world
-            listOf("world", "world_nether", "world_the_end").forEach { dim ->
+            listOf("world", "world_nether", "world_the_end", "worlds").forEach { dim ->
                 val d = File(serverDir, dim)
                 if (d.exists()) {
                     val bak = File(serverDir, "$dim.bak.${ts()}")
@@ -256,7 +256,7 @@ class BackupManager(private val termux: TermuxRuntime) {
             }
 
             val serverDir = worldDir(dirName).parentFile
-            val dims = listOf("world", "world_nether", "world_the_end")
+            val dims = listOf("world", "world_nether", "world_the_end", "worlds")
 
             // 2. 备份当前三维度目录（重命名为 *.bak.<timestamp>）
             dims.forEach { dim ->

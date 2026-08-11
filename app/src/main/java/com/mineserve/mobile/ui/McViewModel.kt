@@ -835,8 +835,13 @@ class McViewModel(
         }
     }
 
-    fun selectCore(core: ServerCore) =
-        updateConfig { it.copy(selectedCore = core) }
+    fun selectCore(core: ServerCore) = updateConfig {
+        if (core == ServerCore.PowerNukkitX) it.copy(
+            selectedCore = core,
+            mcVersion = "latest",
+            localPort = if (it.localPort == 25565) 19132 else it.localPort
+        ) else it.copy(selectedCore = core)
+    }
 
     fun setMcVersion(version: String) =
         updateConfig { it.copy(mcVersion = version) }
@@ -905,6 +910,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 controller.start(config.value)
+                startKeepAliveService()
                 _messageFlow.tryEmit(str(R.string.s196))
             } catch (e: Exception) {
                 repo.termuxRuntime.emitLog("[startMc] 启动失败: ${e.message}")

@@ -204,6 +204,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         ServerCore.Vanilla -> "Vanilla：Minecraft 官方原版服务端"
                         ServerCore.Velocity -> "Velocity：高性能代理端，可连接多个后端服务器（不支持插件/模组）"
                         ServerCore.BungeeCord -> "BungeeCord：经典代理端，支持子服务器间切换（不支持插件/模组）"
+                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端，使用 ARM64 Java 运行；默认 UDP 端口 19132，需 Java 17 或 Java 25"
                         ServerCore.Unknown -> "未知核心：核心类型无法自动识别（通常来自还原备份），可在设置中修改"
                     },
                     color = Muted,
