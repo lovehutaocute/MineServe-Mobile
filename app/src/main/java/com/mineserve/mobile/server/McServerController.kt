@@ -23,7 +23,6 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
-import java.security.MessageDigest
 import java.util.jar.JarFile
 
 /**
@@ -806,57 +805,13 @@ class McServerController(
         throw RuntimeException("Forge 启动文件缺失：未找到 unix_args.txt 或 forge-*.jar，请重新下载安装核心")
     }
 
-    private fun findLegacyForgeServerJar(serverDir: File, javaVersion: JavaVersion): File? {
-        if (javaVersion == JavaVersion.Java8) {
-            recoverJava8LegacyForgeJar(serverDir)?.let { return it }
-        }
-        return serverDir.listFiles()
+    private fun findLegacyForgeServerJar(serverDir: File, javaVersion: JavaVersion): File? =
+        serverDir.listFiles()
             ?.filter { file ->
                 file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar") &&
                     isLegacyForgeServerJar(file, serverDir, javaVersion)
             }
             ?.maxByOrNull { it.lastModified() }
-    }
-
-    /** Prefer Forge's checksum-verified library if the top-level launch jar is stale. */
-    private fun recoverJava8LegacyForgeJar(serverDir: File): File? {
-        val libraryRoot = File(serverDir, "libraries/net/minecraftforge/forge")
-        val libraryJar = libraryRoot.walkTopDown()
-            .firstOrNull { file ->
-                file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar") &&
-                    isLegacyForgeServerJar(file, serverDir, JavaVersion.Java8)
-            }
-            ?: return null
-        val topLevelJar = File(serverDir, libraryJar.name)
-        if (!sameFileContent(libraryJar, topLevelJar)) {
-            runCatching {
-                libraryJar.copyTo(topLevelJar, overwrite = true)
-                termux.emitLog("[startMc] 已从校验通过的 Forge 库恢复启动文件: ${topLevelJar.name}")
-            }.onFailure {
-                termux.emitLog("[startMc] Forge 启动文件恢复失败，使用库文件启动: ${it.message}")
-            }
-        }
-        return if (sameFileContent(libraryJar, topLevelJar)) topLevelJar else libraryJar
-    }
-
-    private fun sameFileContent(first: File, second: File): Boolean {
-        if (!first.isFile || !second.isFile || first.length() != second.length()) return false
-        return runCatching {
-            fun digest(file: File): ByteArray {
-                val algorithm = MessageDigest.getInstance("SHA-256")
-                file.inputStream().buffered().use { input ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        algorithm.update(buffer, 0, count)
-                    }
-                }
-                return algorithm.digest()
-            }
-            digest(first).contentEquals(digest(second))
-        }.getOrDefault(false)
-    }
 
     private fun isLegacyForgeServerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
         if (javaVersion == JavaVersion.Java8) {

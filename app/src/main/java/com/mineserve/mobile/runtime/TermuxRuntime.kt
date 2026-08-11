@@ -1532,10 +1532,18 @@ class TermuxRuntime(context: Context) {
         val guestJar = "$guestDir/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
         val guestLaunchArgs = launchArgs?.replace(serverDir.absolutePath, guestDir)
         val javaArguments = guestLaunchArgs ?: "-jar '$guestJar'"
+        val isLegacyForgeLaunch = launchArgs?.trim()?.startsWith("-jar") == true &&
+            launchArgs.contains("forge-")
+        val forgeLibraryRepair = if (isLegacyForgeLaunch) {
+            "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
+                "if [ -n \"${'$'}forge_jar\" ]; then forge_target=\"${'$'}(basename \"${'$'}forge_jar\")\"; " +
+                "if ! cmp -s \"${'$'}forge_jar\" \"${'$'}forge_target\" 2>/dev/null; then " +
+                "cp -f \"${'$'}forge_jar\" \"${'$'}forge_target\" && echo '[startMc] Java 8 Forge: restored launch jar from verified library'; fi; fi; "
+        } else ""
         val command = "export JAVA_HOME=$ubuntuJava8Home; " +
             "export PATH=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; " +
             "export TMPDIR=/tmp; export HOME=/root; export FONTCONFIG_PATH=/etc/fonts; " +
-            "cd '$guestDir' && exec /usr/bin/java " +
+            "cd '$guestDir' && $forgeLibraryRepair exec /usr/bin/java " +
             "-Djava.awt.headless=true -Djava.io.tmpdir=/tmp " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
@@ -1565,6 +1573,7 @@ class TermuxRuntime(context: Context) {
             environment().putAll(executor.termuxEnv())
         }.start()
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
+        if (isLegacyForgeLaunch) emitLog("[startMc] Java 8 Forge: validating launch jar from verified library")
         emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
         emitLog("[startMc] 正在启动 Java 8 服务端...")
         mcProcess = process
