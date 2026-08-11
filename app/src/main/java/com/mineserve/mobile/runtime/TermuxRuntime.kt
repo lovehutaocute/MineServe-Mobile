@@ -145,6 +145,10 @@ class TermuxRuntime(context: Context) {
     private suspend fun installJava8Ubuntu(): Boolean {
         val prefix = installer.rootDir
         val marker = File(prefix, "java-8-ubuntu-ready")
+        if (java8UbuntuReady()) {
+            emitLog("[java] Ubuntu ARM64 glibc Java 8 已安装，跳过重复下载")
+            return true
+        }
         emitLog("[java] 注意：正在 Ubuntu ARM64 glibc 环境安装 Java 8，非 Termux 官方源")
         emitLog("[java] Java 8 仅在 Ubuntu 内运行，不会修改 Java 17/25")
         marker.delete()
