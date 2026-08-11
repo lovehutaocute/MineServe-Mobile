@@ -826,6 +826,7 @@ class McServerController(
 
     private fun isForgeInstallerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
         if (javaVersion == JavaVersion.Java8) {
+            if (hasForgeInstallerMainClass(file)) return true
             val guestJar = "/srv/mineserve/${file.relativeTo(serverDir).invariantSeparatorsPath}"
             return termux.runJava8Command(
                 serverDir,
@@ -833,13 +834,15 @@ class McServerController(
                 60_000
             ) == 0
         }
-        return runCatching {
+        return hasForgeInstallerMainClass(file)
+    }
+
+    private fun hasForgeInstallerMainClass(file: File): Boolean = runCatching {
         JarFile(file).use { jar ->
             jar.manifest?.mainAttributes?.getValue("Main-Class")
                 ?.contains("net.minecraftforge.installer", ignoreCase = true) == true
         }
-        }.getOrDefault(false)
-    }
+    }.getOrDefault(false)
 
     suspend fun stop() = withContext(Dispatchers.IO) {
         termux.stopMc()
