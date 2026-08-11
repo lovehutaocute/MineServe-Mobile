@@ -753,13 +753,27 @@ class McServerController(
                 return "@${it.absolutePath}"
             }
 
-        findLegacyForgeServerJar(serverDir)?.let { jar ->
+        findLegacyForgeServerJar(serverDir, javaVersion)?.let { jar ->
             termux.emitLog("[startMc] Forge 旧版启动方式: ${jar.name}")
             return "-jar ${jar.absolutePath}"
         }
 
-        val installerJar = File(serverDir, "server.jar")
-        if (isForgeInstallerJar(installerJar)) {
+        // Java 8 downloads may leave the installer under its original forge-*.jar
+        // name. Java 17/25 keep the existing server.jar-only recovery behavior.
+        val installerCandidates = if (javaVersion == JavaVersion.Java8) {
+            buildList {
+                add(File(serverDir, "server.jar"))
+                serverDir.listFiles()
+                    ?.filter { it.isFile && it.name.startsWith("forge-") && it.name.endsWith(".jar") }
+                    ?.forEach(::add)
+            }
+        } else {
+            listOf(File(serverDir, "server.jar"))
+        }
+        val installerJar = installerCandidates.firstOrNull {
+            isForgeInstallerJar(it, serverDir, javaVersion)
+        }
+        if (installerJar != null) {
             termux.emitLog("[startMc] Forge 旧版安装产物不完整，正在重新部署服务端文件...")
             val code = runInstallerWithRetry(
                 installerJar.absolutePath,
@@ -769,7 +783,7 @@ class McServerController(
                 javaVersion
             )
             if (code == 0) {
-                findLegacyForgeServerJar(serverDir)?.let { jar ->
+                findLegacyForgeServerJar(serverDir, javaVersion)?.let { jar ->
                     termux.emitLog("[startMc] Forge 旧版服务端文件已修复: ${jar.name}")
                     return "-jar ${jar.absolutePath}"
                 }
@@ -780,20 +794,46 @@ class McServerController(
         throw RuntimeException("Forge 启动文件缺失：未找到 unix_args.txt 或 forge-*.jar，请重新下载安装核心")
     }
 
-    private fun findLegacyForgeServerJar(serverDir: File): File? =
+    private fun findLegacyForgeServerJar(serverDir: File, javaVersion: JavaVersion): File? =
         serverDir.listFiles()
             ?.filter { file ->
                 file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar") &&
-                    !isForgeInstallerJar(file)
+                    isLegacyForgeServerJar(file, serverDir, javaVersion)
             }
             ?.maxByOrNull { it.lastModified() }
 
-    private fun isForgeInstallerJar(file: File): Boolean = runCatching {
+    private fun isLegacyForgeServerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
+        if (javaVersion == JavaVersion.Java8) {
+            val guestJar = "/srv/mineserve/${file.relativeTo(serverDir).invariantSeparatorsPath}"
+            return termux.runJava8Command(
+                serverDir,
+                "jar tf '$guestJar' 2>/dev/null | grep -q 'net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class'",
+                60_000
+            ) == 0
+        }
+        return runCatching {
+            JarFile(file).use { jar ->
+                jar.getEntry("net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class") != null
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun isForgeInstallerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
+        if (javaVersion == JavaVersion.Java8) {
+            val guestJar = "/srv/mineserve/${file.relativeTo(serverDir).invariantSeparatorsPath}"
+            return termux.runJava8Command(
+                serverDir,
+                "jar tf '$guestJar' 2>/dev/null | grep -q 'net/minecraftforge/installer/SimpleInstaller.class'",
+                60_000
+            ) == 0
+        }
+        return runCatching {
         JarFile(file).use { jar ->
             jar.manifest?.mainAttributes?.getValue("Main-Class")
                 ?.contains("net.minecraftforge.installer", ignoreCase = true) == true
         }
-    }.getOrDefault(false)
+        }.getOrDefault(false)
+    }
 
     suspend fun stop() = withContext(Dispatchers.IO) {
         termux.stopMc()
