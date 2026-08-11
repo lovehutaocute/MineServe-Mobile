@@ -253,10 +253,10 @@ class TermuxRuntime(context: Context) {
 
         if (runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0) return true
         if (!installUbuntuBaseRootfs()) {
-            emitLog("[java] Ubuntu 容器已存在但无法进入，未自动删除旧 rootfs；请在运行环境修复中重置 Ubuntu")
+            emitLog("[java] Java 8 专用 Ubuntu rootfs 无法重建；旧的 Debian/Ubuntu 容器和服务器数据未被修改")
             return false
         }
-            emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
+        emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
         return runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
     }
 
@@ -268,20 +268,22 @@ class TermuxRuntime(context: Context) {
     private fun installUbuntuBaseRootfs(): Boolean {
         if (hasUsableUbuntuShell(java8Rootfs)) return true
 
-        val archive = File(installer.tmpDir, "ubuntu-base-20.04.6-arm64.tar.gz")
+        val archiveName = "ubuntu-base-20.04.5-base-arm64.tar.gz"
+        val archive = File(installer.tmpDir, archiveName)
         val urls = listOf(
-            "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.6-base-arm64.tar.gz",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.6-base-arm64.tar.gz"
+            "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/$archiveName",
+            "https://mirrors.ustc.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/$archiveName",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/$archiveName"
         )
         return try {
-            emitLog("[java] Downloading Ubuntu ARM64 base rootfs (not Docker Hub)")
+            emitLog("[java] 正在下载 Ubuntu 20.04 ARM64 基础 rootfs（非 Docker Hub）")
             archive.delete()
             var lastError: Exception? = null
             for (url in urls) {
                 try {
                     emitLog("[java] Ubuntu rootfs source: $url")
                     downloadUbuntuRootfs(url, archive)
-                    if (archive.length() > 8L * 1024 * 1024) break
+                    if (isPlausibleUbuntuArchive(archive)) break
                     throw IllegalStateException("Ubuntu rootfs download is incomplete")
                 } catch (e: Exception) {
                     lastError = e
@@ -289,10 +291,12 @@ class TermuxRuntime(context: Context) {
                     emitLog("[java] Ubuntu rootfs source failed: ${e.message}")
                 }
             }
-            if (!archive.isFile || archive.length() <= 8L * 1024 * 1024) {
+            if (!isPlausibleUbuntuArchive(archive)) {
                 throw lastError ?: IllegalStateException("Ubuntu rootfs download failed")
             }
 
+            // This is the dedicated Java 8 rootfs only.  Never touch legacy
+            // proot-distro containers, server files, worlds, plugins, or config.
             java8Rootfs.deleteRecursively()
             java8Rootfs.mkdirs()
             extractUbuntuRootfs(archive, java8Rootfs)
@@ -316,6 +320,13 @@ class TermuxRuntime(context: Context) {
             .map { File(rootfs, it) }
             .any { it.isFile && it.canExecute() }
 
+    private fun isPlausibleUbuntuArchive(archive: File): Boolean {
+        if (!archive.isFile || archive.length() < 20L * 1024 * 1024) return false
+        return FileInputStream(archive).use { input ->
+            input.read() == 0x1f && input.read() == 0x8b
+        }
+    }
+
     private fun downloadUbuntuRootfs(url: String, target: File) {
         val connection = (URL(url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 20_000
@@ -323,32 +334,35 @@ class TermuxRuntime(context: Context) {
             instanceFollowRedirects = true
             setRequestProperty("User-Agent", "MineServeMobile/1.0")
         }
-        connection.connect()
-        if (connection.responseCode !in 200..299) {
-            throw IllegalStateException("HTTP ${connection.responseCode}")
-        }
-        val total = connection.contentLengthLong
-        var downloaded = 0L
-        var lastPercent = -1
-        connection.inputStream.use { input ->
-            FileOutputStream(target).use { output ->
-                val buffer = ByteArray(64 * 1024)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    output.write(buffer, 0, count)
-                    downloaded += count
-                    if (total > 0) {
-                        val percent = (downloaded * 100 / total).toInt()
-                        if (percent / 10 != lastPercent / 10) {
-                            lastPercent = percent
-                            emitLog("[java] Ubuntu rootfs download: $percent%")
+        try {
+            connection.connect()
+            if (connection.responseCode !in 200..299) {
+                throw IllegalStateException("HTTP ${connection.responseCode}")
+            }
+            val total = connection.contentLengthLong
+            var downloaded = 0L
+            var lastPercent = -1
+            connection.inputStream.use { input ->
+                FileOutputStream(target).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        downloaded += count
+                        if (total > 0) {
+                            val percent = (downloaded * 100 / total).toInt()
+                            if (percent / 10 != lastPercent / 10) {
+                                lastPercent = percent
+                                emitLog("[java] Ubuntu rootfs download: $percent%")
+                            }
                         }
                     }
                 }
             }
+        } finally {
+            connection.disconnect()
         }
-        connection.disconnect()
     }
 
     private fun extractUbuntuRootfs(archive: File, destination: File) {
@@ -415,7 +429,7 @@ class TermuxRuntime(context: Context) {
             emitLog("[java] Ubuntu rootfs 缺少可执行 shell，无法启动")
             126
         } else {
-            val rootfs = distroRootfs("ubuntu")
+            val rootfs = java8Rootfs
             val shm = File(rootfs, "tmp").apply { mkdirs() }
             val args = mutableListOf(
                 "proot",
@@ -450,7 +464,7 @@ class TermuxRuntime(context: Context) {
 
     /** Restore executable bits lost while proot-distro applies a rootfs layer. */
     private fun repairUbuntuRootfs(): Boolean {
-        val rootfs = distroRootfs("ubuntu")
+        val rootfs = java8Rootfs
         if (!rootfs.isDirectory) return false
         var fixed = 0
         val visited = mutableSetOf<String>()
@@ -665,21 +679,6 @@ class TermuxRuntime(context: Context) {
         File(prefix, "tmp").mkdirs()
         File(prefix, "data/data/com.termux/files/usr/tmp").mkdirs()
         if (fixed > 0) emitLog("[bootstrap] 修复 $fixed 个 proot-distro 路径")
-    }
-
-    private fun distroRootfs(distro: String): File {
-        if (distro == "ubuntu" && java8Rootfs.isDirectory) return java8Rootfs
-        val newRootfs = File(installer.rootDir, "var/lib/proot-distro/containers/$distro/rootfs")
-        val legacyBase = File(installer.rootDir, "var/lib/proot-distro/installed-rootfs/$distro")
-        val candidates = listOf(
-            newRootfs,
-            legacyBase,
-            File(legacyBase, "rootfs"),
-            File(legacyBase, "fs")
-        )
-        return candidates.firstOrNull { root ->
-            File(root, "bin").exists() || File(root, "usr").exists()
-        } ?: newRootfs
     }
 
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
