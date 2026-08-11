@@ -211,6 +211,10 @@ class TermuxRuntime(context: Context) {
         code = execOnceWithTimeout(
             900_000, "proot-distro", "install", "ubuntu", env = prootEnvironment()
         )
+        // The freshly installed proot-distro scripts may be unpacked after the
+        // initial relocation pass. Apply the path and permission fixes again.
+        repairProotDistroPaths()
+        ensureRootfsExecutable()
         return code == 0 && runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
     }
 
@@ -220,8 +224,11 @@ class TermuxRuntime(context: Context) {
         return mapOf(
             "PROOT_TMP_DIR" to tmp,
             "TMPDIR" to tmp,
+            "TERMUX_PREFIX" to prefix,
+            "TERMUX_HOME" to "$prefix/home",
             "TERMUX__PREFIX" to prefix,
             "TERMUX__HOME" to "$prefix/home",
+            "TERMUX_APP_PACKAGE" to "com.mineserve.mobile",
             "TERMUX_APP__PACKAGE_NAME" to "com.mineserve.mobile",
             "TERMUX_VERSION" to "mineServe"
         )
@@ -401,6 +408,8 @@ class TermuxRuntime(context: Context) {
         val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
         launcher.writeText(
             "#!/system/bin/sh\n" +
+                "export PROOT_TMP_DIR='$prefix/tmp'\n" +
+                "export TMPDIR='$prefix/tmp'\n" +
                 "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'\n" +
                 "exec '$binary' \"${'$'}@\"\n"
         )
