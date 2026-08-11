@@ -185,9 +185,13 @@ class TermuxRuntime(context: Context) {
     private fun java8UbuntuReady(): Boolean {
         val rootfs = distroRootfs("ubuntu")
         val javaHome = File(rootfs, "opt/mineserve-java8")
+        val jvmLibrary = listOf(
+            File(javaHome, "jre/lib/aarch64/server/libjvm.so"),
+            File(javaHome, "lib/server/libjvm.so")
+        ).any { it.isFile }
         return File(installer.rootDir, "java-8-ubuntu-ready").isFile &&
             File(javaHome, "bin/java").isFile &&
-            File(javaHome, "lib/server/libjvm.so").isFile &&
+            jvmLibrary &&
             File(javaHome, "release").isFile
     }
 
