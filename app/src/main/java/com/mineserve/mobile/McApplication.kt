@@ -182,9 +182,7 @@ class McApplication : Application(), Configuration.Provider {
             repository.updateServerState {
                 it.copy(
                     currentProgress = 100,
-                    installSteps = com.mineserve.mobile.data.InstallStep.values().map { step ->
-                        com.mineserve.mobile.data.StepState(step, com.mineserve.mobile.data.StepStatus.Done)
-                    }
+                    installSteps = termuxRuntime.installedDependencySteps()
                 )
             }
         } else {
@@ -216,7 +214,9 @@ class McApplication : Application(), Configuration.Provider {
                     android.util.Log.w("McApplication", "fixRootfsPermissions after bootstrap failed: ${e.message}")
                 }
                 android.util.Log.i("McApplication", "bootstrap completed")
-                repository.updateServerState { it.copy(currentProgress = 100) }
+                repository.updateServerState {
+                    it.copy(currentProgress = 100, installSteps = termuxRuntime.installedDependencySteps())
+                }
             } else {
                 android.util.Log.e("McApplication", "bootstrap failed")
                 if (_bootstrapError.value == null) {

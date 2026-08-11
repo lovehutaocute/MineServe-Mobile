@@ -2,7 +2,11 @@ package com.mineserve.mobile.runtime
 
 import android.content.Context
 import android.util.Log
+import android.system.Os
+import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.StepState
+import com.mineserve.mobile.data.StepStatus
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.SharedFlow
@@ -10,15 +14,20 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
+import java.io.BufferedInputStream
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.OutputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
+import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 
 /**
  * Termux 运行时（去 tmux 化，参考 MC-Minder 思路直接管理进程）：
@@ -35,6 +44,14 @@ class TermuxRuntime(context: Context) {
     private val appContext = context.applicationContext
     internal val installer = BootstrapInstaller(context)
     private val executor = CommandExecutor(installer)
+
+    private val java8Rootfs: File
+        get() = File(installer.rootDir, "var/lib/mineserve/java8-ubuntu-rootfs")
+
+    private val java8ReadyMarker: File
+        get() = File(installer.rootDir, "java-8-ubuntu-ready")
+
+    private val ubuntuJava8Home = "/usr/lib/jvm/java-8-openjdk-arm64"
 
     /** MC 服务器进程（null 表示未启动） */
     @Volatile
@@ -127,6 +144,25 @@ class TermuxRuntime(context: Context) {
 
     fun installedJavaVersions(): Set<JavaVersion> = JavaVersion.values().filter(::isJavaInstalled).toSet()
 
+    fun installedDependencySteps(): List<StepState> = InstallStep.values().map { step ->
+        StepState(step, if (isDependencyInstalled(step)) StepStatus.Done else StepStatus.Wait)
+    }
+
+    fun isDependencyInstalled(step: InstallStep): Boolean {
+        val prefix = installer.rootDir
+        fun hasExecutable(vararg paths: String) = paths.any { path ->
+            File(prefix, path).let { it.isFile && it.canExecute() }
+        }
+        return when (step) {
+            InstallStep.Jdk -> isJavaInstalled(JavaVersion.Java17)
+            InstallStep.Wget -> hasExecutable("bin/wget", "usr/bin/wget", "data/data/com.termux/files/usr/bin/wget") &&
+                hasExecutable("bin/fc-cache", "usr/bin/fc-cache", "data/data/com.termux/files/usr/bin/fc-cache")
+            InstallStep.Frp -> hasExecutable("bin/frpc", "usr/bin/frpc", "data/data/com.termux/files/usr/bin/frpc")
+            InstallStep.Rclone -> hasExecutable("bin/rclone", "usr/bin/rclone", "data/data/com.termux/files/usr/bin/rclone")
+            InstallStep.Proot -> hasExecutable("bin/proot", "usr/bin/proot")
+        }
+    }
+
     suspend fun installJava(version: JavaVersion): Boolean = withContext(Dispatchers.IO) {
         if (!isReady()) throw RuntimeException("Termux 环境未初始化")
         if (version == JavaVersion.Java8) {
@@ -143,8 +179,7 @@ class TermuxRuntime(context: Context) {
 
     /** Install Java 8 inside the Ubuntu ARM64 glibc container. */
     private suspend fun installJava8Ubuntu(): Boolean {
-        val prefix = installer.rootDir
-        val marker = File(prefix, "java-8-ubuntu-ready")
+        val marker = java8ReadyMarker
         if (java8UbuntuReady()) {
             emitLog("[java] Ubuntu ARM64 glibc Java 8 已安装，跳过重复下载")
             return true
@@ -159,20 +194,18 @@ class TermuxRuntime(context: Context) {
             emitLog("[java] 正在 Ubuntu 中安装 ARM64 glibc Java 8，首次安装可能需要数分钟")
             val code = runUbuntu(
                 "export DEBIAN_FRONTEND=noninteractive; " +
+                    "printf '%s\\n' " +
+                    "'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports focal main restricted universe multiverse' " +
+                    "'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports focal-updates main restricted universe multiverse' " +
+                    "'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports focal-security main restricted universe multiverse' " +
+                    "> /etc/apt/sources.list && " +
                     "apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 && " +
-                    "apt-get install -y ca-certificates curl tar fontconfig fonts-dejavu-core && " +
-                    "rm -rf /opt/mineserve-java8 /tmp/mineserve-java8.tar.gz && " +
-                    "mkdir -p /opt/mineserve-java8 && " +
-                    "curl -fL --retry 3 --connect-timeout 20 --max-time 600 " +
-                    "'https://api.adoptium.net/v3/binary/latest/8/ga/linux/aarch64/jdk/hotspot/normal/eclipse?project=jdk' " +
-                    "-o /tmp/mineserve-java8.tar.gz && " +
-                    "tar -xzf /tmp/mineserve-java8.tar.gz -C /opt/mineserve-java8 --strip-components=1 && " +
-                    "test -x /opt/mineserve-java8/bin/java && " +
-                    "/opt/mineserve-java8/bin/java -version 2>&1 | grep -q '1\\.8\\.'",
+                    "apt-get install -y --no-install-recommends openjdk-8-jdk ca-certificates fontconfig fonts-dejavu-core && " +
+                    "test -x /usr/bin/java && /usr/bin/java -version 2>&1 | grep -q '1\\.8\\.'",
                 timeoutMs = 900_000
             )
             if (code != 0) throw IllegalStateException("Ubuntu 内 Java 8 校验失败（exit=$code）")
-            marker.writeText("ubuntu-arm64-glibc-temurin8\n")
+            marker.writeText("ubuntu-focal-arm64-openjdk8\n")
             emitLog("[java] Ubuntu ARM64 glibc Java 8 安装并校验完成")
             true
         } catch (e: Exception) {
@@ -183,14 +216,14 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun java8UbuntuReady(): Boolean {
-        val rootfs = distroRootfs("ubuntu")
-        val javaHome = File(rootfs, "opt/mineserve-java8")
+        val rootfs = java8Rootfs
+        val javaHome = File(rootfs, ubuntuJava8Home.removePrefix("/"))
         val jvmLibrary = listOf(
             File(javaHome, "jre/lib/aarch64/server/libjvm.so"),
             File(javaHome, "lib/server/libjvm.so")
         ).any { it.isFile }
-        return File(installer.rootDir, "java-8-ubuntu-ready").isFile &&
-            File(javaHome, "bin/java").isFile &&
+        return java8ReadyMarker.isFile &&
+            listOf(File(javaHome, "jre/bin/java"), File(javaHome, "bin/java")).any { it.isFile } &&
             jvmLibrary &&
             File(javaHome, "release").isFile
     }
@@ -198,12 +231,11 @@ class TermuxRuntime(context: Context) {
     private fun prepareUbuntuRuntime(): Boolean {
         var code = execOnce(
             "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
-            "--allow-unauthenticated", "-y", "proot-distro"
+            "--allow-unauthenticated", "-y", "proot"
         )
         if (code != 0) return false
         fixUsrBin()
         fixScriptsOnce()
-        repairProotDistroPaths()
         ensureRootfsExecutable()
         repairProotLibraries()
         installProotLauncher()
@@ -211,11 +243,12 @@ class TermuxRuntime(context: Context) {
         if (!verifyProot()) return false
 
         if (runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0) return true
-        if (distroRootfs("ubuntu").isDirectory) {
+        if (!installUbuntuBaseRootfs()) {
             emitLog("[java] Ubuntu 容器已存在但无法进入，未自动删除旧 rootfs；请在运行环境修复中重置 Ubuntu")
             return false
         }
             emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
+        return runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
         code = execOnceWithTimeout(
             900_000, "proot-distro", "install", "ubuntu", env = prootEnvironment()
         )
@@ -224,6 +257,134 @@ class TermuxRuntime(context: Context) {
         repairProotDistroPaths()
         ensureRootfsExecutable()
         return code == 0 && runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
+    }
+
+    /**
+     * Uses the Ubuntu Base image instead of proot-distro's Docker Hub image.
+     * Docker Hub commonly returns HTTP 429 on mobile networks; the two URLs
+     * below are ordinary Ubuntu archive endpoints and do not require an account.
+     */
+    private fun installUbuntuBaseRootfs(): Boolean {
+        if (hasUsableUbuntuShell(java8Rootfs)) return true
+
+        val archive = File(installer.tmpDir, "ubuntu-base-20.04.6-arm64.tar.gz")
+        val urls = listOf(
+            "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.6-base-arm64.tar.gz",
+            "https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/ubuntu-base-20.04.6-base-arm64.tar.gz"
+        )
+        return try {
+            emitLog("[java] Downloading Ubuntu ARM64 base rootfs (not Docker Hub)")
+            archive.delete()
+            var lastError: Exception? = null
+            for (url in urls) {
+                try {
+                    emitLog("[java] Ubuntu rootfs source: $url")
+                    downloadUbuntuRootfs(url, archive)
+                    if (archive.length() > 8L * 1024 * 1024) break
+                    throw IllegalStateException("Ubuntu rootfs download is incomplete")
+                } catch (e: Exception) {
+                    lastError = e
+                    archive.delete()
+                    emitLog("[java] Ubuntu rootfs source failed: ${e.message}")
+                }
+            }
+            if (!archive.isFile || archive.length() <= 8L * 1024 * 1024) {
+                throw lastError ?: IllegalStateException("Ubuntu rootfs download failed")
+            }
+
+            java8Rootfs.deleteRecursively()
+            java8Rootfs.mkdirs()
+            extractUbuntuRootfs(archive, java8Rootfs)
+            repairUbuntuRootfs()
+            if (!hasUsableUbuntuShell(java8Rootfs)) {
+                throw IllegalStateException("Ubuntu rootfs is missing an executable shell")
+            }
+            emitLog("[java] Ubuntu ARM64 rootfs is ready")
+            true
+        } catch (e: Exception) {
+            java8Rootfs.deleteRecursively()
+            emitLog("[java] Ubuntu rootfs installation failed: ${e.message}")
+            false
+        } finally {
+            archive.delete()
+        }
+    }
+
+    private fun hasUsableUbuntuShell(rootfs: File): Boolean =
+        listOf("bin/sh", "bin/bash", "usr/bin/bash")
+            .map { File(rootfs, it) }
+            .any { it.isFile && it.canExecute() }
+
+    private fun downloadUbuntuRootfs(url: String, target: File) {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20_000
+            readTimeout = 60_000
+            instanceFollowRedirects = true
+            setRequestProperty("User-Agent", "MineServeMobile/1.0")
+        }
+        connection.connect()
+        if (connection.responseCode !in 200..299) {
+            throw IllegalStateException("HTTP ${connection.responseCode}")
+        }
+        val total = connection.contentLengthLong
+        var downloaded = 0L
+        var lastPercent = -1
+        connection.inputStream.use { input ->
+            FileOutputStream(target).use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                    downloaded += count
+                    if (total > 0) {
+                        val percent = (downloaded * 100 / total).toInt()
+                        if (percent / 10 != lastPercent / 10) {
+                            lastPercent = percent
+                            emitLog("[java] Ubuntu rootfs download: $percent%")
+                        }
+                    }
+                }
+            }
+        }
+        connection.disconnect()
+    }
+
+    private fun extractUbuntuRootfs(archive: File, destination: File) {
+        FileInputStream(archive).use { fileInput ->
+            GzipCompressorInputStream(BufferedInputStream(fileInput)).use { gzip ->
+                TarArchiveInputStream(gzip).use { tar ->
+                    var entry = tar.nextTarEntry
+                    while (entry != null) {
+                        val output = File(destination, entry.name)
+                        val rootPath = destination.canonicalPath + File.separator
+                        if (!output.canonicalPath.startsWith(rootPath)) {
+                            throw IllegalStateException("Unsafe Ubuntu rootfs path: ${entry.name}")
+                        }
+                        when {
+                            entry.isDirectory -> output.mkdirs()
+                            entry.isSymbolicLink -> {
+                                output.parentFile?.mkdirs()
+                                output.delete()
+                                Os.symlink(entry.linkName, output.absolutePath)
+                            }
+                            entry.isLink -> {
+                                val source = File(destination, entry.linkName)
+                                output.parentFile?.mkdirs()
+                                output.delete()
+                                if (source.isFile) source.copyTo(output, overwrite = true)
+                            }
+                            else -> {
+                                output.parentFile?.mkdirs()
+                                FileOutputStream(output).use { tar.copyTo(it) }
+                                if ((entry.mode and 0b001_001_001) != 0) output.setExecutable(true, false)
+                            }
+                        }
+                        entry = tar.nextTarEntry
+                    }
+                }
+            }
+        }
     }
 
     private fun prootEnvironment(): Map<String, String> {
@@ -332,9 +493,9 @@ class TermuxRuntime(context: Context) {
     fun runJava8Installer(jarPath: String, serverDir: File, timeoutMs: Long = 900_000): Int {
         val guestDir = "/srv/mineserve"
         val guestJar = "$guestDir/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
-        val command = "export JAVA_HOME=/opt/mineserve-java8; " +
+        val command = "export JAVA_HOME=$ubuntuJava8Home; " +
             "export TMPDIR=/tmp; export HOME=/root; cd '$guestDir' && " +
-            "exec /opt/mineserve-java8/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
+            "exec /usr/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
             "--installServer '$guestDir'"
         return execUbuntuBound(
             serverDir,
@@ -366,10 +527,10 @@ class TermuxRuntime(context: Context) {
             }
             javaCandidates(version).forEach { File(it).deleteRecursively() }
             if (version == JavaVersion.Java8) {
-                File(installer.rootDir, "java-8-ubuntu-ready").delete()
+                java8ReadyMarker.delete()
                 File(installer.rootDir, "java-8-android-ready").delete()
                 File(installer.rootDir, "lib/jvm/java-8-android").deleteRecursively()
-                runUbuntu("rm -rf /opt/mineserve-java8", 120_000)
+                java8Rootfs.deleteRecursively()
             }
         }
         File(installer.rootDir, "bin/java").delete()
@@ -506,6 +667,7 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun distroRootfs(distro: String): File {
+        if (distro == "ubuntu" && java8Rootfs.isDirectory) return java8Rootfs
         val newRootfs = File(installer.rootDir, "var/lib/proot-distro/containers/$distro/rootfs")
         val legacyBase = File(installer.rootDir, "var/lib/proot-distro/installed-rootfs/$distro")
         val candidates = listOf(
@@ -1316,30 +1478,38 @@ class TermuxRuntime(context: Context) {
         val guestJar = "$guestDir/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
         val guestLaunchArgs = launchArgs?.replace(serverDir.absolutePath, guestDir)
         val javaArguments = guestLaunchArgs ?: "-jar '$guestJar'"
-        val command = "export JAVA_HOME=/opt/mineserve-java8; " +
-            "export PATH=\"/opt/mineserve-java8/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; " +
+        val command = "export JAVA_HOME=$ubuntuJava8Home; " +
+            "export PATH=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; " +
             "export TMPDIR=/tmp; export HOME=/root; export FONTCONFIG_PATH=/etc/fonts; " +
-            "cd '$guestDir' && exec /opt/mineserve-java8/bin/java " +
+            "cd '$guestDir' && exec /usr/bin/java " +
             "-Djava.awt.headless=true -Djava.io.tmpdir=/tmp " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
             "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments nogui"
-        val prefix = installer.rootDir.absolutePath
-        val prootDistro = listOf(
-            File(prefix, "bin/proot-distro"),
-            File(prefix, "usr/bin/proot-distro")
-        ).firstOrNull { it.isFile }?.absolutePath ?: "proot-distro"
+        val rootfs = java8Rootfs
+        val sharedMemory = File(rootfs, "tmp").apply { mkdirs() }
+        val proot = listOf(
+            File(installer.rootDir, "bin/proot"),
+            File(installer.rootDir, "usr/bin/proot")
+        ).firstOrNull { it.isFile && it.canExecute() }
+            ?: throw RuntimeException("proot is not available")
         val process = ProcessBuilder(
-            prootDistro, "login", "ubuntu", "--bind", "${serverDir.absolutePath}:$guestDir",
-            "--", "/bin/sh", "-lc", command
+            proot.absolutePath, "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "--change-id=0:0",
+            "--rootfs=${rootfs.absolutePath}", "--cwd=/root",
+            "--bind=/dev", "--bind=/proc", "--bind=/sys", "--bind=/dev/urandom:/dev/random",
+            "--bind=${sharedMemory.absolutePath}:/dev/shm", "--bind=${serverDir.absolutePath}:$guestDir",
+            "/usr/bin/env", "-i",
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "HOME=/root", "TMPDIR=/tmp", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive",
+            "/bin/sh", "-lc", command
         ).apply {
             redirectErrorStream(true)
             directory(serverDir)
             environment().putAll(executor.termuxEnv())
         }.start()
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
-        emitLog("[startMc] java 路径: Ubuntu:/opt/mineserve-java8/bin/java")
+        emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
         mcProcess = process
         mcStdin = process.outputStream
         Thread({

@@ -159,7 +159,10 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             vm.refreshInstalledPlugins()
         }
     }
-    LaunchedEffect(isBootstrapped) { vm.refreshJava() }
+    LaunchedEffect(isBootstrapped) {
+        vm.refreshJava()
+        vm.refreshDependencies()
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },

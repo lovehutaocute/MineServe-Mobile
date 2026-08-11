@@ -120,9 +120,10 @@ class McServerController(
                     InstallStep.Rclone -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "rclone")
                     InstallStep.Proot -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot")
                 }
-                if (code == 0) {
+                if (code == 0 && termux.isDependencyInstalled(step)) {
                     repo.markStep(step, StepStatus.Done, (idx + 1) * (100 / steps.size))
                 } else {
+                    if (code == 0) termux.emitLog("[install] ${step.label} verification failed; the dependency card will remain visible")
                     repo.markStep(step, StepStatus.Wait, idx * (100 / steps.size))
                     return@withContext false
                 }
@@ -162,6 +163,9 @@ class McServerController(
      * @param onProgress 回调参数：(已下载字节, 总字节, 速度 bytes/s)，总字节为 -1 表示未知
      */
     suspend fun downloadCore(config: McConfig, customName: String, onProgress: (Long, Long, Long) -> Unit) = withContext(Dispatchers.IO) {
+        if (config.selectedCore.needsInstaller && !termux.isJavaInstalled(config.selectedJavaVersion)) {
+            throw RuntimeException("${config.selectedJavaVersion.displayName} is not installed. Install and verify it before running ${config.selectedCore.displayName} installer.")
+        }
         val dirName = sanitizeDirName(customName)
         val jarPath = termux.serverJarFileFor(dirName).absolutePath
         downloadCoreTo(jarPath, config, dirName, onProgress)
@@ -191,8 +195,8 @@ class McServerController(
                         val guestJar = "/srv/mineserve/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
                         termux.runJava8Command(
                             serverDir,
-                            "export JAVA_HOME=/opt/mineserve-java8; cd /srv/mineserve && " +
-                                "exec /opt/mineserve-java8/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
+                            "export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64; cd /srv/mineserve && " +
+                                "exec /usr/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
                                 "install server '${config.mcVersion}' --install-dir=/srv/mineserve --download-server"
                         )
                     } else {

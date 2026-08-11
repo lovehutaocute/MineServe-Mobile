@@ -665,6 +665,13 @@ class McViewModel(
         if (isBootstrapped.value) _installedJava.value = repo.termuxRuntime.installedJavaVersions()
     }
 
+    fun refreshDependencies() {
+        if (!isBootstrapped.value) return
+        repo.updateServerState { state ->
+            state.copy(installSteps = repo.termuxRuntime.installedDependencySteps())
+        }
+    }
+
     fun setJavaVersion(version: JavaVersion) = updateConfig { it.copy(selectedJavaVersion = version) }
 
     fun installJava(version: JavaVersion) {
@@ -756,6 +763,7 @@ class McViewModel(
                 }
                 _installSpeed.value = 0L
                 if (ok) {
+                    refreshDependencies()
                     _messageFlow.tryEmit(str(R.string.s193))
                 } else {
                     _errorFlow.tryEmit(str(R.string.s194))

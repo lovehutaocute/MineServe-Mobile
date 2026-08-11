@@ -1,6 +1,13 @@
 #!/bin/sh
-top="$(git rev-parse --show-toplevel)"
-mirror="$top/../MCServerManager.git-backup"
-log="$top/.git-backup.log"
-git --git-dir="$mirror" fetch --prune "$top" "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" >>"$log" 2>&1 || echo "$(date -u +%FT%TZ) mirror backup failed" >>"$log"
+# Keep a local bare mirror without making a successful commit depend on it.
+mirror="C:/Users/DELL/Desktop/AI/VSCode2/MCServerManager.git-backup"
+log="$GIT_DIR/git-backup.log"
+
+if git --git-dir="$mirror" fetch --quiet "$GIT_DIR" \
+  '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'; then
+  printf '%s post-commit backup succeeded\n' "$(date -Iseconds)" >> "$log"
+else
+  printf '%s post-commit backup failed\n' "$(date -Iseconds)" >> "$log"
+fi
+
 exit 0
