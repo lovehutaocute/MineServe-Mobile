@@ -681,6 +681,9 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 if (repo.termuxRuntime.installJava(version)) {
+                    if (version == JavaVersion.Java8) {
+                        repo.saveConfig(config.value.copy(selectedJavaVersion = JavaVersion.Java8))
+                    }
                     refreshJava()
                     _messageFlow.tryEmit("${version.displayName} 安装完成")
                 } else _errorFlow.tryEmit("${version.displayName} 安装失败")

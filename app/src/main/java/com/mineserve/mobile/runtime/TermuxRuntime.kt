@@ -246,7 +246,6 @@ class TermuxRuntime(context: Context) {
             File(javaHome, "lib/server/libjvm.so")
         ).any { it.isFile }
         return java8ReadyMarker.isFile &&
-            File(rootfs, "usr/bin/java").isFile &&
             listOf(File(javaHome, "jre/bin/java"), File(javaHome, "bin/java")).any { it.isFile } &&
             jvmLibrary
     }
