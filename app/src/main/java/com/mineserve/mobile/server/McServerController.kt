@@ -805,15 +805,21 @@ class McServerController(
     private fun isLegacyForgeServerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
         if (javaVersion == JavaVersion.Java8) {
             val guestJar = "/srv/mineserve/${file.relativeTo(serverDir).invariantSeparatorsPath}"
-            return termux.runJava8Command(
+            val hasServerWrapper = termux.runJava8Command(
                 serverDir,
                 "jar tf '$guestJar' 2>/dev/null | grep -q 'net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class'",
                 60_000
             ) == 0
+            if (!hasServerWrapper) return false
+            // Some Forge installers contain launcher classes too; SimpleInstaller
+            // is the decisive marker that this file must never be launched.
+            return !isForgeInstallerJar(file, serverDir, javaVersion)
         }
         return runCatching {
             JarFile(file).use { jar ->
-                jar.getEntry("net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class") != null
+                jar.getEntry("net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class") != null &&
+                    jar.manifest?.mainAttributes?.getValue("Main-Class")
+                        ?.contains("net.minecraftforge.installer", ignoreCase = true) != true
             }
         }.getOrDefault(false)
     }
