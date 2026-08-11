@@ -1,9 +1,10 @@
 #!/bin/sh
 # Rewritten commits must refresh the same local bare mirror.
 mirror="C:/Users/DELL/Desktop/AI/VSCode2/MCServerManager.git-backup"
-log="$GIT_DIR/git-backup.log"
+source="C:/Users/DELL/Desktop/AI/VSCode2/MCServerManager/.git"
+log="$source/git-backup.log"
 
-if git --git-dir="$mirror" fetch --quiet "$GIT_DIR" \
+if git --git-dir="$mirror" fetch --quiet "$source" \
   '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'; then
   printf '%s post-rewrite backup succeeded\n' "$(date -Iseconds)" >> "$log"
 else
