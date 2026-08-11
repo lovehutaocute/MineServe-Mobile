@@ -755,7 +755,10 @@ class McServerController(
 
         findLegacyForgeServerJar(serverDir, javaVersion)?.let { jar ->
             termux.emitLog("[startMc] Forge 旧版启动方式: ${jar.name}")
-            return "-jar ${jar.absolutePath}"
+            // Java 8 runs after `cd /srv/mineserve` inside PRoot. Keep this
+            // target relative so Android's host path cannot resolve to a stale
+            // file outside the container bind mount.
+            return if (javaVersion == JavaVersion.Java8) "-jar '${jar.name}'" else "-jar ${jar.absolutePath}"
         }
 
         // Java 8 downloads may leave the installer under its original forge-*.jar
@@ -785,7 +788,7 @@ class McServerController(
             if (code == 0) {
                 findLegacyForgeServerJar(serverDir, javaVersion)?.let { jar ->
                     termux.emitLog("[startMc] Forge 旧版服务端文件已修复: ${jar.name}")
-                    return "-jar ${jar.absolutePath}"
+                    return if (javaVersion == JavaVersion.Java8) "-jar '${jar.name}'" else "-jar ${jar.absolutePath}"
                 }
             }
             throw RuntimeException("Forge 旧版服务端部署不完整，请检查网络后重新下载安装核心")
