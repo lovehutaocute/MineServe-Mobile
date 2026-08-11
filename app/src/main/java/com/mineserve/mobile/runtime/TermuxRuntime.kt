@@ -234,16 +234,35 @@ class TermuxRuntime(context: Context) {
         )
     }
 
-    private fun runUbuntu(command: String, timeoutMs: Long = 120_000): Int =
+    private fun runUbuntu(
+        command: String,
+        timeoutMs: Long = 120_000,
+        extraBinds: List<String> = emptyList()
+    ): Int =
         if (!repairUbuntuRootfs()) {
             emitLog("[java] Ubuntu rootfs 缺少可执行 shell，无法启动")
             126
         } else {
-            execOnceWithTimeout(
-                timeoutMs,
-                "proot-distro", "login", "ubuntu", "--", "/bin/sh", "-lc", command,
-                env = prootEnvironment()
+            val rootfs = distroRootfs("ubuntu")
+            val shm = File(rootfs, "tmp").apply { mkdirs() }
+            val args = mutableListOf(
+                "proot",
+                "--kill-on-exit",
+                "--link2symlink",
+                "--sysvipc",
+                "-L",
+                "--change-id=0:0",
+                "--rootfs=${rootfs.absolutePath}",
+                "--cwd=/root",
+                "--bind=/dev",
+                "--bind=/proc",
+                "--bind=/sys",
+                "--bind=/dev/urandom:/dev/random",
+                "--bind=${shm.absolutePath}:/dev/shm"
             )
+            extraBinds.forEach { args += "--bind=$it" }
+            args += listOf("/bin/sh", "-lc", command)
+            execOnceWithTimeout(timeoutMs, *args.toTypedArray(), env = prootEnvironment())
         }
 
     /** Restore executable bits lost while proot-distro applies a rootfs layer. */
@@ -308,16 +327,10 @@ class TermuxRuntime(context: Context) {
         execUbuntuBound(serverDir, command, timeoutMs)
 
     private fun execUbuntuBound(serverDir: File, command: String, timeoutMs: Long): Int {
-        val prefix = installer.rootDir.absolutePath
-        val prootDistro = listOf(
-            File(prefix, "bin/proot-distro"),
-            File(prefix, "usr/bin/proot-distro")
-        ).firstOrNull { it.isFile }?.absolutePath ?: "proot-distro"
-        return execOnceWithTimeout(
+        return runUbuntu(
+            command,
             timeoutMs,
-            prootDistro, "login", "ubuntu", "--bind", "${serverDir.absolutePath}:/srv/mineserve",
-            "--", "/bin/sh", "-lc", command,
-            env = prootEnvironment()
+            extraBinds = listOf("${serverDir.absolutePath}:/srv/mineserve")
         )
     }
 
