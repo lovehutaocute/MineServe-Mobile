@@ -215,8 +215,16 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun prootEnvironment(): Map<String, String> {
+        val prefix = installer.rootDir.absolutePath
         val tmp = File(installer.rootDir, "tmp").apply { mkdirs() }.absolutePath
-        return mapOf("PROOT_TMP_DIR" to tmp, "TMPDIR" to tmp)
+        return mapOf(
+            "PROOT_TMP_DIR" to tmp,
+            "TMPDIR" to tmp,
+            "TERMUX__PREFIX" to prefix,
+            "TERMUX__HOME" to "$prefix/home",
+            "TERMUX_APP__PACKAGE_NAME" to "com.mineserve.mobile",
+            "TERMUX_VERSION" to "mineServe"
+        )
     }
 
     private fun runUbuntu(command: String, timeoutMs: Long = 120_000): Int =
@@ -453,11 +461,17 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun distroRootfs(distro: String): File {
-        val base = File(installer.rootDir, "var/lib/proot-distro/installed-rootfs/$distro")
-        val candidates = listOf(base, File(base, "rootfs"), File(base, "fs"))
+        val newRootfs = File(installer.rootDir, "var/lib/proot-distro/containers/$distro/rootfs")
+        val legacyBase = File(installer.rootDir, "var/lib/proot-distro/installed-rootfs/$distro")
+        val candidates = listOf(
+            newRootfs,
+            legacyBase,
+            File(legacyBase, "rootfs"),
+            File(legacyBase, "fs")
+        )
         return candidates.firstOrNull { root ->
             File(root, "bin").exists() || File(root, "usr").exists()
-        } ?: base
+        } ?: newRootfs
     }
 
     fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
