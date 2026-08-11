@@ -20,6 +20,10 @@ import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.data.TunnelState
 import com.mineserve.mobile.data.TunnelStatus
 import com.mineserve.mobile.data.TunnelType
+import com.mineserve.mobile.data.DiagnosticCheck
+import com.mineserve.mobile.data.DiagnosticReport
+import com.mineserve.mobile.data.DiagnosticStatus
+import com.mineserve.mobile.data.ServerResourceStats
 import com.mineserve.mobile.data.ApkDownloader
 import com.mineserve.mobile.data.UpdateChecker
 import com.mineserve.mobile.data.UpdateCheckResult
@@ -53,6 +57,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.net.Inet4Address
 import java.net.NetworkInterface
+import java.net.InetSocketAddress
+import java.net.Socket
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -427,105 +433,207 @@ class McViewModel(
         try { nm.notify(1001, notification) } catch (_: Exception) {}
     }
 
-    // ── 设备状态（常规权限可采集，无需 root） ─────────────────────────
+    // ── 服务端资源状态 ───────────────────────────────────────────────
 
-    /** 设备级指标：内存/存储/电池 */
-    data class DeviceStats(
-        val totalMemoryMb: Long = 0L,
-        val availMemoryMb: Long = 0L,
-        val totalStorageMb: Long = 0L,
-        val availStorageMb: Long = 0L,
-        val batteryPercent: Int = -1,   // -1 表示未知
-        val isCharging: Boolean = false,
-        val totalRxBytes: Long = 0L,    // 累计下载量（TrafficStats）
-        val totalTxBytes: Long = 0L,    // 累计上传量
-        val rxSpeedBps: Long = 0L,      // 实时下载速度（字节/秒）
-        val txSpeedBps: Long = 0L       // 实时上传速度（字节/秒）
-    )
+    private val _serverResources = MutableStateFlow(ServerResourceStats())
+    val serverResources: StateFlow<ServerResourceStats> = _serverResources.asStateFlow()
+    private var cachedResourceDir: String? = null
+    private var cachedDirectoryBytes: Long? = null
+    private var cachedDirectoryBytesAtMs = 0L
 
-    private val _deviceStats = MutableStateFlow(DeviceStats())
-    val deviceStats: StateFlow<DeviceStats> = _deviceStats.asStateFlow()
-
-    /** 网络流量速度采样（上次采样值） */
-    private var lastRxBytes = 0L
-    private var lastTxBytes = 0L
-    private var lastNetSampleMs = 0L
-
-    /** 定时采集设备指标（每 3 秒），同时将 MC 进程真实内存写入 usedMemoryMb */
-    private fun startDeviceStatsCollection() {
+    /** Samples only values that belong to the selected server or its process. */
+    private fun startServerResourceCollection() {
         viewModelScope.launch {
             while (true) {
-                withContext(Dispatchers.IO) { collectDeviceStatsOnce() }
+                withContext(Dispatchers.IO) { collectServerResourcesOnce() }
                 delay(10000)
             }
         }
     }
 
-    private fun collectDeviceStatsOnce() {
+    private fun collectServerResourcesOnce() {
         try {
-            val app = McApplication.get()
-            // 设备内存（ActivityManager.MemoryInfo，无需权限）
-            val am = app.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-            val mi = android.app.ActivityManager.MemoryInfo()
-            am.getMemoryInfo(mi)
-            val totalMemMb = mi.totalMem / (1024 * 1024)
-            val availMemMb = mi.availMem / (1024 * 1024)
-
-            // 内部存储（StatFs，无需权限）
-            val stat = android.os.StatFs(android.os.Environment.getDataDirectory().path)
-            val blockSize = stat.blockSizeLong
-            val totalStorageMb = stat.blockCountLong * blockSize / (1024 * 1024)
-            val availStorageMb = stat.availableBlocksLong * blockSize / (1024 * 1024)
-
-            // 电池电量与充电状态（BatteryManager，无需权限）
-            var batteryPercent = -1
-            var isCharging = false
-            try {
-                val bm = app.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
-                batteryPercent = bm.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                isCharging = bm.isCharging // API 23+，minSdk 26 可用
-            } catch (e: Exception) {
-                // 部分设备/模拟器不支持电池属性，保持 -1
+            val cfg = config.value
+            val active = cfg.installedCores.find { it.name == cfg.activeCoreName }
+            val dir = active?.let { File(repo.termuxRuntime.installer.rootDir, "home/servers/${it.dirName}") }
+            val available = dir?.takeIf { it.exists() }?.let { android.os.StatFs(it.path).availableBytes }
+            val now = System.currentTimeMillis()
+            val directoryBytes = dir?.takeIf { it.exists() }?.let { serverDir ->
+                if (cachedResourceDir != serverDir.path || now - cachedDirectoryBytesAtMs >= 60_000L) {
+                    cachedResourceDir = serverDir.path
+                    cachedDirectoryBytes = serverDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+                    cachedDirectoryBytesAtMs = now
+                }
+                cachedDirectoryBytes
             }
-
-            // 网络流量（TrafficStats 设备总量，无权限）与实时速度（相邻采样差值）
-            val rxBytes = android.net.TrafficStats.getTotalRxBytes().takeIf { it >= 0 } ?: 0L
-            val txBytes = android.net.TrafficStats.getTotalTxBytes().takeIf { it >= 0 } ?: 0L
-            val now = android.os.SystemClock.elapsedRealtime()
-            var rxSpeed = 0L
-            var txSpeed = 0L
-            if (lastNetSampleMs > 0 && now > lastNetSampleMs) {
-                val dtMs = (now - lastNetSampleMs).coerceAtLeast(1)
-                if (rxBytes >= lastRxBytes) rxSpeed = (rxBytes - lastRxBytes) * 1000 / dtMs
-                if (txBytes >= lastTxBytes) txSpeed = (txBytes - lastTxBytes) * 1000 / dtMs
-            }
-            lastRxBytes = rxBytes
-            lastTxBytes = txBytes
-            lastNetSampleMs = now
-
-            val newStats = DeviceStats(
-                totalMemoryMb = totalMemMb,
-                availMemoryMb = availMemMb,
-                totalStorageMb = totalStorageMb,
-                availStorageMb = availStorageMb,
-                batteryPercent = batteryPercent,
-                isCharging = isCharging,
-                totalRxBytes = rxBytes,
-                totalTxBytes = txBytes,
-                rxSpeedBps = rxSpeed,
-                txSpeedBps = txSpeed
+            val running = repo.termuxRuntime.isMcRunning()
+            val memory = repo.termuxRuntime.mcProcessMemoryMb().takeIf { running && it > 0L }
+            _serverResources.value = ServerResourceStats(
+                processMemoryMb = memory,
+                availableBytes = available,
+                directoryBytes = directoryBytes,
+                javaAvailable = repo.termuxRuntime.isJavaInstalled(cfg.selectedJavaVersion),
+                sampledAtMs = now
             )
-            // 值未变化时不推送，避免每 3 秒触发 UI 重组
-            if (_deviceStats.value != newStats) _deviceStats.value = newStats
-
-            // 修复 usedMemoryMb：MC 进程真实 RSS（原字段从未被采集，恒为 0）
-            if (repo.termuxRuntime.isMcRunning()) {
-                val mem = repo.termuxRuntime.mcProcessMemoryMb()
-                if (mem > 0) repo.updateServerState { it.copy(usedMemoryMb = mem) }
-            }
+            repo.updateServerState { it.copy(usedMemoryMb = memory ?: 0L) }
         } catch (e: Exception) {
-            // 采集失败保留上次值，不影响运行
+            // Keep the last known snapshot when Android or PRoot denies a probe.
         }
+    }
+
+    private val _diagnosticReport = MutableStateFlow(DiagnosticReport())
+    val diagnosticReport: StateFlow<DiagnosticReport> = _diagnosticReport.asStateFlow()
+    private val _isDiagnosing = MutableStateFlow(false)
+    val isDiagnosing: StateFlow<Boolean> = _isDiagnosing.asStateFlow()
+    private val _isRepairingRuntime = MutableStateFlow(false)
+    val isRepairingRuntime: StateFlow<Boolean> = _isRepairingRuntime.asStateFlow()
+
+    fun runDiagnostics() {
+        if (_isDiagnosing.value || _isRepairingRuntime.value) return
+        _isDiagnosing.value = true
+        viewModelScope.launch {
+            try {
+                _diagnosticReport.value = withContext(Dispatchers.IO) { buildDiagnosticReport() }
+            } catch (e: Exception) {
+                _diagnosticReport.value = DiagnosticReport(
+                    checks = listOf(DiagnosticCheck(
+                        "scan", "运行诊断", e.message ?: "无法完成诊断", DiagnosticStatus.Failed
+                    )),
+                    generatedAtMs = System.currentTimeMillis()
+                )
+            } finally {
+                _isDiagnosing.value = false
+            }
+        }
+    }
+
+    fun safeRepairRuntime() {
+        if (_isRepairingRuntime.value || _isDiagnosing.value) return
+        _isRepairingRuntime.value = true
+        _diagnosticReport.value = _diagnosticReport.value.copy(isRunning = true)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    val cfg = config.value
+                    val core = cfg.installedCores.find { it.name == cfg.activeCoreName }
+                    repo.termuxRuntime.fixRootfsPermissions()
+                    repo.termuxRuntime.repairInstalledCommands()
+                    if (repo.termuxRuntime.isReady()) {
+                        repo.termuxRuntime.autoRepairRuntime(
+                            cfg.selectedJavaVersion,
+                            core?.let { repo.termuxRuntime.needsFontRuntime(it.core) } == true
+                        )
+                    }
+                }
+                refreshJava()
+                refreshDependencies()
+                _messageFlow.tryEmit("运行环境安全修复已完成，正在复检")
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(e.message ?: "运行环境修复失败")
+            } finally {
+                _isRepairingRuntime.value = false
+                runDiagnostics()
+            }
+        }
+    }
+
+    private fun buildDiagnosticReport(): DiagnosticReport {
+        val cfg = config.value
+        val runtime = repo.termuxRuntime
+        val active = cfg.installedCores.find { it.name == cfg.activeCoreName }
+        val checks = mutableListOf<DiagnosticCheck>()
+        val runtimeReady = runtime.isReady()
+        checks += DiagnosticCheck(
+            "runtime", "Termux 运行环境",
+            if (runtimeReady) "运行环境已就绪" else "运行环境未完成初始化",
+            if (runtimeReady) DiagnosticStatus.Pass else DiagnosticStatus.Failed, !runtimeReady
+        )
+        val javaCheck = runtime.javaRuntimeDiagnostic(cfg.selectedJavaVersion)
+        checks += DiagnosticCheck(
+            "java", "${cfg.selectedJavaVersion.displayName} 运行环境", javaCheck.second,
+            if (javaCheck.first) DiagnosticStatus.Pass else DiagnosticStatus.Failed, !javaCheck.first
+        )
+        val prootRequired = cfg.selectedJavaVersion == JavaVersion.Java8
+        val downloaderRequired = active?.core?.needsInstaller == true
+        val requiredCommandsReady = (!prootRequired || runtime.isCommandInstalled("proot")) &&
+            (!downloaderRequired || runtime.isCommandInstalled("wget"))
+        checks += DiagnosticCheck(
+            "commands", "关键运行命令",
+            when {
+                !prootRequired && !downloaderRequired -> "当前服务端无需额外运行命令检查"
+                requiredCommandsReady -> "${if (prootRequired) "proot" else "wget"} 命令已就绪"
+                else -> "缺少 ${listOfNotNull(if (prootRequired) "proot" else null, if (downloaderRequired) "wget" else null).joinToString(" / ")}，可安全补齐"
+            },
+            if (!prootRequired && !downloaderRequired) DiagnosticStatus.NotApplicable else if (requiredCommandsReady) DiagnosticStatus.Pass else DiagnosticStatus.Warning,
+            !requiredCommandsReady
+        )
+        if (active == null) {
+            checks += DiagnosticCheck(
+                "core", "当前服务端", "未选择已安装的服务端核心", DiagnosticStatus.Warning
+            )
+            checks += DiagnosticCheck(
+                "storage", "服务端目录空间", "未选择服务端，无法检查", DiagnosticStatus.NotApplicable
+            )
+            checks += DiagnosticCheck(
+                "port", "本地端口", "未选择服务端，无法检查", DiagnosticStatus.NotApplicable
+            )
+        } else {
+            val dir = File(runtime.installer.rootDir, "home/servers/${active.dirName}")
+            val jar = File(dir, "server.jar")
+            val dirReady = dir.isDirectory && dir.canRead() && dir.canWrite()
+            checks += DiagnosticCheck(
+                "core", "当前服务端",
+                if (!dirReady) "服务端目录不存在或不可读写" else if (!jar.isFile) "server.jar 不存在，需要重新下载核心" else "${active.name} 启动目录和核心文件可用",
+                if (dirReady && jar.isFile) DiagnosticStatus.Pass else DiagnosticStatus.Failed
+            )
+            val fontNeeded = runtime.needsFontRuntime(active.core)
+            val fontsReady = fontNeeded && runtime.fontRuntimeReady(cfg.selectedJavaVersion)
+            checks += DiagnosticCheck(
+                "fonts", "字体运行库",
+                when {
+                    !fontNeeded -> "当前核心不需要 installer 字体运行库"
+                    fontsReady -> "fontconfig 与 fc-cache 已就绪"
+                    else -> "Forge/NeoForge 需要字体运行库，启动前可安全补齐"
+                },
+                when {
+                    !fontNeeded -> DiagnosticStatus.NotApplicable
+                    fontsReady -> DiagnosticStatus.Pass
+                    else -> DiagnosticStatus.Warning
+                }, fontNeeded
+            )
+            val available = try { if (dir.exists()) android.os.StatFs(dir.path).availableBytes else null } catch (_: Exception) { null }
+            checks += DiagnosticCheck(
+                "storage", "服务端目录空间",
+                available?.let { "可用 ${formatDiagnosticBytes(it)}" } ?: "无法读取当前服务端目录空间",
+                if (available != null) DiagnosticStatus.Pass else DiagnosticStatus.Warning
+            )
+            val running = runtime.isMcRunning()
+            val portOk = if (running) probeLoopbackPort(cfg.localPort) else false
+            checks += DiagnosticCheck(
+                "port", "本地端口 ${cfg.localPort}",
+                when { !running -> "服务端未运行，未检测端口"; portOk -> "127.0.0.1:${cfg.localPort} 可连接"; else -> "服务端运行中，但本地端口暂不可连接" },
+                when { !running -> DiagnosticStatus.NotApplicable; portOk -> DiagnosticStatus.Pass; else -> DiagnosticStatus.Warning }
+            )
+            val crash = (crashReportManager.listCrashReports() + crashReportManager.listNativeCrashReports(active.dirName))
+                .maxByOrNull { it.createdTime }
+            checks += DiagnosticCheck(
+                "crash", "最近崩溃报告",
+                crash?.let { "检测到 ${it.fileName}，请在日志页查看详情" } ?: "未检测到应用生成的崩溃报告",
+                if (crash == null) DiagnosticStatus.Pass else DiagnosticStatus.Warning
+            )
+        }
+        return DiagnosticReport(checks, System.currentTimeMillis(), repo.termuxRuntime.isMcRunning())
+    }
+
+    private fun probeLoopbackPort(port: Int): Boolean = try {
+        Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1_500); true }
+    } catch (_: Exception) { false }
+
+    private fun formatDiagnosticBytes(bytes: Long): String = when {
+        bytes >= 1_073_741_824L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_073_741_824.0)
+        bytes >= 1_048_576L -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+        bytes >= 1_024L -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1_024.0)
+        else -> "$bytes B"
     }
 
     /** 刷新局域网 IP：在 IO 线程遍历网络接口，取第一个非 loopback 的 IPv4 地址 */
@@ -2479,7 +2587,7 @@ class McViewModel(
      */
     init {
         loadPlayerHistory()
-        startDeviceStatsCollection()
+        startServerResourceCollection()
         // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
         viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->

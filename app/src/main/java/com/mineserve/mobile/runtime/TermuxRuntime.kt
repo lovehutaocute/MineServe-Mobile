@@ -5,6 +5,7 @@ import android.util.Log
 import android.system.Os
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.StepState
 import com.mineserve.mobile.data.StepStatus
 import kotlinx.coroutines.Dispatchers
@@ -170,6 +171,34 @@ class TermuxRuntime(context: Context) {
             File(prefix, "usr/bin/$command"),
             File(prefix, "data/data/com.termux/files/usr/bin/$command")
         ).any { it.isFile && it.canExecute() }
+    }
+
+    /** Read-only checks used by the dashboard diagnostic screen. */
+    fun javaRuntimeDiagnostic(version: JavaVersion): Pair<Boolean, String> = when (version) {
+        JavaVersion.Java8 -> {
+            val rootfsReady = hasUsableUbuntuShell(java8Rootfs)
+            val ready = java8UbuntuReady()
+            when {
+                ready -> true to "Ubuntu ARM64 container and openjdk-8-jdk are ready"
+                !rootfsReady -> false to "Ubuntu ARM64 container shell is unavailable"
+                else -> false to "openjdk-8-jdk is incomplete or has not passed verification"
+            }
+        }
+        else -> {
+            val ready = isJavaInstalled(version) && isJavaComplete(version)
+            ready to if (ready) "${version.displayName} runtime is executable" else "${version.displayName} runtime is missing or incomplete"
+        }
+    }
+
+    fun needsFontRuntime(core: ServerCore): Boolean = core == ServerCore.Forge || core == ServerCore.NeoForge
+
+    fun fontRuntimeReady(version: JavaVersion): Boolean = if (version == JavaVersion.Java8) {
+        hasUsableUbuntuShell(java8Rootfs) && runUbuntu(
+            "test -f /etc/fonts/fonts.conf && test -x /usr/bin/fc-cache",
+            15_000
+        ) == 0
+    } else {
+        File(installer.rootDir, "etc/fonts/fonts.conf").isFile && isCommandInstalled("fc-cache")
     }
 
     suspend fun installJava(version: JavaVersion): Boolean = withContext(Dispatchers.IO) {

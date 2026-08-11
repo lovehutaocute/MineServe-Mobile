@@ -99,10 +99,18 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp: () -> Unit) {
+fun DashboardScreen(
+    vm: McViewModel,
+    onShowLogs: () -> Unit,
+    onShowDownloadHelp: () -> Unit,
+    onShowDiagnostics: () -> Unit
+) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
-    val deviceStats by vm.deviceStats.collectAsState()
+    val resources by vm.serverResources.collectAsState()
+    val diagnosticReport by vm.diagnosticReport.collectAsState()
+    val isDiagnosing by vm.isDiagnosing.collectAsState()
+    val isRepairingRuntime by vm.isRepairingRuntime.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()
@@ -163,6 +171,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     LaunchedEffect(isBootstrapped) {
         vm.refreshJava()
         vm.refreshDependencies()
+        vm.runDiagnostics()
     }
 
     Scaffold(
@@ -192,63 +201,56 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 )
             }
 
-            // ── 设备状态卡片（常规权限可采集） ──
-            McCard(title = stringResource(R.string.s341), compact = true) {
+            McCard(title = "运行诊断", compact = true) {
+                val issues = diagnosticReport.issueCount
+                Text(
+                    when {
+                        isRepairingRuntime -> "正在执行安全修复，完成后会自动复检"
+                        isDiagnosing -> "正在检查当前服务端和运行环境"
+                        diagnosticReport.generatedAtMs == 0L -> "尚未执行诊断"
+                        issues == 0 -> "当前运行环境检查通过"
+                        else -> "发现 $issues 项需要注意的问题"
+                    },
+                    color = when { isRepairingRuntime || isDiagnosing -> Indigo; issues == 0 && diagnosticReport.generatedAtMs > 0 -> Mint; else -> Coral },
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onShowDiagnostics, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                        Text("查看详情", color = Indigo, fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = { vm.safeRepairRuntime() },
+                        enabled = !isDiagnosing && !isRepairingRuntime && isBootstrapped,
+                        modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo)
+                    ) { Text(if (isRepairingRuntime) "修复中" else "一键安全修复", color = Color.White, fontSize = 12.sp) }
+                }
+            }
+
+            McCard(title = "服务端资源", compact = true) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     DeviceStatCell(
-                        label = stringResource(R.string.s342),
-                        value = if (deviceStats.totalMemoryMb > 0)
-                            "${formatDeviceMb(deviceStats.availMemoryMb)} / ${formatDeviceMb(deviceStats.totalMemoryMb)}"
-                        else "--",
+                        label = "进程内存",
+                        value = resources.processMemoryMb?.let { "${it} MB / ${config.maxHeapMb} MB" } ?: "未运行",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = stringResource(R.string.s343),
-                        value = if (deviceStats.totalStorageMb > 0)
-                            "${formatDeviceMb(deviceStats.availStorageMb)} / ${formatDeviceMb(deviceStats.totalStorageMb)}"
-                        else "--",
+                        label = "目录可用空间",
+                        value = resources.availableBytes?.let(::formatServerBytes) ?: "暂不可用",
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = stringResource(R.string.s344),
-                        value = when {
-                            deviceStats.batteryPercent < 0 -> "--"
-                            deviceStats.isCharging -> stringResource(R.string.s345, deviceStats.batteryPercent)
-                            else -> "${deviceStats.batteryPercent}%"
-                        },
+                        label = "Java",
+                        value = if (resources.javaAvailable) "${config.selectedJavaVersion.displayName} 已就绪" else "${config.selectedJavaVersion.displayName} 不可用",
                         modifier = Modifier.weight(1f)
                     )
                 }
-                // 网络数据（总上传/下载 + 实时速度）
                 Spacer(Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    DeviceStatCell(
-                        label = stringResource(R.string.s346),
-                        value = if (deviceStats.totalRxBytes > 0) formatNetBytes(deviceStats.totalRxBytes) else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s347),
-                        value = if (deviceStats.totalTxBytes > 0) formatNetBytes(deviceStats.totalTxBytes) else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s348),
-                        value = if (deviceStats.rxSpeedBps > 0) "${formatNetBytes(deviceStats.rxSpeedBps)}/s" else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s349),
-                        value = if (deviceStats.txSpeedBps > 0) "${formatNetBytes(deviceStats.txSpeedBps)}/s" else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                }
+                Text("服务端目录占用：${resources.directoryBytes?.let(::formatServerBytes) ?: "暂不可用"}", color = Muted, fontSize = 11.sp)
             }
 
             // ── MC 终端入口（设备状态卡片下方） ──
@@ -1055,6 +1057,13 @@ private fun formatSpeedShort(bytesPerSec: Long): String {
         bytesPerSec >= 1024 -> String.format("%.0f KB/s", bytesPerSec / 1024.0)
         else -> "$bytesPerSec B/s"
     }
+}
+
+private fun formatServerBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+    bytes >= 1_024L -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1_024.0)
+    else -> "$bytes B"
 }
 
 // ── 设备状态卡片辅助组件 ────────────────────────────────────────────
