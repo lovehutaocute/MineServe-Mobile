@@ -556,7 +556,7 @@ class TermuxRuntime(context: Context) {
         val command = "export JAVA_HOME=$ubuntuJava8Home; " +
             "export TMPDIR=/tmp; export HOME=/root; cd '$guestDir' && " +
             "exec /usr/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
-            "--installServer '$guestDir'"
+            "--installServer"
         return execUbuntuBound(
             serverDir,
             command,

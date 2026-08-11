@@ -23,6 +23,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.jar.JarFile
 
 /**
  * MC 服务控制器（生产化）：
@@ -682,7 +683,7 @@ class McServerController(
             termux.execOnce("fc-cache", "-f")
         }
         val launchArgs = when (coreType) {
-            ServerCore.Forge -> forgeLaunchArguments(serverDir)
+            ServerCore.Forge -> forgeLaunchArguments(serverDir, config.selectedJavaVersion)
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
                 ?.let { "@${it.absolutePath}" }
@@ -744,7 +745,7 @@ class McServerController(
      * Forge 1.17+ writes unix_args.txt, while Forge 1.12.2 and older writes a
      * top-level forge-*.jar.  The installer jar itself remains server.jar.
      */
-    private fun forgeLaunchArguments(serverDir: File): String {
+    private suspend fun forgeLaunchArguments(serverDir: File, javaVersion: JavaVersion): String {
         serverDir.walkTopDown()
             .firstOrNull { it.name == "unix_args.txt" }
             ?.let {
@@ -752,19 +753,47 @@ class McServerController(
                 return "@${it.absolutePath}"
             }
 
-        serverDir.listFiles()
-            ?.filter { file ->
-                file.isFile && file.name.startsWith("forge-") &&
-                    file.name.endsWith(".jar") && !file.name.contains("installer", ignoreCase = true)
+        findLegacyForgeServerJar(serverDir)?.let { jar ->
+            termux.emitLog("[startMc] Forge 旧版启动方式: ${jar.name}")
+            return "-jar ${jar.absolutePath}"
+        }
+
+        val installerJar = File(serverDir, "server.jar")
+        if (isForgeInstallerJar(installerJar)) {
+            termux.emitLog("[startMc] Forge 旧版安装产物不完整，正在重新部署服务端文件...")
+            val code = runInstallerWithRetry(
+                installerJar.absolutePath,
+                serverDir,
+                "Forge",
+                File(termux.installer.rootDir, "tmp").apply { mkdirs() },
+                javaVersion
+            )
+            if (code == 0) {
+                findLegacyForgeServerJar(serverDir)?.let { jar ->
+                    termux.emitLog("[startMc] Forge 旧版服务端文件已修复: ${jar.name}")
+                    return "-jar ${jar.absolutePath}"
+                }
             }
-            ?.maxByOrNull { it.lastModified() }
-            ?.let {
-                termux.emitLog("[startMc] Forge 旧版启动方式: ${it.name}")
-                return "-jar ${it.absolutePath}"
-            }
+            throw RuntimeException("Forge 旧版服务端部署不完整，请检查网络后重新下载安装核心")
+        }
 
         throw RuntimeException("Forge 启动文件缺失：未找到 unix_args.txt 或 forge-*.jar，请重新下载安装核心")
     }
+
+    private fun findLegacyForgeServerJar(serverDir: File): File? =
+        serverDir.listFiles()
+            ?.filter { file ->
+                file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar") &&
+                    !isForgeInstallerJar(file)
+            }
+            ?.maxByOrNull { it.lastModified() }
+
+    private fun isForgeInstallerJar(file: File): Boolean = runCatching {
+        JarFile(file).use { jar ->
+            jar.manifest?.mainAttributes?.getValue("Main-Class")
+                ?.contains("net.minecraftforge.installer", ignoreCase = true) == true
+        }
+    }.getOrDefault(false)
 
     suspend fun stop() = withContext(Dispatchers.IO) {
         termux.stopMc()
