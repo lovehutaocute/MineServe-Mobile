@@ -789,6 +789,7 @@ class McViewModel(
                 controller.start(config.value)
                 _messageFlow.tryEmit(str(R.string.s196))
             } catch (e: Exception) {
+                repo.termuxRuntime.emitLog("[startMc] 启动失败: ${e.message}")
                 _errorFlow.tryEmit(str(R.string.s197, e.message))
             }
         }

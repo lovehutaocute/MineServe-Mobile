@@ -682,10 +682,7 @@ class McServerController(
             termux.execOnce("fc-cache", "-f")
         }
         val launchArgs = when (coreType) {
-            ServerCore.Forge -> serverDir.walkTopDown()
-                .firstOrNull { it.name == "unix_args.txt" }
-                ?.let { "@${it.absolutePath}" }
-                ?: throw RuntimeException("Forge 启动文件 unix_args.txt 缺失，请重新下载安装核心")
+            ServerCore.Forge -> forgeLaunchArguments(serverDir)
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
                 ?.let { "@${it.absolutePath}" }
@@ -741,6 +738,32 @@ class McServerController(
             }
         )
         repo.updateServerState { it.copy(isRunning = true, runningSinceMs = 0L) }
+    }
+
+    /**
+     * Forge 1.17+ writes unix_args.txt, while Forge 1.12.2 and older writes a
+     * top-level forge-*.jar.  The installer jar itself remains server.jar.
+     */
+    private fun forgeLaunchArguments(serverDir: File): String {
+        serverDir.walkTopDown()
+            .firstOrNull { it.name == "unix_args.txt" }
+            ?.let {
+                termux.emitLog("[startMc] Forge 启动方式: unix_args.txt")
+                return "@${it.absolutePath}"
+            }
+
+        serverDir.listFiles()
+            ?.filter { file ->
+                file.isFile && file.name.startsWith("forge-") &&
+                    file.name.endsWith(".jar") && !file.name.contains("installer", ignoreCase = true)
+            }
+            ?.maxByOrNull { it.lastModified() }
+            ?.let {
+                termux.emitLog("[startMc] Forge 旧版启动方式: ${it.name}")
+                return "-jar ${it.absolutePath}"
+            }
+
+        throw RuntimeException("Forge 启动文件缺失：未找到 unix_args.txt 或 forge-*.jar，请重新下载安装核心")
     }
 
     suspend fun stop() = withContext(Dispatchers.IO) {

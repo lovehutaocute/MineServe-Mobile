@@ -822,7 +822,12 @@ class TermuxRuntime(context: Context) {
                 emitLog("[repair] Java 8 Ubuntu ARM64 运行环境不可用")
                 return 0
             }
-            if (needsFonts) {
+            val fontsReady = !needsFonts || runUbuntu(
+                "test -f /etc/fonts/fonts.conf && test -x /usr/bin/fc-cache",
+                60_000
+            ) == 0
+            if (!fontsReady) {
+                emitLog("[repair] 正在补全 Ubuntu 字体运行库...")
                 val code = runUbuntu(
                     "export DEBIAN_FRONTEND=noninteractive; " +
                         "apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 && " +
@@ -1561,6 +1566,7 @@ class TermuxRuntime(context: Context) {
         }.start()
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
         emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
+        emitLog("[startMc] 正在启动 Java 8 服务端...")
         mcProcess = process
         mcStdin = process.outputStream
         Thread({
@@ -1585,6 +1591,7 @@ class TermuxRuntime(context: Context) {
         Thread({
             val code = process.waitFor()
             Log.w(TAG, "Ubuntu Java 8 MC process exited code=$code")
+            emitLog("[startMc] Java 8 服务端已退出 (exit=$code)")
             mcProcess = null
             mcStdin = null
             onExit(code)
