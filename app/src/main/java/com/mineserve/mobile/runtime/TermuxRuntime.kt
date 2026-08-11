@@ -1531,21 +1531,31 @@ class TermuxRuntime(context: Context) {
         val guestDir = "/srv/mineserve"
         val guestJar = "$guestDir/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
         val guestLaunchArgs = launchArgs?.replace(serverDir.absolutePath, guestDir)
-        val javaArguments = guestLaunchArgs ?: "-jar '$guestJar'"
         val isLegacyForgeLaunch = launchArgs?.trim()?.startsWith("-jar") == true &&
             launchArgs.contains("forge-")
         val launchesVerifiedLibraryJar = isLegacyForgeLaunch &&
             launchArgs?.contains("libraries/", ignoreCase = true) == true
+        val forgeServerClasspath = if (launchesVerifiedLibraryJar) {
+            "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
+                "if [ -z \"${'$'}forge_jar\" ] || ! jar tf \"${'$'}forge_jar\" 2>/dev/null | grep -q 'net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class'; then " +
+                "echo '[startMc] Java 8 Forge: verified ServerLaunchWrapper is missing'; exit 1; fi; " +
+                "forge_classpath=\"${'$'}(find libraries -type f -name '*.jar' -printf '%p:' 2>/dev/null)${'$'}(find . -maxdepth 1 -type f -name 'minecraft_server.*.jar' -printf '%p:' 2>/dev/null)\"; "
+        } else ""
         val forgeLibraryRepair = if (isLegacyForgeLaunch && !launchesVerifiedLibraryJar) {
             "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
                 "if [ -n \"${'$'}forge_jar\" ]; then forge_target=\"${'$'}(basename \"${'$'}forge_jar\")\"; " +
                 "if ! cmp -s \"${'$'}forge_jar\" \"${'$'}forge_target\" 2>/dev/null; then " +
                 "cp -f \"${'$'}forge_jar\" \"${'$'}forge_target\" && echo '[startMc] Java 8 Forge: restored launch jar from verified library'; fi; fi; "
         } else ""
+        val javaArguments = if (launchesVerifiedLibraryJar) {
+            "-cp \"${'$'}forge_classpath\" net.minecraftforge.fml.relauncher.ServerLaunchWrapper"
+        } else {
+            guestLaunchArgs ?: "-jar '$guestJar'"
+        }
         val command = "export JAVA_HOME=$ubuntuJava8Home; " +
             "export PATH=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; " +
             "export TMPDIR=/tmp; export HOME=/root; export FONTCONFIG_PATH=/etc/fonts; " +
-            "cd '$guestDir' && $forgeLibraryRepair exec /usr/bin/java " +
+            "cd '$guestDir' && $forgeLibraryRepair$forgeServerClasspath exec /usr/bin/java " +
             "-Djava.awt.headless=true -Djava.io.tmpdir=/tmp " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
@@ -1576,6 +1586,9 @@ class TermuxRuntime(context: Context) {
         }.start()
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
         if (isLegacyForgeLaunch) emitLog("[startMc] Java 8 Forge: validating launch jar from verified library")
+        if (launchesVerifiedLibraryJar) {
+            emitLog("[startMc] Java 8 Forge: using ServerLaunchWrapper classpath mode")
+        }
         emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
         emitLog("[startMc] 正在启动 Java 8 服务端...")
         mcProcess = process
