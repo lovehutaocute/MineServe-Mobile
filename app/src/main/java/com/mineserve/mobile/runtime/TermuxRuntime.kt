@@ -237,11 +237,28 @@ class TermuxRuntime(context: Context) {
         if (!rootfs.isDirectory) return false
         var fixed = 0
         val visited = mutableSetOf<String>()
-        listOf("bin", "sbin", "usr/bin", "usr/sbin").forEach { relative ->
+        val commandDirs = listOf("bin", "sbin", "usr/bin", "usr/sbin")
+        commandDirs.forEach { relative ->
             File(rootfs, relative).listFiles()?.forEach { file ->
                 if (!file.isFile || !visited.add(file.canonicalPath)) return@forEach
                 if (!file.canExecute() && file.setExecutable(true, false)) fixed++
             }
+        }
+        val chmodTargets = commandDirs.map { File(rootfs, it) }.filter { it.exists() }
+        if (chmodTargets.isNotEmpty()) {
+            val targetArgs = chmodTargets.joinToString(" ") { "'${it.absolutePath.replace("'", "'\\''")}'" }
+            runCatching {
+                val chmod = ProcessBuilder("/system/bin/sh", "-c", "chmod -R 755 $targetArgs")
+                    .redirectErrorStream(true)
+                    .start()
+                val output = chmod.inputStream.bufferedReader().use { it.readText() }
+                if (chmod.waitFor(30, TimeUnit.SECONDS) && chmod.exitValue() == 0) {
+                    if (output.isNotBlank()) Log.d(TAG, "repairUbuntuRootfs chmod: $output")
+                } else {
+                    chmod.destroyForcibly()
+                    Log.w(TAG, "repairUbuntuRootfs: chmod failed")
+                }
+            }.onFailure { Log.w(TAG, "repairUbuntuRootfs: chmod exception: ${it.message}") }
         }
         listOf(
             "lib/ld-linux-aarch64.so.1",
