@@ -249,14 +249,6 @@ class TermuxRuntime(context: Context) {
         }
             emitLog("[java] 正在部署 Ubuntu ARM64 rootfs，首次安装需要较长时间")
         return runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
-        code = execOnceWithTimeout(
-            900_000, "proot-distro", "install", "ubuntu", env = prootEnvironment()
-        )
-        // The freshly installed proot-distro scripts may be unpacked after the
-        // initial relocation pass. Apply the path and permission fixes again.
-        repairProotDistroPaths()
-        ensureRootfsExecutable()
-        return code == 0 && runUbuntu("test -x /bin/sh && exit 0", 60_000) == 0
     }
 
     /**
