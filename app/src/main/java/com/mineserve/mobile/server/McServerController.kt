@@ -759,7 +759,7 @@ class McServerController(
         if (javaVersion == JavaVersion.Java8) {
             findJava8ForgeLibraryJar(serverDir)?.let { jar ->
                 val relativePath = jar.relativeTo(serverDir).invariantSeparatorsPath
-                termux.emitLog("[startMc] Java 8 Forge: 使用已校验服务端库 JAR: $relativePath")
+                termux.emitLog("[startMc] Java 8 Forge: 使用 ServerLaunchWrapper classpath 模式: $relativePath")
                 return "-jar '$relativePath'"
             }
         }
