@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.ServerCore
+import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
@@ -292,6 +293,10 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                InstallerJavaNotice(
+                    core = config.selectedCore,
+                    minecraftVersion = config.mcVersion
+                )
             }
 
             // 下载服务端
@@ -407,6 +412,68 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+private data class InstallerJavaRequirement(
+    val recommendedJava: JavaVersion?,
+    val exactLegacyForgeRequirement: Boolean
+)
+
+private fun installerJavaRequirement(
+    core: ServerCore,
+    minecraftVersion: String
+): InstallerJavaRequirement? {
+    if (!core.needsInstaller) return null
+
+    val versionParts = minecraftVersion
+        .trim()
+        .removePrefix("v")
+        .split('.')
+        .mapNotNull { it.toIntOrNull() }
+    val major = versionParts.getOrNull(0)
+    val minor = versionParts.getOrNull(1)
+    val patch = versionParts.getOrNull(2)
+    if (major != 1 || minor == null) return InstallerJavaRequirement(null, false)
+
+    val java = when {
+        minor <= 16 -> JavaVersion.Java8
+        minor > 20 || (minor == 20 && (patch ?: 0) >= 5) -> JavaVersion.Java25
+        else -> JavaVersion.Java17
+    }
+    return InstallerJavaRequirement(
+        recommendedJava = java,
+        exactLegacyForgeRequirement = core == ServerCore.Forge && minecraftVersion == "1.12.2"
+    )
+}
+
+@Composable
+private fun InstallerJavaNotice(core: ServerCore, minecraftVersion: String) {
+    val requirement = installerJavaRequirement(core, minecraftVersion) ?: return
+    Spacer(Modifier.height(10.dp))
+    Text(
+        if (requirement.exactLegacyForgeRequirement) {
+            "Forge 1.12.2 建议使用 Java 8 安装和启动。"
+        } else if (requirement.recommendedJava != null) {
+            "${core.displayName} $minecraftVersion 建议准备 ${requirement.recommendedJava.displayName} 运行环境。"
+        } else {
+            "${core.displayName} 安装需要兼容的 Java 运行环境。"
+        },
+        color = Coral,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    Spacer(Modifier.height(3.dp))
+    Text(
+        "首次安装会下载并配置依赖，耗时可能较长，请耐心等待。",
+        color = Coral,
+        fontSize = 11.sp
+    )
+    Spacer(Modifier.height(3.dp))
+    Text(
+        "注意：此处提示的 Java 版本有可能不对，请以服务器核心官方文档和安装器提示为准。",
+        color = Coral,
+        fontSize = 11.sp
+    )
 }
 
 

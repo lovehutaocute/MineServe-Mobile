@@ -119,6 +119,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
         it.status == com.mineserve.mobile.data.StepStatus.Done
     }
     val javaInstalled = JavaVersion.values().all { it in installedJava }
+    val javaCardAtBottom = config.javaCardAtBottom || javaInstalled
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
     val currentMirrorIndex by vm.currentMirrorIndex.collectAsState()
@@ -180,7 +181,16 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
             HeroBlock(state = state, coreLabel = coreLabel)
-            if (!javaInstalled) JavaManagementCard(vm, installedJava, isInstalling, javaOperation)
+            if (!javaCardAtBottom) {
+                JavaManagementCard(
+                    vm = vm,
+                    installed = installedJava,
+                    busy = isInstalling,
+                    operation = javaOperation,
+                    atBottom = false,
+                    allInstalled = false
+                )
+            }
 
             // ── 设备状态卡片（常规权限可采集） ──
             McCard(title = stringResource(R.string.s341)) {
@@ -768,7 +778,16 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
             }
             // QQ 交流群入口
-            if (javaInstalled) JavaManagementCard(vm, installedJava, isInstalling, javaOperation)
+            if (javaCardAtBottom) {
+                JavaManagementCard(
+                    vm = vm,
+                    installed = installedJava,
+                    busy = isInstalling,
+                    operation = javaOperation,
+                    atBottom = true,
+                    allInstalled = javaInstalled
+                )
+            }
             QqGroupCard()
             Spacer(Modifier.height(16.dp))
         }
@@ -898,7 +917,9 @@ private fun JavaManagementCard(
     vm: McViewModel,
     installed: Set<JavaVersion>,
     busy: Boolean,
-    operation: String?
+    operation: String?,
+    atBottom: Boolean,
+    allInstalled: Boolean
 ) {
     McCard(title = "Java 运行环境") {
         Text("仅提供 Java 8、Java 17、Java 25", color = Muted, fontSize = 11.sp)
@@ -942,6 +963,23 @@ private fun JavaManagementCard(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp)
             ) { Text("清除并重装 Java", color = Coral, fontSize = 12.sp) }
+        }
+        Spacer(Modifier.height(6.dp))
+        if (allInstalled) {
+            Text("三个 Java 版本均已安装，卡片已自动置于页面底部", color = Muted, fontSize = 11.sp)
+        } else {
+            OutlinedButton(
+                onClick = { vm.setJavaCardAtBottom(!atBottom) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    if (atBottom) "恢复默认位置" else "将卡片移至页面底部",
+                    color = Indigo,
+                    fontSize = 12.sp
+                )
+            }
         }
     }
 }

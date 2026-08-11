@@ -156,6 +156,8 @@ data class McConfig(
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
     val selectedJavaVersion: JavaVersion = JavaVersion.Java17,
+    /** 用户手动将 Java 管理卡片固定到概览页底部。 */
+    val javaCardAtBottom: Boolean = false,
     val keepWifiLock: Boolean = true,
     val keepCpuWakelock: Boolean = true,
     /** 自动备份间隔（分钟），0 表示关闭 */

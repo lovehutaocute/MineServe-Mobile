@@ -674,6 +674,9 @@ class McViewModel(
 
     fun setJavaVersion(version: JavaVersion) = updateConfig { it.copy(selectedJavaVersion = version) }
 
+    fun setJavaCardAtBottom(atBottom: Boolean) =
+        updateConfig { it.copy(javaCardAtBottom = atBottom) }
+
     fun installJava(version: JavaVersion) {
         if (!isBootstrapped.value || _isInstalling.value) return
         _isInstalling.value = true
