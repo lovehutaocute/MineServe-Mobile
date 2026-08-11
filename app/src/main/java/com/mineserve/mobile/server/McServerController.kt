@@ -112,13 +112,17 @@ class McServerController(
                     InstallStep.Wget -> termux.execOnce(
                         "apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y",
                         "wget", "fontconfig", "ttf-dejavu"
-                    ).also {
-                        if (it == 0) termux.execOnce("fc-cache", "-f")
-                    }
+                    )
                     InstallStep.Frp -> termux.execOnce("/system/bin/sh", "-c",
                         "which frpc >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=60 install --allow-unauthenticated -y frp")
                     InstallStep.Rclone -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "rclone")
                     InstallStep.Proot -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot")
+                }
+                if (code == 0) {
+                    termux.repairInstalledCommands()
+                    if (step == InstallStep.Wget && termux.isCommandInstalled("fc-cache")) {
+                        termux.execOnce("fc-cache", "-f")
+                    }
                 }
                 if (code == 0 && termux.isDependencyInstalled(step)) {
                     repo.markStep(step, StepStatus.Done, (idx + 1) * (100 / steps.size))

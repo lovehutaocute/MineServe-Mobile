@@ -156,11 +156,20 @@ class TermuxRuntime(context: Context) {
         return when (step) {
             InstallStep.Jdk -> isJavaInstalled(JavaVersion.Java17)
             InstallStep.Wget -> hasExecutable("bin/wget", "usr/bin/wget", "data/data/com.termux/files/usr/bin/wget") &&
-                hasExecutable("bin/fc-cache", "usr/bin/fc-cache", "data/data/com.termux/files/usr/bin/fc-cache")
+                File(prefix, "etc/fonts/fonts.conf").isFile
             InstallStep.Frp -> hasExecutable("bin/frpc", "usr/bin/frpc", "data/data/com.termux/files/usr/bin/frpc")
             InstallStep.Rclone -> hasExecutable("bin/rclone", "usr/bin/rclone", "data/data/com.termux/files/usr/bin/rclone")
             InstallStep.Proot -> hasExecutable("bin/proot", "usr/bin/proot")
         }
+    }
+
+    fun isCommandInstalled(command: String): Boolean {
+        val prefix = installer.rootDir
+        return listOf(
+            File(prefix, "bin/$command"),
+            File(prefix, "usr/bin/$command"),
+            File(prefix, "data/data/com.termux/files/usr/bin/$command")
+        ).any { it.isFile && it.canExecute() }
     }
 
     suspend fun installJava(version: JavaVersion): Boolean = withContext(Dispatchers.IO) {
@@ -747,6 +756,10 @@ class TermuxRuntime(context: Context) {
         }
         return n
     }
+
+    /** Repair commands unpacked by dpkg after the bootstrap startup pass. */
+    fun repairInstalledCommands(): Int =
+        fixUsrBin() + fixScriptsOnce() + ensureRootfsExecutable()
 
     /**
      * 升级已装环境的 dpkg 包装脚本到新版（幂等）。
