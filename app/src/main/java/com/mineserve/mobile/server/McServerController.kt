@@ -700,6 +700,7 @@ class McServerController(
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
             javaVersion = config.selectedJavaVersion,
+            launchArgs = if (config.selectedJavaVersion == JavaVersion.Java8) launchArgs else null,
             onExit = { code ->
                 repo.updateServerState { it.copy(isRunning = false) }
                 Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
