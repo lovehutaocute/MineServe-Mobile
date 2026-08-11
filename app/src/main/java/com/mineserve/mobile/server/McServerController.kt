@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -262,9 +263,17 @@ class McServerController(
             ServerCore.Vanilla -> resolveVanillaUrl(version)
             ServerCore.Velocity -> resolveVelocityUrl(version)
             ServerCore.BungeeCord -> resolveBungeeUrl()
-            ServerCore.PowerNukkitX -> resolvePowerNukkitXUrl()
+            ServerCore.PowerNukkitX -> resolvePowerNukkitXUrl(version)
             ServerCore.Unknown -> throw IllegalArgumentException("未知核心类型，无法解析下载地址")
         }
+    }
+
+    private fun resolveDownloadUrls(core: ServerCore, version: String): List<String> {
+        val official = resolveDownloadUrl(core, version)
+        return if (core == ServerCore.PowerNukkitX) {
+            // ponytail: three fixed channels cover mainland acceleration and the official fallback.
+            listOf("https://ghfast.top/$official", "https://gh-proxy.com/$official", official).distinct()
+        } else listOf(official)
     }
 
     // ── PaperMC v3 API（fill.papermc.io）：动态获取最新 STABLE build 号 ───
@@ -413,13 +422,18 @@ class McServerController(
         return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
     }
 
-    private fun resolvePowerNukkitXUrl(): String {
-        val release = fetchJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")
+    private fun resolvePowerNukkitXUrl(version: String): String {
+        val endpoint = if (version == "latest") {
+            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest"
+        } else {
+            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/${java.net.URLEncoder.encode(version, "UTF-8")}"
+        }
+        val release = fetchJson(endpoint)
         return release["assets"]?.jsonArray
             ?.map { it.jsonObject }
             ?.firstOrNull { it["name"]?.jsonPrimitive?.content == "powernukkitx.jar" }
             ?.get("browser_download_url")?.jsonPrimitive?.content
-            ?: throw RuntimeException("PowerNukkitX: latest release has no powernukkitx.jar asset")
+            ?: throw RuntimeException("PowerNukkitX $version: release has no powernukkitx.jar asset")
     }
 
     // ── NeoForge：maven-metadata 按所选 MC 版本匹配 NeoForge 版本 installer ──
@@ -508,7 +522,16 @@ class McServerController(
     private fun fetchBungeeVersions(): List<String> = listOf("latest")
 
     private fun fetchPowerNukkitXVersions(): List<String> = try {
-        listOf(fetchJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")["tag_name"]?.jsonPrimitive?.content ?: "latest")
+        fetchJsonElement("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases?per_page=30")
+            .jsonArray
+            .map { it.jsonObject }
+            .filter {
+                !(it["draft"]?.jsonPrimitive?.boolean ?: false) &&
+                    !(it["prerelease"]?.jsonPrimitive?.boolean ?: false)
+            }
+            .mapNotNull { it["tag_name"]?.jsonPrimitive?.content }
+            .distinct()
+            .ifEmpty { listOf("latest") }
     } catch (_: Exception) { listOf("latest") }
 
     private fun fetchNeoForgeVersions(): List<String> = DEFAULT_MC_VERSIONS
@@ -569,19 +592,20 @@ class McServerController(
      * @param onProgress 回调参数：(已下载字节, 总字节, 速度 bytes/s)，总字节为 -1 表示未知
      */
     suspend fun downloadCoreTo(jarPath: String, config: McConfig, dirName: String = "default", onProgress: (Long, Long, Long) -> Unit) = withContext(Dispatchers.IO) {
-        val url = resolveDownloadUrl(config.selectedCore, config.mcVersion)
-        Log.i(TAG, "downloadCoreTo: core=${config.selectedCore}, version=${config.mcVersion}, url=$url")
+        val urls = resolveDownloadUrls(config.selectedCore, config.mcVersion)
+        Log.i(TAG, "downloadCoreTo: core=${config.selectedCore}, version=${config.mcVersion}, urls=$urls")
         termux.emitLog("[download] 开始下载 ${config.selectedCore.displayName} ${config.mcVersion}")
-        termux.emitLog("[download] URL: $url")
         termux.emitLog("[download] 保存路径: $jarPath")
 
         val outFile = File(jarPath)
         outFile.parentFile?.mkdirs()
 
         var lastError: Exception? = null
-        // 重试 3 次（多线程模块内部已处理分片失败重试，外层再做整体重试）
+        // 普通核心保持 3 次重试；PowerNukkitX 依次尝试加速通道和官方源。
         repeat(3) { attempt ->
+            val url = urls[attempt % urls.size]
             try {
+                termux.emitLog("[download] 通道 ${attempt + 1}/${urls.size}: $url")
                 MultiThreadDownloader.download(
                     url = url,
                     target = outFile,
@@ -595,6 +619,13 @@ class McServerController(
                 val fileSize = outFile.length()
                 if (fileSize < 1024) {
                     throw RuntimeException("下载文件过小 ($fileSize 字节)，可能下载失败")
+                }
+                if (config.selectedCore == ServerCore.PowerNukkitX) {
+                    JarFile(outFile).use { jar ->
+                        check(jar.getEntry("cn/nukkit/Server.class") != null) {
+                            "PowerNukkitX 下载内容不是有效核心 JAR"
+                        }
+                    }
                 }
                 termux.emitLog("[download] 下载完成: ${fileSize / 1024 / 1024}MB")
                 Log.i(TAG, "downloadCoreTo: success, saved to $jarPath (${fileSize} bytes)")
@@ -669,8 +700,8 @@ class McServerController(
         // 找到当前选用的核心
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
-        if (activeCore.core == ServerCore.PowerNukkitX && config.selectedJavaVersion == JavaVersion.Java8) {
-            throw RuntimeException("PowerNukkitX 需要 Java 17 或 Java 25")
+        if (activeCore.core == ServerCore.PowerNukkitX && config.selectedJavaVersion != JavaVersion.Java21) {
+            throw RuntimeException("PowerNukkitX 需要 Java 21，请先安装 Java 21 运行环境")
         }
         val jarFile = termux.serverJarFileFor(activeCore.dirName)
         if (!jarFile.exists()) {

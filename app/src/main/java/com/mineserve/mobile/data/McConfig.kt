@@ -112,6 +112,7 @@ enum class InstallStep(val label: String) {
 enum class JavaVersion(val displayName: String, val packageName: String, val directoryName: String) {
     Java8("Java 8", "ubuntu-java8", "java-8-ubuntu"),
     Java17("Java 17", "openjdk-17", "java-17-openjdk"),
+    Java21("Java 21", "openjdk-21", "java-21-openjdk"),
     Java25("Java 25", "openjdk-25", "java-25-openjdk")
 }
 

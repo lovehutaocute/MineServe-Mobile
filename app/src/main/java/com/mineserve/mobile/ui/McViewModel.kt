@@ -787,7 +787,10 @@ class McViewModel(
         }
     }
 
-    fun setJavaVersion(version: JavaVersion) = updateConfig { it.copy(selectedJavaVersion = version) }
+    fun setJavaVersion(version: JavaVersion) = updateConfig {
+        val active = it.installedCores.firstOrNull { core -> core.name == it.activeCoreName }
+        it.copy(selectedJavaVersion = if (active?.core == ServerCore.PowerNukkitX) JavaVersion.Java21 else version)
+    }
 
     fun setJavaCardAtBottom(atBottom: Boolean) =
         updateConfig { it.copy(javaCardAtBottom = atBottom) }
@@ -839,6 +842,7 @@ class McViewModel(
         if (core == ServerCore.PowerNukkitX) it.copy(
             selectedCore = core,
             mcVersion = "latest",
+            selectedJavaVersion = JavaVersion.Java21,
             localPort = if (it.localPort == 25565) 19132 else it.localPort
         ) else it.copy(selectedCore = core)
     }
@@ -909,7 +913,16 @@ class McViewModel(
         }
         viewModelScope.launch {
             try {
-                controller.start(config.value)
+                val current = config.value
+                val active = current.installedCores.firstOrNull { it.name == current.activeCoreName }
+                val startConfig = if (active?.core == ServerCore.PowerNukkitX &&
+                    current.selectedJavaVersion != JavaVersion.Java21) {
+                    val corrected = current.copy(selectedJavaVersion = JavaVersion.Java21)
+                    repo.saveConfig(corrected)
+                    _messageFlow.tryEmit("PowerNukkitX 已自动切换为 Java 21")
+                    corrected
+                } else current
+                controller.start(startConfig)
                 startKeepAliveService()
                 _messageFlow.tryEmit(str(R.string.s196))
             } catch (e: Exception) {
@@ -2320,6 +2333,10 @@ class McViewModel(
             try {
                 val versions = controller.fetchVersions(core)
                 _availableVersions.value = versions
+                if (core == ServerCore.PowerNukkitX && config.value.selectedCore == core &&
+                    config.value.mcVersion == "latest" && versions.isNotEmpty()) {
+                    updateConfig { it.copy(mcVersion = versions.first()) }
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s294, e.message))
                 _availableVersions.value = emptyList()
@@ -2359,7 +2376,13 @@ class McViewModel(
 
     /** 选择要启动的核心（按名称） */
     fun setActiveCore(name: String) {
-        updateConfig { it.copy(activeCoreName = name) }
+        updateConfig {
+            val core = it.installedCores.firstOrNull { installed -> installed.name == name }
+            it.copy(
+                activeCoreName = name,
+                selectedJavaVersion = if (core?.core == ServerCore.PowerNukkitX) JavaVersion.Java21 else it.selectedJavaVersion
+            )
+        }
     }
 
     /** 删除一个已安装的核心（按名称） */

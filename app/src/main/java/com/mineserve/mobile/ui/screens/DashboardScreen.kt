@@ -126,7 +126,7 @@ fun DashboardScreen(
     val depsInstalled = dependencySteps.isNotEmpty() && dependencySteps.all {
         it.status == com.mineserve.mobile.data.StepStatus.Done
     }
-    val javaInstalled = JavaVersion.values().all { it in installedJava }
+    val javaInstalled = JavaVersion.values().filter { it != JavaVersion.Java21 }.all { it in installedJava }
     val javaCardAtBottom = config.javaCardAtBottom || javaInstalled
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
@@ -963,7 +963,7 @@ private fun JavaManagementCard(
                 }
             }
         }
-        if (installed.size == JavaVersion.values().size) {
+        if (JavaVersion.values().filter { it != JavaVersion.Java21 }.all { it in installed }) {
             OutlinedButton(
                 onClick = { vm.clearAndReinstallJava() },
                 enabled = !busy,

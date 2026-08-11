@@ -81,6 +81,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val consoleLines by vm.consoleLines.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val usesCoreVersion = config.selectedCore == ServerCore.PowerNukkitX
 
     // 自定义版本输入框
     var customVersion by remember { mutableStateOf("") }
@@ -204,7 +205,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         ServerCore.Vanilla -> "Vanilla：Minecraft 官方原版服务端"
                         ServerCore.Velocity -> "Velocity：高性能代理端，可连接多个后端服务器（不支持插件/模组）"
                         ServerCore.BungeeCord -> "BungeeCord：经典代理端，支持子服务器间切换（不支持插件/模组）"
-                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端，使用 ARM64 Java 运行；默认 UDP 端口 19132，需 Java 17 或 Java 25"
+                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端；选择的是核心 Release 版本，默认 UDP 端口 19132，固定使用 Java 21"
                         ServerCore.Unknown -> "未知核心：核心类型无法自动识别（通常来自还原备份），可在设置中修改"
                     },
                     color = Muted,
@@ -228,8 +229,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
             }
 
-            // 选择游戏版本
-            McCard(title = stringResource(R.string.s471)) {
+            McCard(title = if (usesCoreVersion) "选择核心版本" else stringResource(R.string.s471)) {
                 if (isLoadingVersions) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -257,7 +257,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Text(stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (usesCoreVersion) "手动输入核心版本" else stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -267,7 +267,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     OutlinedTextField(
                         value = customVersion,
                         onValueChange = { customVersion = it },
-                        placeholder = { Text(stringResource(R.string.s475), fontSize = 12.sp) },
+                        placeholder = { Text(if (usesCoreVersion) "例如 3.0.2" else stringResource(R.string.s475), fontSize = 12.sp) },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -289,7 +289,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.s478, config.mcVersion),
+                    if (usesCoreVersion) "当前核心版本：${config.mcVersion}" else stringResource(R.string.s478, config.mcVersion),
                     color = Indigo,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
@@ -298,6 +298,13 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     core = config.selectedCore,
                     minecraftVersion = config.mcVersion
                 )
+                if (usesCoreVersion) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "客户端必须与所选 PowerNukkitX Release 支持的 Bedrock 协议匹配；出现“需更新客户端”时，请更新客户端或选择支持该客户端版本的核心。",
+                        color = Coral, fontSize = 11.sp
+                    )
+                }
             }
 
             // 下载服务端
@@ -357,7 +364,9 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                 } else {
                     Text(
-                        stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
+                        if (usesCoreVersion) {
+                            "准备下载 ${config.selectedCore.displayName} 核心版本 ${config.mcVersion}"
+                        } else stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
                         color = Muted,
                         fontSize = 11.sp
                     )
