@@ -19,6 +19,8 @@ import com.mineserve.mobile.R
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.StepStatus
 import com.mineserve.mobile.runtime.TermuxRuntime
+import com.mineserve.mobile.server.BackupManager
+import com.mineserve.mobile.server.ExternalBackupStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -40,6 +42,7 @@ class McForegroundService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var termux: TermuxRuntime
+    private lateinit var backupManager: BackupManager
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -50,6 +53,7 @@ class McForegroundService : Service() {
         super.onCreate()
         isRunning = true
         termux = McApplication.get(this).termuxRuntime
+        backupManager = BackupManager(termux)
         // 移到 IO 线程，避免主线程阻塞导致 ANR
         scope.launch { detectSurvivingProcess() }
     }
@@ -151,20 +155,37 @@ class McForegroundService : Service() {
         val active = config.installedCores.find { it.name == config.activeCoreName } ?: return
         val intervalMs = config.autoBackupIntervalMin * 60_000L
         if (intervalMs <= 0 || autoBackupRunning) return
+        if (!ExternalBackupStore.hasPermission(this)) {
+            termux.emitLog("[backup] 自动备份跳过：未授予外部存储访问权限")
+            return
+        }
         val prefs = getSharedPreferences("auto_backup", MODE_PRIVATE)
-        val key = "last_${active.dirName}"
+        val key = "last_${active.dirName}_${config.autoBackupType.name}"
         if (System.currentTimeMillis() - prefs.getLong(key, 0L) < intervalMs) return
         autoBackupRunning = true
         scope.launch {
             try {
-                termux.emitLog("[backup] 正在自动备份 ${active.name}")
+                val typeName = config.autoBackupType.displayName
+                termux.emitLog("[backup] 正在自动$typeName: ${active.name}")
                 termux.sendCommand("save-all")
                 kotlinx.coroutines.delay(1_000L)
-                val path = termux.createSnapshot(config.maxSnapshots, active.dirName)
+                val path = when (config.autoBackupType) {
+                    com.mineserve.mobile.data.AutoBackupType.World -> backupManager.backupWorldToExternal(
+                        active.dirName,
+                        BackupManager.BackupOrigin.Automatic,
+                        config.maxSnapshots
+                    )
+                    com.mineserve.mobile.data.AutoBackupType.Server -> backupManager.backupServerToExternal(
+                        active.dirName,
+                        active.core.displayName,
+                        BackupManager.BackupOrigin.Automatic,
+                        config.maxSnapshots
+                    )
+                }
                 if (path != null) {
                     prefs.edit().putLong(key, System.currentTimeMillis()).apply()
                     termux.emitLog("[backup] 自动备份完成: ${java.io.File(path).name}")
-                } else termux.emitLog("[backup] 自动备份失败：未找到可备份的世界目录")
+                } else termux.emitLog("[backup] 自动备份失败：外部目录不可写或没有可备份的数据")
             } catch (e: Exception) {
                 termux.emitLog("[backup] 自动备份失败: ${e.message}")
             } finally {

@@ -1569,9 +1569,8 @@ class McViewModel(
     suspend fun createSnapshot(): String? {
         if (!isBootstrapped.value) return null
         val dirName = activeDirName() ?: return null
-        val maxSnap = config.value.maxSnapshots
         return withContext(Dispatchers.IO) {
-            repo.termuxRuntime.createSnapshot(maxSnapshots = maxSnap, dirName = dirName)
+            backupManager.backupWorldToExternal(dirName, BackupManager.BackupOrigin.Manual)
         }
     }
 
@@ -1597,7 +1596,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 val path = withContext(Dispatchers.IO) {
-                    backupManager.backupWorldToExternal(dirName)
+                    backupManager.backupWorldToExternal(dirName, BackupManager.BackupOrigin.Manual)
                 }
                 if (path != null) {
                     _messageFlow.tryEmit("世界备份完成: ${java.io.File(path).name}")
@@ -1620,7 +1619,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 val path = withContext(Dispatchers.IO) {
-                    backupManager.backupServerToExternal(dirName, coreTag)
+                    backupManager.backupServerToExternal(dirName, coreTag, BackupManager.BackupOrigin.Manual)
                 }
                 if (path != null) {
                     _messageFlow.tryEmit("服务器备份完成: ${java.io.File(path).name}")
@@ -1643,6 +1642,9 @@ class McViewModel(
 
     /** 列出外部备份 zip（供备份页展示） */
     fun externalBackups(): List<java.io.File> = com.mineserve.mobile.server.ExternalBackupStore.listBackups()
+
+    fun externalBackupInfo(file: java.io.File): BackupManager.ExternalBackupInfo =
+        backupManager.parseExternalBackup(file.name, file.lastModified())
 
     /** 删除外部备份文件 */
     fun deleteExternalBackup(name: String) {
@@ -2251,6 +2253,8 @@ class McViewModel(
     // ── 定时备份配置 ────────────────────────────────────────────────
 
     fun setAutoBackupInterval(min: Int) = updateConfig { it.copy(autoBackupIntervalMin = min) }
+    fun setAutoBackupType(type: com.mineserve.mobile.data.AutoBackupType) =
+        updateConfig { it.copy(autoBackupType = type) }
     fun setMaxSnapshots(max: Int) = updateConfig { it.copy(maxSnapshots = max) }
 
     // ── 服务端核心下载相关 ──────────────────────────────────────────

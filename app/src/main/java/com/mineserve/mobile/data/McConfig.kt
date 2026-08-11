@@ -116,6 +116,12 @@ enum class JavaVersion(val displayName: String, val packageName: String, val dir
 }
 
 @Serializable
+enum class AutoBackupType(val displayName: String) {
+    World("世界备份"),
+    Server("完整服务器")
+}
+
+@Serializable
 enum class StepStatus { Done, Active, Wait }
 
 @Serializable
@@ -163,6 +169,8 @@ data class McConfig(
     val keepCpuWakelock: Boolean = true,
     /** 自动备份间隔（分钟），0 表示关闭 */
     val autoBackupIntervalMin: Int = 0,
+    /** 自动备份内容，默认仅备份世界以避免无意生成大型 ZIP。 */
+    val autoBackupType: AutoBackupType = AutoBackupType.World,
     /** 保留的最大快照数量，超过则自动删除最旧的 */
     val maxSnapshots: Int = 10,
     /** Termux 环境/依赖下载源，默认镜像优先 */

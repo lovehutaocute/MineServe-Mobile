@@ -24,6 +24,17 @@ import java.util.zip.ZipInputStream
  */
 class BackupManager(private val termux: TermuxRuntime) {
 
+    enum class BackupKind { World, Server }
+    enum class BackupOrigin(val label: String) { Manual("手动"), Automatic("自动") }
+
+    data class ExternalBackupInfo(
+        val kind: BackupKind,
+        val origin: BackupOrigin?,
+        val dirName: String?,
+        val coreTag: String?,
+        val createdTime: Long
+    )
+
     /** 快照信息数据类 */
     data class SnapshotInfo(
         val name: String,           // 文件名（不含路径）
@@ -76,15 +87,31 @@ class BackupManager(private val termux: TermuxRuntime) {
         }
     }
 
-    /** 创建快照（封装 TermuxRuntime.createSnapshot，返回路径或 null） */
-    fun createSnapshot(dirName: String): String? = termux.createSnapshot(dirName = dirName)
+    /** 新建世界备份统一写入公共备份目录；私有快照目录仅用于兼容旧文件。 */
+    fun createSnapshot(dirName: String): String? = backupWorldToExternal(dirName, BackupOrigin.Manual)
 
     // ── 外部备份（/storage/emulated/0/世界与服务器的备份/） ─────────────
 
     private fun serverDir(dirName: String): File =
         File(termux.installer.rootDir, "home/servers/$dirName")
 
-    private fun ts(): String = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+    private fun ts(): String = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+
+    private fun safeSegment(value: String): String =
+        value.replace(Regex("[\\\\/:*?\"<>|\\r\\n]"), "_").trim().ifBlank { "unknown" }
+
+    private fun backupName(
+        kind: BackupKind,
+        dirName: String,
+        coreTag: String? = null,
+        origin: BackupOrigin
+    ): String {
+        val prefix = if (kind == BackupKind.World) "world" else "server"
+        val fields = mutableListOf(prefix, safeSegment(dirName), ts())
+        if (kind == BackupKind.Server) fields += safeSegment(coreTag ?: "Unknown")
+        fields += origin.label
+        return fields.joinToString("_") + ".zip"
+    }
 
     /** 打包目录列表到 zip（保留顶层目录名） */
     private fun zipDirs(dirs: List<File>, out: File): Boolean = try {
@@ -128,16 +155,23 @@ class BackupManager(private val termux: TermuxRuntime) {
         out.exists() && out.length() > 0
     } catch (e: Exception) { out.delete(); false }
 
-    /** 外部备份整个世界（world + world_nether + world_the_end）→ world_{dir}_{ts}.zip */
-    fun backupWorldToExternal(dirName: String): String? {
+    /** 外部备份整个世界（world + world_nether + world_the_end）。 */
+    fun backupWorldToExternal(
+        dirName: String,
+        origin: BackupOrigin = BackupOrigin.Manual,
+        maxAutomaticBackups: Int = 0
+    ): String? {
         if (!ExternalBackupStore.ensure()) return null
         val dir = serverDir(dirName)
         val worlds = listOf(
             File(dir, "world"), File(dir, "world_nether"), File(dir, "world_the_end"), File(dir, "worlds")
         )
         if (!worlds.any { it.isDirectory }) return null
-        val out = File(ExternalBackupStore.rootDir, "world_${dirName}_${ts()}.zip")
-        return if (zipDirs(worlds, out)) out.absolutePath else null
+        val out = File(ExternalBackupStore.rootDir, backupName(BackupKind.World, dirName, origin = origin))
+        return if (zipDirs(worlds, out)) {
+            cleanupAutomaticBackups(dirName, BackupKind.World, maxAutomaticBackups, origin)
+            out.absolutePath
+        } else null
     }
 
     /**
@@ -145,16 +179,20 @@ class BackupManager(private val termux: TermuxRuntime) {
      * 文件名 server_{dir}_{ts}__{core}.zip（__ 后置核心类型，便于还原时识别核心；
      * 旧格式无 __ 段兼容）。
      */
-    fun backupServerToExternal(dirName: String, coreTag: String? = null): String? {
+    fun backupServerToExternal(
+        dirName: String,
+        coreTag: String? = null,
+        origin: BackupOrigin = BackupOrigin.Manual,
+        maxAutomaticBackups: Int = 0
+    ): String? {
         if (!ExternalBackupStore.ensure()) return null
         val dir = serverDir(dirName)
         if (!dir.isDirectory) return null
-        val base = "server_${dirName}_${ts()}"
-        val out = File(
-            ExternalBackupStore.rootDir,
-            if (coreTag.isNullOrBlank()) "$base.zip" else "${base}__$coreTag.zip"
-        )
-        return if (zipDirFiltered(dir, out)) out.absolutePath else null
+        val out = File(ExternalBackupStore.rootDir, backupName(BackupKind.Server, dirName, coreTag, origin))
+        return if (zipDirFiltered(dir, out)) {
+            cleanupAutomaticBackups(dirName, BackupKind.Server, maxAutomaticBackups, origin)
+            out.absolutePath
+        } else null
     }
 
     /** 停止当前运行中的服务器（若在运行） */
@@ -205,19 +243,68 @@ class BackupManager(private val termux: TermuxRuntime) {
         } catch (e: Exception) { false }
     }
 
-    /**
-     * 解析服务器备份文件名 → (dirName, coreTag)。
-     * 格式：server_{dir}_{ts}__{core}.zip（__ 后置核心类型）；旧格式无 __ 段时 coreTag=null。
-     */
-    fun parseServerZipInfo(name: String): Pair<String, String?> {
+    /** 解析新旧外部备份命名；无法识别的导入 ZIP 延续旧行为，按服务器备份处理。 */
+    fun parseExternalBackup(name: String, modifiedTime: Long = 0L): ExternalBackupInfo {
         val base = name.removeSuffix(".zip")
-        val coreTag = if (base.contains("__")) base.substringAfterLast("__").ifBlank { null } else null
-        val dirPart = if (base.contains("__")) base.substringBeforeLast("__") else base
-        // server_{dir}_{yyyyMMdd_HHmmss}
-        val parts = dirPart.split("_")
-        if (parts.size < 3) return "default" to coreTag
-        val dirName = parts.drop(1).dropLast(1).joinToString("_").ifBlank { "default" }
-        return dirName to coreTag
+        val newMatch = NEW_BACKUP.matchEntire(base)
+        if (newMatch != null) {
+            val kind = if (newMatch.groupValues[1] == "world") BackupKind.World else BackupKind.Server
+            val timestamp = parseTime(newMatch.groupValues[3], NEW_TIME) ?: modifiedTime
+            return ExternalBackupInfo(
+                kind = kind,
+                dirName = newMatch.groupValues[2],
+                coreTag = newMatch.groupValues[4].ifBlank { null },
+                origin = if (newMatch.groupValues[5] == BackupOrigin.Automatic.label) BackupOrigin.Automatic else BackupOrigin.Manual,
+                createdTime = timestamp
+            )
+        }
+
+        val legacyWorld = LEGACY_WORLD.matchEntire(base)
+        if (legacyWorld != null) {
+            return ExternalBackupInfo(
+                kind = BackupKind.World,
+                origin = null,
+                dirName = legacyWorld.groupValues[1].ifBlank { null },
+                coreTag = null,
+                createdTime = parseTime(legacyWorld.groupValues[2], LEGACY_TIME) ?: modifiedTime
+            )
+        }
+
+        val legacyServer = LEGACY_SERVER.matchEntire(base)
+        if (legacyServer != null) {
+            return ExternalBackupInfo(
+                kind = BackupKind.Server,
+                origin = null,
+                dirName = legacyServer.groupValues[1].ifBlank { "default" },
+                coreTag = legacyServer.groupValues[3].ifBlank { null },
+                createdTime = parseTime(legacyServer.groupValues[2], LEGACY_TIME) ?: modifiedTime
+            )
+        }
+        return ExternalBackupInfo(BackupKind.Server, null, "default", null, modifiedTime)
+    }
+
+    fun isWorldExternalBackup(name: String): Boolean = parseExternalBackup(name).kind == BackupKind.World
+
+    /** 兼容新旧服务器命名，目录名含下划线时通过时间字段定位，不再按 split 推测。 */
+    fun parseServerZipInfo(name: String): Pair<String, String?> {
+        val info = parseExternalBackup(name)
+        return (info.dirName ?: "default") to info.coreTag
+    }
+
+    private fun cleanupAutomaticBackups(
+        dirName: String,
+        kind: BackupKind,
+        keepCount: Int,
+        origin: BackupOrigin
+    ) {
+        if (origin != BackupOrigin.Automatic || keepCount <= 0) return
+        val safeDir = safeSegment(dirName)
+        val files = ExternalBackupStore.listBackups().map { file -> file to parseExternalBackup(file.name, file.lastModified()) }
+            .filter { (_, info) ->
+                info.kind == kind && info.origin == BackupOrigin.Automatic && info.dirName == safeDir
+            }
+            .sortedByDescending { (_, info) -> info.createdTime }
+        files.drop(keepCount).forEach { (file, _) -> file.delete() }
     }
 
     /** 旧接口：只解析目录名（保留兼容） */
@@ -326,6 +413,20 @@ class BackupManager(private val termux: TermuxRuntime) {
                 }
             }
         }
+    }
+
+    private fun parseTime(value: String, format: String): Long? = try {
+        SimpleDateFormat(format, Locale.US).apply { isLenient = false }.parse(value)?.time
+    } catch (_: Exception) {
+        null
+    }
+
+    private companion object {
+        const val NEW_TIME = "yyyy-MM-dd_HH-mm-ss"
+        const val LEGACY_TIME = "yyyyMMdd_HHmmss"
+        val NEW_BACKUP = Regex("^(world|server)_(.+)_(\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2})(?:_(.*))?_(手动|自动)$")
+        val LEGACY_WORLD = Regex("^world_(?:(.+)_)?(\\d{8}_\\d{6})$")
+        val LEGACY_SERVER = Regex("^server_(.+)_(\\d{8}_\\d{6})(?:__(.*))?$")
     }
 
     /** 格式化文件大小为 KB/MB/GB 友好文本 */
