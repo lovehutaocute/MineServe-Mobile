@@ -202,15 +202,7 @@ class TermuxRuntime(context: Context) {
             }
             emitLog("[java] 正在 Ubuntu 中安装 ARM64 glibc Java 8，首次安装可能需要数分钟")
             val code = runUbuntu(
-                "export DEBIAN_FRONTEND=noninteractive; " +
-                    "printf '%s\\n' " +
-                    "'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports focal main restricted universe multiverse' " +
-                    "'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports focal-updates main restricted universe multiverse' " +
-                    "'deb http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports focal-security main restricted universe multiverse' " +
-                    "> /etc/apt/sources.list && " +
-                    "apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 && " +
-                    "apt-get install -y --no-install-recommends openjdk-8-jdk ca-certificates fontconfig fonts-dejavu-core && " +
-                    "test -x /usr/bin/java && /usr/bin/java -version 2>&1 | grep -q '1\\.8\\.'",
+                ubuntuJava8InstallCommand(),
                 timeoutMs = 900_000
             )
             if (code != 0) throw IllegalStateException("Ubuntu 内 Java 8 校验失败（exit=$code）")
@@ -223,6 +215,28 @@ class TermuxRuntime(context: Context) {
             false
         }
     }
+
+    private fun ubuntuJava8InstallCommand(): String = """
+        install_openjdk8() {
+          mirror="${'$'}1"
+          echo "[java] Ubuntu APT 源: ${'$'}mirror"
+          printf '%s\n' \
+            "deb ${'$'}mirror focal main restricted universe multiverse" \
+            "deb ${'$'}mirror focal-updates main restricted universe multiverse" \
+            "deb ${'$'}mirror focal-security main restricted universe multiverse" \
+            > /etc/apt/sources.list
+          rm -rf /var/lib/apt/lists/*
+          if apt-get update -o Acquire::Retries=2 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 && \
+            apt-get install -y --no-install-recommends openjdk-8-jdk ca-certificates fontconfig fonts-dejavu-core; then
+            test -x /usr/bin/java && /usr/bin/java -version 2>&1 | grep -q '1\.8\.'
+            return ${'$'}?
+          fi
+          return 1
+        }
+        install_openjdk8 http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports || \
+          install_openjdk8 http://mirrors.ustc.edu.cn/ubuntu-ports || \
+          install_openjdk8 http://ports.ubuntu.com/ubuntu-ports
+    """.trimIndent()
 
     private fun java8UbuntuReady(): Boolean {
         val rootfs = java8Rootfs
@@ -431,6 +445,7 @@ class TermuxRuntime(context: Context) {
         } else {
             val rootfs = java8Rootfs
             val shm = File(rootfs, "tmp").apply { mkdirs() }
+            val resolver = prepareUbuntuDns(rootfs)
             val args = mutableListOf(
                 "proot",
                 "--kill-on-exit",
@@ -444,7 +459,8 @@ class TermuxRuntime(context: Context) {
                 "--bind=/proc",
                 "--bind=/sys",
                 "--bind=/dev/urandom:/dev/random",
-                "--bind=${shm.absolutePath}:/dev/shm"
+                "--bind=${shm.absolutePath}:/dev/shm",
+                "--bind=${resolver.absolutePath}:/etc/resolv.conf"
             )
             extraBinds.forEach { args += "--bind=$it" }
             args += listOf(
@@ -461,6 +477,36 @@ class TermuxRuntime(context: Context) {
             )
             execOnceWithTimeout(timeoutMs, *args.toTypedArray(), env = prootEnvironment())
         }
+
+    /** Give the isolated Ubuntu rootfs Android's active DNS servers. */
+    private fun prepareUbuntuDns(rootfs: File): File {
+        val addresses = (1..4).mapNotNull { index ->
+            readAndroidDns("net.dns$index").takeIf { it.isNotBlank() && it.none(Char::isWhitespace) }
+        }.distinct()
+        val nameservers = if (addresses.isNotEmpty()) addresses else listOf("223.5.5.5", "119.29.29.29")
+        val content = nameservers.joinToString(separator = "\n", postfix = "\n") { "nameserver $it" }
+        val resolver = File(installer.tmpDir, "java8-resolv.conf")
+        resolver.parentFile?.mkdirs()
+        resolver.writeText(content)
+
+        // Ubuntu Base ships /etc/resolv.conf as a systemd-resolved symlink.
+        // The target does not exist in this PRoot container, so replace it with
+        // a regular file before binding the same resolver for every invocation.
+        val guestResolver = File(rootfs, "etc/resolv.conf")
+        guestResolver.delete()
+        guestResolver.parentFile?.mkdirs()
+        guestResolver.writeText(content)
+        return resolver
+    }
+
+    private fun readAndroidDns(property: String): String = runCatching {
+        val process = ProcessBuilder("/system/bin/getprop", property)
+            .redirectErrorStream(true)
+            .start()
+        val value = process.inputStream.bufferedReader().use { it.readText().trim() }
+        if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
+        value
+    }.getOrDefault("")
 
     /** Restore executable bits lost while proot-distro applies a rootfs layer. */
     private fun repairUbuntuRootfs(): Boolean {
@@ -1493,6 +1539,7 @@ class TermuxRuntime(context: Context) {
             "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments nogui"
         val rootfs = java8Rootfs
         val sharedMemory = File(rootfs, "tmp").apply { mkdirs() }
+        val resolver = prepareUbuntuDns(rootfs)
         val proot = listOf(
             File(installer.rootDir, "bin/proot"),
             File(installer.rootDir, "usr/bin/proot")
@@ -1502,7 +1549,8 @@ class TermuxRuntime(context: Context) {
             proot.absolutePath, "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "--change-id=0:0",
             "--rootfs=${rootfs.absolutePath}", "--cwd=/root",
             "--bind=/dev", "--bind=/proc", "--bind=/sys", "--bind=/dev/urandom:/dev/random",
-            "--bind=${sharedMemory.absolutePath}:/dev/shm", "--bind=${serverDir.absolutePath}:$guestDir",
+            "--bind=${sharedMemory.absolutePath}:/dev/shm", "--bind=${resolver.absolutePath}:/etc/resolv.conf",
+            "--bind=${serverDir.absolutePath}:$guestDir",
             "/usr/bin/env", "-i",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "HOME=/root", "TMPDIR=/tmp", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive",
