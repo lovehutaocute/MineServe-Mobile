@@ -263,7 +263,10 @@ class TermuxRuntime(context: Context) {
                 "--bind=${shm.absolutePath}:/dev/shm"
             )
             extraBinds.forEach { args += "--bind=$it" }
-            args += listOf("/bin/sh", "-lc", command)
+            val guestSetup =
+                "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin; " +
+                    "export HOME=/root; export TMPDIR=/tmp; "
+            args += listOf("/bin/sh", "-c", guestSetup + command)
             execOnceWithTimeout(timeoutMs, *args.toTypedArray(), env = prootEnvironment())
         }
 
