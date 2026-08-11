@@ -230,6 +230,8 @@ class TermuxRuntime(context: Context) {
             "TERMUX__HOME" to "$prefix/home",
             "TERMUX_APP_PACKAGE" to "com.mineserve.mobile",
             "TERMUX_APP__PACKAGE_NAME" to "com.mineserve.mobile",
+            "PROOT_LOADER" to "$prefix/libexec/proot/loader",
+            "PROOT_LOADER_32" to "$prefix/libexec/proot/loader32",
             "TERMUX_VERSION" to "mineServe"
         )
     }
@@ -423,6 +425,8 @@ class TermuxRuntime(context: Context) {
             "#!/system/bin/sh\n" +
                 "export PROOT_TMP_DIR='$prefix/tmp'\n" +
                 "export TMPDIR='$prefix/tmp'\n" +
+                "export PROOT_LOADER='$prefix/libexec/proot/loader'\n" +
+                "export PROOT_LOADER_32='$prefix/libexec/proot/loader32'\n" +
                 "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'\n" +
                 "exec '$binary' \"${'$'}@\"\n"
         )
