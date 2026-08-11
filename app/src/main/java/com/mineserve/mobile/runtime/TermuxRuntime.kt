@@ -201,6 +201,37 @@ class TermuxRuntime(context: Context) {
         File(installer.rootDir, "etc/fonts/fonts.conf").isFile && isCommandInstalled("fc-cache")
     }
 
+    /** Rebuild fontconfig with the resolved executable path rather than PATH lookup. */
+    private fun rebuildTermuxFontCache(): Boolean {
+        val prefix = installer.rootDir
+        val cache = listOf(
+            File(prefix, "bin/fc-cache"),
+            File(prefix, "usr/bin/fc-cache"),
+            File(prefix, "data/data/com.termux/files/usr/bin/fc-cache")
+        ).firstOrNull { it.isFile && it.canExecute() } ?: run {
+            emitLog("[repair] 字体缓存命令 fc-cache 未安装或不可执行")
+            return false
+        }
+        val code = execOnce(cache.absolutePath, "-f")
+        val ready = code == 0 && File(prefix, "etc/fonts/fonts.conf").isFile
+        emitLog(if (ready) "[repair] 字体缓存已生成" else "[repair] 字体缓存生成失败(exit=$code)，请在运行诊断中查看命令状态")
+        return ready
+    }
+
+    fun repairFontRuntime(): Boolean {
+        if (!isReady()) return false
+        val prefix = installer.rootDir
+        if (!File(prefix, "etc/fonts/fonts.conf").isFile || !isCommandInstalled("fc-cache")) {
+            emitLog("[repair] 正在补齐字体运行库...")
+            execOnce(
+                "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
+                "--allow-unauthenticated", "-y", "fontconfig", "ttf-dejavu"
+            )
+            repairInstalledCommands()
+        }
+        return rebuildTermuxFontCache()
+    }
+
     suspend fun installJava(version: JavaVersion): Boolean = withContext(Dispatchers.IO) {
         if (!isReady()) throw RuntimeException("Termux 环境未初始化")
         if (version == JavaVersion.Java8) {
@@ -882,13 +913,7 @@ class TermuxRuntime(context: Context) {
         fixJavaSymlinks(javaVersion)
 
         if (needsFonts) {
-            val fontConfig = File(prefix, "etc/fonts/fonts.conf")
-            val fcCache = listOf(
-                File(prefix, "bin/fc-cache"),
-                File(prefix, "usr/bin/fc-cache"),
-                File(prefix, "data/data/com.termux/files/usr/bin/fc-cache")
-            ).firstOrNull { it.exists() && it.canExecute() }
-            if (!fontConfig.exists() || fcCache == null) {
+            if (!fontRuntimeReady(javaVersion)) {
                 emitLog("[repair] 正在补齐字体运行库...")
                 execOnce(
                     "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
@@ -896,7 +921,7 @@ class TermuxRuntime(context: Context) {
                 )
                 repaired += fixUsrBin() + ensureRootfsExecutable()
             }
-            if (execOnce("fc-cache", "-f") == 0) repaired++
+            if (repairFontRuntime()) repaired++
             else emitLog("[repair] 字体缓存生成失败，将继续使用无图形模式启动")
         }
 
@@ -1699,6 +1724,7 @@ class TermuxRuntime(context: Context) {
                 listOf("$candidate/lib", "$candidate/lib/server")
             }
         }.joinToString(":")
+        val nativeAccessArg = if (javaVersion == JavaVersion.Java25) "--enable-native-access=ALL-UNNAMED " else ""
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
             "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
@@ -1708,7 +1734,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' -Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
+            "'$javaPath' $nativeAccessArg-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +

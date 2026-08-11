@@ -553,6 +553,13 @@ class McViewModel(
             "java", "${cfg.selectedJavaVersion.displayName} 运行环境", javaCheck.second,
             if (javaCheck.first) DiagnosticStatus.Pass else DiagnosticStatus.Failed, !javaCheck.first
         )
+        if (active?.core == ServerCore.NeoForge && cfg.selectedJavaVersion != JavaVersion.Java8) {
+            checks += DiagnosticCheck(
+                "native-jna", "NeoForge 原生库兼容性",
+                "Android/Termux 原生 Java 使用 bionic，不提供 glibc 的 libc.so.6；JNA/OSHI 系统信息警告无法通过补字体或一键修复解决。服务端实际崩溃请以 crash-reports 中的异常为准。",
+                DiagnosticStatus.Warning
+            )
+        }
         val prootRequired = cfg.selectedJavaVersion == JavaVersion.Java8
         val downloaderRequired = active?.core?.needsInstaller == true
         val requiredCommandsReady = (!prootRequired || runtime.isCommandInstalled("proot")) &&

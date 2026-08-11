@@ -39,8 +39,9 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         // 显式设置 PATH 和 LD_LIBRARY_PATH，确保 /system/bin/sh 能找到 Termux 命令
         // ProcessBuilder.environment() 在某些 Android 版本上可能不正确传递 PATH
         // LD_LIBRARY_PATH 需包含 usr/lib/（Termux compat 实际解压路径），否则 proot 找不到 libtalloc.so.2
-        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
-        val envSetup = "export PATH='$prefix/bin:$prefix/usr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
+        val compatUsr = "$prefix/data/data/com.termux/files/usr"
+        val compatUsrLib = "$compatUsr/lib"
+        val envSetup = "export PATH='$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
             "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
             "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
@@ -61,7 +62,8 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         val caBundle = "$prefix/etc/ssl/certs/ca-certificates.crt"
         // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，库实际落在 usr/lib/
         // 必须加入 LD_LIBRARY_PATH，否则 proot 找不到 libtalloc.so.2
-        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        val compatUsr = "$prefix/data/data/com.termux/files/usr"
+        val compatUsrLib = "$compatUsr/lib"
         // Termux rootfs 的共享库标准位置为 $PREFIX/usr/lib（bash 依赖的 readline/ncurses
         // 等都在这里）；仅靠 $prefix/lib 会导致这些命令启动失败（退出码 126）。
         // 顺序：$prefix/lib → compat 实际落点 → Termux 标准 usr/lib → 系统库
@@ -73,7 +75,7 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         ).joinToString(":")
         return mapOf(
             "HOME" to "$prefix/home",
-            "PATH" to "$prefix/bin:$prefix/usr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
+            "PATH" to "$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
             "TMPDIR" to "$prefix/tmp",
             "LD_LIBRARY_PATH" to libPath,
             "FONTCONFIG_PATH" to "$prefix/etc/fonts",

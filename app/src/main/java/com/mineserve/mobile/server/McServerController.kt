@@ -121,8 +121,8 @@ class McServerController(
                 }
                 if (code == 0) {
                     termux.repairInstalledCommands()
-                    if (step == InstallStep.Wget && termux.isCommandInstalled("fc-cache")) {
-                        termux.execOnce("fc-cache", "-f")
+                    if (step == InstallStep.Wget) {
+                        termux.repairFontRuntime()
                     }
                 }
                 if (code == 0 && termux.isDependencyInstalled(step)) {
@@ -673,14 +673,14 @@ class McServerController(
             javaVersion = config.selectedJavaVersion,
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
+        if (coreType == ServerCore.NeoForge && config.selectedJavaVersion != JavaVersion.Java8) {
+            termux.emitLog("[startMc] NeoForge 提示：Android/Termux 原生 Java 不提供 glibc 的 libc.so.6，JNA/OSHI 系统信息警告无法通过字体修复消除")
+            termux.emitLog("[startMc] ReferenceOpenHashSet 或 DistanceManager 异常属于 NeoForge/Minecraft 运行期崩溃，请以 crash-reports 的首个异常为准")
+        }
         if ((coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) &&
-            config.selectedJavaVersion != JavaVersion.Java8) {
+            config.selectedJavaVersion != JavaVersion.Java8 && !termux.repairFontRuntime()) {
             // Forge/NeoForge 初始化 Minecraft 字体配置；旧环境可能在安装依赖前已下载核心。
-            termux.execOnce(
-                "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
-                "--allow-unauthenticated", "-y", "fontconfig", "ttf-dejavu"
-            )
-            termux.execOnce("fc-cache", "-f")
+            termux.emitLog("[startMc] 字体运行库仍未通过校验；已保留无图形模式启动参数")
         }
         val launchArgs = when (coreType) {
             ServerCore.Forge -> forgeLaunchArguments(serverDir, config.selectedJavaVersion)

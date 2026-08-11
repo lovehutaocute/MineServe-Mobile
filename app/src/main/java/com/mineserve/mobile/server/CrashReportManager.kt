@@ -66,6 +66,9 @@ class CrashReportManager(private val termux: TermuxRuntime) {
             sb.appendLine("时间: ${SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(now)}")
             sb.appendLine("退出码: $exitCode")
             sb.appendLine("进程状态: 异常退出")
+            if (exitCode == 137) {
+                sb.appendLine("说明: exit=137 通常表示进程被 SIGKILL 终止，可能是 Android 内存压力、系统后台限制或外部强制停止；请结合下方首个 Java 异常判断根因。")
+            }
             sb.appendLine("====================================")
             sb.appendLine()
 
