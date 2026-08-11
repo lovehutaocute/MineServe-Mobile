@@ -1534,7 +1534,9 @@ class TermuxRuntime(context: Context) {
         val javaArguments = guestLaunchArgs ?: "-jar '$guestJar'"
         val isLegacyForgeLaunch = launchArgs?.trim()?.startsWith("-jar") == true &&
             launchArgs.contains("forge-")
-        val forgeLibraryRepair = if (isLegacyForgeLaunch) {
+        val launchesVerifiedLibraryJar = isLegacyForgeLaunch &&
+            launchArgs?.contains("libraries/", ignoreCase = true) == true
+        val forgeLibraryRepair = if (isLegacyForgeLaunch && !launchesVerifiedLibraryJar) {
             "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
                 "if [ -n \"${'$'}forge_jar\" ]; then forge_target=\"${'$'}(basename \"${'$'}forge_jar\")\"; " +
                 "if ! cmp -s \"${'$'}forge_jar\" \"${'$'}forge_target\" 2>/dev/null; then " +

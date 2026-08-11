@@ -753,6 +753,17 @@ class McServerController(
                 return "@${it.absolutePath}"
             }
 
+        // Forge 1.12 installers leave the real server jar in libraries/ while
+        // server.jar remains the installer. Prefer the verified library jar so
+        // a headless Android process never launches SimpleInstaller again.
+        if (javaVersion == JavaVersion.Java8) {
+            findJava8ForgeLibraryJar(serverDir)?.let { jar ->
+                val relativePath = jar.relativeTo(serverDir).invariantSeparatorsPath
+                termux.emitLog("[startMc] Java 8 Forge: 使用已校验服务端库 JAR: $relativePath")
+                return "-jar '$relativePath'"
+            }
+        }
+
         findLegacyForgeServerJar(serverDir, javaVersion)?.let { jar ->
             termux.emitLog("[startMc] Forge 旧版启动方式: ${jar.name}")
             // Java 8 runs after `cd /srv/mineserve` inside PRoot. Keep this
@@ -812,6 +823,17 @@ class McServerController(
                     isLegacyForgeServerJar(file, serverDir, javaVersion)
             }
             ?.maxByOrNull { it.lastModified() }
+
+    private fun findJava8ForgeLibraryJar(serverDir: File): File? =
+        File(serverDir, "libraries/net/minecraftforge/forge")
+            .walkTopDown()
+            .filter { file ->
+                file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar")
+            }
+            .sortedByDescending { it.lastModified() }
+            .firstOrNull { file ->
+                isLegacyForgeServerJar(file, serverDir, JavaVersion.Java8)
+            }
 
     private fun isLegacyForgeServerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
         if (javaVersion == JavaVersion.Java8) {
