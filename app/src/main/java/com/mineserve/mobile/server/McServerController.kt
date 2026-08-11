@@ -37,6 +37,11 @@ class McServerController(
     private val repo: ServerRepository
 ) {
 
+    data class CoreVersionOption(
+        val version: String,
+        val supportedGameVersion: String? = null
+    )
+
     private suspend fun runInstallerWithRetry(
         jarPath: String,
         serverDir: File,
@@ -487,17 +492,21 @@ class McServerController(
      * Forge: 从 Forge maven-metadata.xml 获取
      */
     suspend fun fetchVersions(core: ServerCore): List<String> = withContext(Dispatchers.IO) {
+        fetchVersionOptions(core).map { it.version }
+    }
+
+    suspend fun fetchVersionOptions(core: ServerCore): List<CoreVersionOption> = withContext(Dispatchers.IO) {
         when (core) {
-            ServerCore.Paper -> fetchPaperVersions()
-            ServerCore.Purpur -> fetchPurpurVersions()
-            ServerCore.Vanilla -> fetchVanillaVersions()
-            ServerCore.Fabric -> fetchFabricVersions()
-            ServerCore.Forge -> fetchForgeVersions()
-            ServerCore.NeoForge -> fetchNeoForgeVersions()
-            ServerCore.Quilt -> fetchQuiltVersions()
-            ServerCore.Velocity -> fetchVelocityVersions()
-            ServerCore.BungeeCord -> fetchBungeeVersions()
-            ServerCore.PowerNukkitX -> fetchPowerNukkitXVersions()
+            ServerCore.Paper -> fetchPaperVersions().map(::CoreVersionOption)
+            ServerCore.Purpur -> fetchPurpurVersions().map(::CoreVersionOption)
+            ServerCore.Vanilla -> fetchVanillaVersions().map(::CoreVersionOption)
+            ServerCore.Fabric -> fetchFabricVersions().map(::CoreVersionOption)
+            ServerCore.Forge -> fetchForgeVersions().map(::CoreVersionOption)
+            ServerCore.NeoForge -> fetchNeoForgeVersions().map(::CoreVersionOption)
+            ServerCore.Quilt -> fetchQuiltVersions().map(::CoreVersionOption)
+            ServerCore.Velocity -> fetchVelocityVersions().map(::CoreVersionOption)
+            ServerCore.BungeeCord -> fetchBungeeVersions().map(::CoreVersionOption)
+            ServerCore.PowerNukkitX -> fetchPowerNukkitXVersionOptions()
             ServerCore.Unknown -> emptyList()
         }
     }
@@ -521,18 +530,37 @@ class McServerController(
 
     private fun fetchBungeeVersions(): List<String> = listOf("latest")
 
-    private fun fetchPowerNukkitXVersions(): List<String> = try {
-        fetchJsonElement("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases?per_page=30")
-            .jsonArray
-            .map { it.jsonObject }
+    private fun fetchPowerNukkitXVersionOptions(): List<CoreVersionOption> {
+        val releaseObjects = runCatching {
+            fetchJsonElement("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases?per_page=30")
+                .jsonArray.map { it.jsonObject }
+        }.getOrElse {
+            listOf(runCatching {
+                fetchJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")
+            }.getOrNull() ?: return listOf(CoreVersionOption("latest")))
+        }
+        val options = releaseObjects
             .filter {
                 !(it["draft"]?.jsonPrimitive?.boolean ?: false) &&
                     !(it["prerelease"]?.jsonPrimitive?.boolean ?: false)
             }
-            .mapNotNull { it["tag_name"]?.jsonPrimitive?.content }
-            .distinct()
-            .ifEmpty { listOf("latest") }
-    } catch (_: Exception) { listOf("latest") }
+            .mapNotNull { release ->
+                val tag = release["tag_name"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                CoreVersionOption(tag, parsePowerNukkitXGameVersion(release["body"]?.jsonPrimitive?.content.orEmpty()))
+            }
+            .distinctBy { it.version }
+        if (options.isNotEmpty()) return options
+        termux.emitLog("[download] PowerNukkitX 核心版本信息获取失败，使用 latest 兜底")
+        return listOf(CoreVersionOption("latest"))
+    }
+
+    private fun parsePowerNukkitXGameVersion(body: String): String? {
+        val patterns = listOf(
+            Regex("(?i)update\\s+to\\s+([0-9]+(?:\\.[0-9]+)+)"),
+            Regex("(?i)(?:bedrock|minecraft)\\s*(?:version|v)?\\s*[|:：-]?\\s*([0-9]+(?:\\.[0-9]+)+)")
+        )
+        return patterns.firstNotNullOfOrNull { pattern -> pattern.find(body)?.groupValues?.get(1) }
+    }
 
     private fun fetchNeoForgeVersions(): List<String> = DEFAULT_MC_VERSIONS
 

@@ -75,6 +75,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val availableVersions by vm.availableVersions.collectAsState()
+    val versionHints by vm.versionHints.collectAsState()
     val isLoadingVersions by vm.isLoadingVersions.collectAsState()
     val isDownloadingCore by vm.isDownloadingCore.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
@@ -125,6 +126,10 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                 } else {
                     installed.forEach { core ->
+                        val versionText = "${core.core.displayName} ${core.version}" +
+                            (if (core.core == ServerCore.PowerNukkitX) {
+                                " · 支持游戏：${versionHints[core.version] ?: "官方未标注"}"
+                            } else "") + "  ·  文件夹: ${core.dirName}"
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -149,7 +154,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                     }
                                 }
                                 Text(
-                                    "${core.core.displayName} ${core.version}  ·  文件夹: ${core.dirName}",
+                                    versionText,
                                     color = Muted,
                                     fontSize = 11.sp
                                 )
@@ -247,11 +252,20 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         availableVersions.take(20).forEach { ver ->
-                            SegPill(
-                                text = ver,
-                                selected = config.mcVersion == ver,
-                                onClick = { vm.setMcVersion(ver) }
-                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                SegPill(
+                                    text = ver,
+                                    selected = config.mcVersion == ver,
+                                    onClick = { vm.setMcVersion(ver) }
+                                )
+                                if (usesCoreVersion) {
+                                    Text(
+                                        "支持游戏：${versionHints[ver] ?: "未知"}",
+                                        color = if (versionHints[ver] == null) Muted else Coral,
+                                        fontSize = 9.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -294,6 +308,13 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                if (usesCoreVersion) {
+                    Text(
+                        "支持游戏：${versionHints[config.mcVersion] ?: "未知（以核心官方说明为准）"}",
+                        color = if (versionHints[config.mcVersion] == null) Muted else Coral,
+                        fontSize = 10.sp
+                    )
+                }
                 InstallerJavaNotice(
                     core = config.selectedCore,
                     minecraftVersion = config.mcVersion

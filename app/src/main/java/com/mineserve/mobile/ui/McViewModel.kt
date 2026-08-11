@@ -2275,6 +2275,10 @@ class McViewModel(
     /** 可用版本列表（从 API 获取，供 DownloadScreen 选择） */
     private val _availableVersions = MutableStateFlow<List<String>>(emptyList())
     val availableVersions: StateFlow<List<String>> = _availableVersions.asStateFlow()
+    private val _versionHints = MutableStateFlow<Map<String, String?>>(emptyMap())
+    val versionHints: StateFlow<Map<String, String?>> = _versionHints.asStateFlow()
+
+    fun supportedGameVersion(coreVersion: String): String? = _versionHints.value[coreVersion]
 
     /** 版本列表加载中 */
     private val _isLoadingVersions = MutableStateFlow(false)
@@ -2331,8 +2335,10 @@ class McViewModel(
         viewModelScope.launch {
             _isLoadingVersions.value = true
             try {
-                val versions = controller.fetchVersions(core)
+                val options = controller.fetchVersionOptions(core)
+                val versions = options.map { it.version }
                 _availableVersions.value = versions
+                _versionHints.value = options.associate { it.version to it.supportedGameVersion }
                 if (core == ServerCore.PowerNukkitX && config.value.selectedCore == core &&
                     config.value.mcVersion == "latest" && versions.isNotEmpty()) {
                     updateConfig { it.copy(mcVersion = versions.first()) }
@@ -2340,6 +2346,7 @@ class McViewModel(
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s294, e.message))
                 _availableVersions.value = emptyList()
+                _versionHints.value = emptyMap()
             } finally {
                 _isLoadingVersions.value = false
             }
