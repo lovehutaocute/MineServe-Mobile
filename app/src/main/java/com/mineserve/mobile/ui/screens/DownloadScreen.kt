@@ -188,6 +188,19 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             }
 
             // 选择核心类型
+            McCard(
+                title = "PowerNukkitX · 唯一基岩版服务端",
+                modifier = Modifier.background(IndigoSoft.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
+            ) {
+                Text("支持 Bedrock 客户端；核心版本和支持的游戏版本以官方 Release 说明为准。", color = Indigo, fontSize = 12.sp)
+                Spacer(Modifier.height(4.dp))
+                Text("默认 UDP 端口 19132 · 推荐 Java 25（不强制）", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = { vm.selectCore(ServerCore.PowerNukkitX) }) {
+                    Text(if (config.selectedCore == ServerCore.PowerNukkitX) "已选择 PowerNukkitX" else "选择 PowerNukkitX")
+                }
+            }
+
             McCard(title = stringResource(R.string.s457)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ServerCore.values().forEach { core ->

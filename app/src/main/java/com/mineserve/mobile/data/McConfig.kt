@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 /**
  * 服务端核心类型：Paper / Purpur / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
  */
+enum class PropertiesMode { JavaProperties, PowerNukkitXYaml, Unsupported }
+
 @Serializable
 enum class ServerCore(val displayName: String) {
     Paper("Paper"),
@@ -20,13 +22,22 @@ enum class ServerCore(val displayName: String) {
     Unknown("未知");
 
     /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
-    val supportsPlugins: Boolean get() = this == Paper || this == Purpur
+    val isBedrock: Boolean get() = this == PowerNukkitX
+
+    val supportsPlugins: Boolean get() = this == Paper || this == Purpur || this == PowerNukkitX
 
     /** 是否支持 Fabric/Forge 模组体系 */
     val supportsMods: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
 
     /** 是否支持桥接兼容层（插件↔模组互转，如 CardBoard 等，需用户自行安装） */
     val supportsBridge: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
+
+    val propertiesMode: PropertiesMode
+        get() = when (this) {
+            PowerNukkitX -> PropertiesMode.PowerNukkitXYaml
+            Unknown -> PropertiesMode.Unsupported
+            else -> PropertiesMode.JavaProperties
+        }
 
     /** 是否需 installer 流程（下载 installer.jar 后需执行安装命令生成启动环境） */
     val needsInstaller: Boolean get() = this == Forge || this == NeoForge || this == Quilt

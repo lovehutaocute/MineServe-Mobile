@@ -191,6 +191,7 @@ class McServerController(
                 current.replace(Regex("(?m)^server-port=.*$"), portLine)
             } else "$current${if (current.isNotEmpty() && !current.endsWith("\n")) "\n" else ""}$portLine\n"
             properties.writeText(updated)
+            PowerNukkitXConfigManager(termux).updatePort(dirName, config.localPort)
         }
         // NeoForge/Quilt：下载的是 installer.jar，执行安装命令生成启动环境（首次需下载依赖）
         if (config.selectedCore.needsInstaller) {

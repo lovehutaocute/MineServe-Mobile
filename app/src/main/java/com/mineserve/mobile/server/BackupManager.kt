@@ -142,7 +142,8 @@ class BackupManager(private val termux: TermuxRuntime) {
                 val rel = f.relativeTo(dir)
                 val relStr = rel.path.replace('\\', '/')
                 if (relStr == "logs" || relStr.startsWith("logs/") ||
-                    relStr == "session.lock" || relStr.endsWith("/session.lock")) return@forEach
+                    relStr == "server.lock" || relStr == "session.lock" ||
+                    relStr.endsWith("/server.lock") || relStr.endsWith("/session.lock")) return@forEach
                 if (f.isDirectory) {
                     zos.putNextEntry(java.util.zip.ZipEntry(relStr + "/"))
                     zos.closeEntry()

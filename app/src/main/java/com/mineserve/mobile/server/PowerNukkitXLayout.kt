@@ -7,13 +7,19 @@ import java.util.jar.JarFile
 object PowerNukkitXLayout {
     const val worldsDirectory = "worlds"
     const val propertiesFile = "server.properties"
-    val knownConfigFiles = listOf("server.properties", "nukkit.yml", "config.yml")
+    const val pnxConfigFile = "pnx.yml"
+    const val lockFile = "server.lock"
+    val knownConfigFiles = listOf("pnx.yml", "server.properties")
+    val dataDirectories = listOf("worlds", "players", "plugins", "resource_packs", "command_data", "services", "structures")
 
     fun isPowerNukkitX(dir: File): Boolean {
         val candidates = dir.listFiles()?.filter { it.isFile && it.extension.equals("jar", true) } ?: return false
         return candidates.any { jar ->
             runCatching {
-                JarFile(jar).use { it.getEntry("org/powernukkitx/Server.class") != null }
+                JarFile(jar).use {
+                    it.getEntry("org/powernukkitx/Server.class") != null ||
+                        it.getEntry("org/powernukkitx/JarStart.class") != null
+                }
             }.getOrDefault(false)
         }
     }

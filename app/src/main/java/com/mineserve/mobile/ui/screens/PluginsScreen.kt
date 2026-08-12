@@ -231,6 +231,7 @@ fun PluginsScreen(vm: McViewModel) {
 
     val activeCore = config.installedCores.find { it.name == config.activeCoreName }
     val coreType = activeCore?.core ?: config.selectedCore
+    val isPowerNukkitX = coreType == com.mineserve.mobile.data.ServerCore.PowerNukkitX
     // 按核心兼容性计算可用资源类型（不支持的分类自动屏蔽）
     val availableTypes = buildList {
         if (coreType.supportsPlugins) add(ResourceType.Plugin)
@@ -270,6 +271,14 @@ fun PluginsScreen(vm: McViewModel) {
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
         ) {
+            if (isPowerNukkitX) {
+                Text(
+                    "PowerNukkitX 可管理 plugins/ 中的 PNX 插件；Java Edition 模组功能暂不适用。",
+                    color = Coral,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
+                )
+            }
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_plugins), title = stringResource(R.string.s750))
 
             // ── 当前核心状态卡片 ──

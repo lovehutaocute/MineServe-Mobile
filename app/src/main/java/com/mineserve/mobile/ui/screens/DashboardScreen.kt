@@ -538,6 +538,9 @@ fun DashboardScreen(
                                                 color = Muted,
                                                 fontSize = 11.sp
                                             )
+                                            if (core.core.isBedrock) {
+                                                Text("基岩版 · UDP", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     },
                                     onClick = {
@@ -649,6 +652,8 @@ fun DashboardScreen(
 
             // ── 服务器图标（server-icon.png，玩家在多人游戏列表看到的图标） ──
             McCard(title = stringResource(R.string.ui_server_icon), compact = true) {
+                val activeCoreForIcon = config.installedCores.find { it.name == config.activeCoreName }
+                val iconUnsupported = activeCoreForIcon?.core == ServerCore.PowerNukkitX
                 val iconVersion by vm.serverIconVersion.collectAsState()
                 val iconBmp by produceState<Bitmap?>(initialValue = null, iconVersion) {
                     value = withContext(Dispatchers.IO) {
@@ -678,7 +683,7 @@ fun DashboardScreen(
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            stringResource(R.string.ui_server_icon_hint),
+                            if (iconUnsupported) "PowerNukkitX 暂不支持 Java Edition 的 server-icon.png。" else stringResource(R.string.ui_server_icon_hint),
                             color = Muted,
                             fontSize = 10.sp,
                             lineHeight = 14.sp
@@ -689,6 +694,7 @@ fun DashboardScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { iconPickerLauncher.launch("image/*") },
+                        enabled = !iconUnsupported,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
@@ -697,6 +703,7 @@ fun DashboardScreen(
                     }
                     OutlinedButton(
                         onClick = { vm.removeServerIcon() },
+                        enabled = !iconUnsupported,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {

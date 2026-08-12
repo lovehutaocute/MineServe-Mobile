@@ -34,6 +34,8 @@ import com.mineserve.mobile.server.McServerController
 import com.mineserve.mobile.server.PlayerManager
 import com.mineserve.mobile.server.PluginManager
 import com.mineserve.mobile.server.ServerPropertiesManager
+import com.mineserve.mobile.server.PowerNukkitXConfigManager
+import com.mineserve.mobile.server.PowerNukkitXLayout
 import com.mineserve.mobile.server.TunnelManager
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -191,7 +193,9 @@ class McViewModel(
     /** 当前核心的 server-icon.png 文件（不存在返回 null） */
     fun serverIconFile(): File? {
         val dirName = activeDirName() ?: return null
-        return File(repo.termuxRuntime.serverDirFor(dirName), "server-icon.png")
+        val dir = repo.termuxRuntime.serverDirFor(dirName)
+        return if (PowerNukkitXLayout.isPowerNukkitX(dir)) null
+        else File(dir, "server-icon.png")
             .takeIf { it.exists() }
     }
 
@@ -203,6 +207,10 @@ class McViewModel(
         }
         val dirName = activeDirName() ?: run {
             _errorFlow.tryEmit(str(R.string.s212))
+            return
+        }
+        if (PowerNukkitXLayout.isPowerNukkitX(repo.termuxRuntime.serverDirFor(dirName))) {
+            _errorFlow.tryEmit("PowerNukkitX 暂不支持 Java Edition 的 server-icon.png，已保留入口但不会写入")
             return
         }
         viewModelScope.launch {
@@ -243,6 +251,10 @@ class McViewModel(
         }
         val dirName = activeDirName() ?: run {
             _errorFlow.tryEmit(str(R.string.s212))
+            return
+        }
+        if (PowerNukkitXLayout.isPowerNukkitX(repo.termuxRuntime.serverDirFor(dirName))) {
+            _errorFlow.tryEmit("PowerNukkitX 暂不支持 Java Edition 的 server-icon.png")
             return
         }
         viewModelScope.launch {
@@ -1895,6 +1907,14 @@ class McViewModel(
     // ── server.properties 编辑 ─────────────────────────────────────
 
     private val propertiesManager = ServerPropertiesManager(repo.termuxRuntime)
+    private val powerNukkitXConfigManager = PowerNukkitXConfigManager(repo.termuxRuntime)
+
+    fun isPowerNukkitXActive(): Boolean = config.value.installedCores
+        .firstOrNull { it.name == config.value.activeCoreName }?.core == ServerCore.PowerNukkitX
+
+    fun supportedServerPropertyKeys(): Set<String> =
+        if (isPowerNukkitXActive()) powerNukkitXConfigManager.supportedKeys()
+        else emptySet()
 
     private val _serverProperties = MutableStateFlow<Map<String, String>>(emptyMap())
     val serverProperties: StateFlow<Map<String, String>> = _serverProperties.asStateFlow()
@@ -1905,7 +1925,10 @@ class McViewModel(
         val dirName = activeDirName() ?: return
         viewModelScope.launch {
             try {
-                _serverProperties.value = withContext(Dispatchers.IO) { propertiesManager.readProperties(dirName) }
+                _serverProperties.value = withContext(Dispatchers.IO) {
+                    if (isPowerNukkitXActive()) powerNukkitXConfigManager.read(dirName)
+                    else propertiesManager.readProperties(dirName)
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s261, e.message))
             }
@@ -1924,7 +1947,15 @@ class McViewModel(
         }
         viewModelScope.launch {
             try {
-                val ok = withContext(Dispatchers.IO) { propertiesManager.writeProperties(props, dirName) }
+                val ok = withContext(Dispatchers.IO) {
+                    if (isPowerNukkitXActive()) {
+                        val supported = props.filterKeys { it in powerNukkitXConfigManager.supportedKeys() }
+                        val yamlOk = powerNukkitXConfigManager.write(dirName, supported)
+                        val serverProps = propertiesManager.readProperties(dirName).toMutableMap()
+                        serverProps["server-port"] = props["server-port"] ?: serverProps["server-port"] ?: "19132"
+                        yamlOk && propertiesManager.writeProperties(serverProps, dirName)
+                    } else propertiesManager.writeProperties(props, dirName)
+                }
                 if (ok) {
                     _messageFlow.tryEmit(str(R.string.s262))
                     _serverProperties.value = props
@@ -2054,7 +2085,8 @@ class McViewModel(
                     _whitelist.value = playerManager.readWhitelist(dirName)
                     _bannedPlayers.value = playerManager.readBanned(dirName)
                     // 同步白名单开关状态（从 server.properties 读取）
-                    val props = propertiesManager.readProperties(dirName)
+                    val props = if (isPowerNukkitXActive()) powerNukkitXConfigManager.read(dirName)
+                    else propertiesManager.readProperties(dirName)
                     _whitelistEnabled.value = props["white-list"]?.equals("true", ignoreCase = true) == true
                     // 同步默认 OP 等级（op-permission-level）
                     _defaultOpLevel.value = props["op-permission-level"]?.toIntOrNull()

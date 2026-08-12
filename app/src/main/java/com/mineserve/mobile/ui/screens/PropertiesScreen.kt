@@ -192,18 +192,28 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
 
             // 当前核心提示：每个命名服务器拥有独立配置
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+            val isPowerNukkitX = activeCore?.core == com.mineserve.mobile.data.ServerCore.PowerNukkitX
+            val supportedKeys = vm.supportedServerPropertyKeys()
             Text(
                 stringResource(R.string.s998, activeCore?.name ?: stringResource(R.string.s999)),
                 color = Muted,
                 fontSize = 10.sp,
                 modifier = Modifier.padding(horizontal = 20.dp)
             )
+            if (isPowerNukkitX) {
+                Text(
+                    "PowerNukkitX 使用 pnx.yml；未列出的 Java Edition 参数暂不适用。端口会同步保存到 server.properties。",
+                    color = Coral,
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+            }
             Spacer(Modifier.height(8.dp))
 
             // ── 基础配置（常用参数，完整展示） ──
             McCard(title = stringResource(PropGroup.Basic.labelRes)) {
                 propertySpecs.filter { it.group == PropGroup.Basic }.forEach { spec ->
-                    renderProperty(spec, props) { v ->
+                    renderProperty(spec, props, enabled = !isPowerNukkitX || spec.key in supportedKeys) { v ->
                         props = props.toMutableMap().apply { put(spec.key, v) }
                     }
                     Spacer(Modifier.height(6.dp))
@@ -213,7 +223,7 @@ fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean =
             // ── 高级配置（全部剩余参数） ──
             McCard(title = stringResource(PropGroup.Advanced.labelRes)) {
                 propertySpecs.filter { it.group == PropGroup.Advanced }.forEach { spec ->
-                    renderProperty(spec, props) { v ->
+                    renderProperty(spec, props, enabled = !isPowerNukkitX || spec.key in supportedKeys) { v ->
                         props = props.toMutableMap().apply { put(spec.key, v) }
                     }
                     Spacer(Modifier.height(6.dp))
@@ -292,7 +302,8 @@ private fun PropertySwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
-    onChange: (Boolean) -> Unit
+    onChange: (Boolean) -> Unit,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -304,7 +315,8 @@ private fun PropertySwitch(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onChange,
+            onCheckedChange = if (enabled) onChange else null,
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Indigo,
                 checkedTrackColor = IndigoSoft
@@ -319,7 +331,8 @@ private fun LabeledNumberField(
     label: String,
     desc: String = "",
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
@@ -327,6 +340,7 @@ private fun LabeledNumberField(
     DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         sanitize = { it.filter(Char::isDigit) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -339,6 +353,7 @@ private fun LabeledNumberField(
 private fun renderProperty(
     spec: PropertySpec,
     props: Map<String, String>,
+    enabled: Boolean = true,
     onChange: (String) -> Unit
 ) {
     val label = if (spec.labelRes != 0) stringResource(spec.labelRes) else "PVP"
@@ -348,26 +363,30 @@ private fun renderProperty(
             title = label,
             subtitle = desc,
             checked = boolOf(props, spec.key, spec.default.toBoolean()),
-            onChange = { onChange(it.toString()) }
+            onChange = { if (enabled) onChange(it.toString()) },
+            enabled = enabled
         )
         PropType.Int -> LabeledNumberField(
             label = label,
             desc = desc,
             value = props[spec.key] ?: spec.default,
-            onValueChange = onChange
+            onValueChange = { if (enabled) onChange(it) },
+            enabled = enabled
         )
         PropType.Enum -> EnumField(
             label = label,
             desc = desc,
             value = props[spec.key] ?: spec.default,
             options = spec.options,
-            onValueChange = onChange
+            onValueChange = { if (enabled) onChange(it) },
+            enabled = enabled
         )
         PropType.Text -> LabeledTextField(
             label = label,
             desc = desc,
             value = props[spec.key] ?: spec.default,
-            onValueChange = onChange
+            onValueChange = { if (enabled) onChange(it) },
+            enabled = enabled
         )
     }
 }
@@ -380,7 +399,8 @@ private fun EnumField(
     desc: String,
     value: String,
     options: List<Pair<Int, String>>,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
@@ -390,7 +410,7 @@ private fun EnumField(
             SegPill(
                 text = stringResource(displayRes),
                 selected = value == v,
-                onClick = { onValueChange(v) }
+                onClick = { if (enabled) onValueChange(v) }
             )
         }
     }
@@ -402,7 +422,8 @@ private fun LabeledTextField(
     label: String,
     desc: String,
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
@@ -410,6 +431,7 @@ private fun LabeledTextField(
     DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
