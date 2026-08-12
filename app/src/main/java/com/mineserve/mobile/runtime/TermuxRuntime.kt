@@ -1638,7 +1638,11 @@ class TermuxRuntime(context: Context) {
         ).firstOrNull { it.isFile && it.canExecute() }
             ?: throw RuntimeException("proot is not available")
         val process = ProcessBuilder(
-            proot.absolutePath, "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "--change-id=0:0",
+            "/system/bin/sh", "-c",
+            "export PROOT_TMP_DIR='${prootTmp.absolutePath}'; " +
+                "export TMPDIR='${prootTmp.absolutePath}'; exec " +
+                listOf(
+                    proot.absolutePath, "--kill-on-exit", "--link2symlink", "--sysvipc", "-L", "--change-id=0:0",
             "--rootfs=${rootfs.absolutePath}", "--cwd=/root",
             "--bind=/dev", "--bind=/proc", "--bind=/sys", "--bind=/dev/urandom:/dev/random",
             "--bind=${sharedMemory.absolutePath}:/dev/shm", "--bind=${resolver.absolutePath}:/etc/resolv.conf",
@@ -1647,6 +1651,7 @@ class TermuxRuntime(context: Context) {
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "HOME=/root", "TMPDIR=/tmp", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive",
             "/bin/sh", "-lc", command
+                ).joinToString(" ") { shellQuote(it) }
         ).apply {
             redirectErrorStream(true)
             directory(serverDir)
@@ -1654,6 +1659,7 @@ class TermuxRuntime(context: Context) {
             environment()["PROOT_TMP_DIR"] = prootTmp.absolutePath
             environment()["TMPDIR"] = prootTmp.absolutePath
         }.start()
+        emitLog("[startMc] Java 8 PRoot 临时目录: ${prootTmp.absolutePath}")
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
         if (isLegacyForgeLaunch) emitLog("[startMc] Java 8 Forge: validating launch jar from verified library")
         if (launchesVerifiedLibraryJar) {
@@ -1692,6 +1698,8 @@ class TermuxRuntime(context: Context) {
         }, "mc-ubuntu-watch").start()
         return process
     }
+
+    private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
 
     /**
      * 直接用 ProcessBuilder 启动 MC 服务（不再依赖 tmux）。
