@@ -83,7 +83,7 @@ fun HeaderBlock(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Text(
             text = eyebrow,
@@ -92,11 +92,11 @@ fun HeaderBlock(
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.6.sp
         )
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             text = title,
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 19.sp,
+            fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -265,12 +265,12 @@ fun McCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = if (compact) 6.dp else 10.dp),
-        shape = RoundedCornerShape(10.dp),
+            .padding(horizontal = 14.dp, vertical = if (compact) 4.dp else 7.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, Line)
     ) {
-        Column(Modifier.padding(if (compact) 14.dp else 18.dp)) {
+        Column(Modifier.padding(if (compact) 12.dp else 14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -284,7 +284,7 @@ fun McCard(
                 )
                 trailing?.invoke()
             }
-            Spacer(Modifier.height(if (compact) 10.dp else 14.dp))
+            Spacer(Modifier.height(if (compact) 8.dp else 10.dp))
             content()
         }
     }

@@ -7,12 +7,17 @@ import java.io.File
 class PowerNukkitXConfigManager(private val termux: TermuxRuntime) {
     private val paths = linkedMapOf(
         "server-port" to "settings.port", "max-players" to "settings.maxPlayers",
-        "motd" to "settings.motd", "level-name" to "settings.defaultLevelName",
+        "server-ip" to "settings.ip", "motd" to "settings.motd", "sub-motd" to "settings.sub-motd",
+        "language" to "settings.language", "auto-save" to "settings.autoSave",
+        "level-name" to "settings.defaultLevelName",
         "white-list" to "settings.allowList", "online-mode" to "settings.xboxAuth",
         "difficulty" to "gameplay-settings.difficulty", "gamemode" to "gameplay-settings.gamemode",
         "force-gamemode" to "gameplay-settings.forceGamemode", "pvp" to "gameplay-settings.pvp",
         "view-distance" to "gameplay-settings.viewDistance", "spawn-protection" to "gameplay-settings.spawnProtection",
-        "allow-nether" to "gameplay-settings.allowNether", "enable-command-block" to "gameplay-settings.enableCommandBlocks",
+        "allow-nether" to "gameplay-settings.allowNether", "allow-the-end" to "gameplay-settings.allowTheEnd",
+        "enable-command-block" to "gameplay-settings.enableCommandBlocks",
+        "spawn-animals" to "gameplay-settings.enableEntitySpawning", "weather-cycle" to "gameplay-settings.enableWeather",
+        "daylight-cycle" to "gameplay-settings.enableDaylightCycle", "hunger" to "gameplay-settings.enableHunger",
         "enable-status" to "network-settings.enableQuery", "base-tps" to "performance-settings.baseTps"
     )
 
