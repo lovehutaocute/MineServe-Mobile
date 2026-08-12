@@ -236,6 +236,7 @@ class McServerController(
                 }
                 else -> {}
             }
+            requireInstallerLaunchArtifacts(config.selectedCore, serverDir)
             termux.emitLog("[install] ${config.selectedCore.displayName} 安装完成")
         }
         val eula = File(serverDir, "eula.txt")
@@ -867,7 +868,7 @@ class McServerController(
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
             javaVersion = config.selectedJavaVersion,
-            launchArgs = if (config.selectedJavaVersion == JavaVersion.Java8) launchArgs else null,
+            launchArgs = launchArgs,
             onExit = { code ->
                 repo.updateServerState { it.copy(isRunning = false) }
                 Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
@@ -982,6 +983,18 @@ class McServerController(
         }
 
         throw RuntimeException("Forge 启动文件缺失：未找到 unix_args.txt 或 forge-*.jar，请重新下载安装核心")
+    }
+
+    private fun requireInstallerLaunchArtifacts(core: ServerCore, serverDir: File) {
+        val ready = when (core) {
+            ServerCore.Forge -> serverDir.walkTopDown().any { it.name == "unix_args.txt" } ||
+                serverDir.walkTopDown().any { it.isFile && it.name.startsWith("forge-") && it.name.endsWith(".jar") && !hasForgeInstallerMainClass(it) }
+            ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
+                .walkTopDown().any { it.name == "unix_args.txt" }
+            ServerCore.Quilt -> File(serverDir, "quilt-server-launch.jar").isFile
+            else -> true
+        }
+        check(ready) { "${core.displayName} installer 未生成启动文件，请检查安装日志和网络后重试" }
     }
 
     private fun findLegacyForgeServerJar(serverDir: File, javaVersion: JavaVersion): File? =
