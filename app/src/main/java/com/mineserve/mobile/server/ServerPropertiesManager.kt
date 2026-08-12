@@ -18,6 +18,13 @@ class ServerPropertiesManager(private val termux: TermuxRuntime) {
     private fun propertiesFile(dirName: String): File =
         File(termux.installer.rootDir, "home/servers/$dirName/server.properties")
 
+    fun propertiesPath(dirName: String): File = propertiesFile(dirName)
+
+    fun configPaths(dirName: String, powerNukkitX: Boolean): List<File> {
+        val dir = propertiesFile(dirName).parentFile ?: return emptyList()
+        return if (powerNukkitX) PowerNukkitXLayout.configFiles(dir) else listOf(propertiesFile(dirName))
+    }
+
     /**
      * 读取所有属性为 Map<String,String>。
      *

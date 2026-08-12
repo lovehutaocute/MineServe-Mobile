@@ -38,6 +38,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -174,6 +175,25 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
             }
 
             // 外部备份权限引导（未授权时显示，醒目样式）
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = if (config.autoBackupIntervalMin > 0) config.autoBackupIntervalMin.toString() else "",
+                    onValueChange = { vm.setAutoBackupInterval(it.toIntOrNull() ?: 0) },
+                    label = { Text("自定义间隔（分钟）") },
+                    singleLine = true,
+                    modifier = Modifier.width(180.dp)
+                )
+                OutlinedTextField(
+                    value = config.maxSnapshots.toString(),
+                    onValueChange = { vm.setMaxSnapshots(it.toIntOrNull() ?: config.maxSnapshots) },
+                    label = { Text("自动保留数量") },
+                    singleLine = true,
+                    modifier = Modifier.width(150.dp)
+                )
+            }
+            Text("间隔范围 5–10080 分钟；保留数量范围 1–100。输入 0 可关闭自动备份。", color = Muted, fontSize = 11.sp)
+
             if (!hasStoragePerm) {
                 Box(
                     modifier = Modifier

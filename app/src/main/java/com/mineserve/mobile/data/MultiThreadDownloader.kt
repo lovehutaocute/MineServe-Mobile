@@ -146,7 +146,9 @@ object MultiThreadDownloader {
                 if (slash < 0) return -1L
                 cr.substring(slash + 1).trim().toLongOrNull() ?: -1L
             } else if (code in 200..299) {
-                conn.contentLengthLong
+                // A 200 response ignored the Range header; use one stream so a mirror
+                // cannot be mistaken for a range-capable endpoint and corrupt the JAR.
+                -1L
             } else {
                 -1L
             }

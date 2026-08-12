@@ -210,7 +210,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         ServerCore.Vanilla -> "Vanilla：Minecraft 官方原版服务端"
                         ServerCore.Velocity -> "Velocity：高性能代理端，可连接多个后端服务器（不支持插件/模组）"
                         ServerCore.BungeeCord -> "BungeeCord：经典代理端，支持子服务器间切换（不支持插件/模组）"
-                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端；选择的是核心 Release 版本，默认 UDP 端口 19132，固定使用 Java 21"
+                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端；选择的是核心 Release 版本，默认 UDP 端口 19132，推荐使用 Java 25（不强制）"
                         ServerCore.Unknown -> "未知核心：核心类型无法自动识别（通常来自还原备份），可在设置中修改"
                     },
                     color = Muted,
@@ -260,7 +260,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                 )
                                 if (usesCoreVersion) {
                                     Text(
-                                        "支持游戏：${versionHints[ver] ?: "未知"}",
+                                        "支持游戏：${versionHints[ver] ?: "官方未标注（以核心官方说明为准）"}",
                                         color = if (versionHints[ver] == null) Muted else Coral,
                                         fontSize = 9.sp
                                     )
@@ -310,7 +310,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 )
                 if (usesCoreVersion) {
                     Text(
-                        "支持游戏：${versionHints[config.mcVersion] ?: "未知（以核心官方说明为准）"}",
+                        "支持游戏：${versionHints[config.mcVersion] ?: "官方未标注（以核心官方说明为准）"}",
                         color = if (versionHints[config.mcVersion] == null) Muted else Coral,
                         fontSize = 10.sp
                     )

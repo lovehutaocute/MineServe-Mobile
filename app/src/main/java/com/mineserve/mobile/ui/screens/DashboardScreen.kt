@@ -562,6 +562,7 @@ fun DashboardScreen(
                     }
                 }
             ) {
+                val activeServerCore = config.installedCores.find { it.name == config.activeCoreName }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -635,6 +636,15 @@ fun DashboardScreen(
                     color = Muted,
                     fontSize = 10.sp
                 )
+                if (activeServerCore?.core == ServerCore.PowerNukkitX &&
+                    (config.selectedJavaVersion == JavaVersion.Java8 || config.selectedJavaVersion == JavaVersion.Java17)) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "注意：PowerNukkitX 更推荐使用 Java 25；当前 Java 版本可能不兼容，实际要求以核心文档和启动日志为准。",
+                        color = Coral,
+                        fontSize = 11.sp
+                    )
+                }
             }
 
             // ── 服务器图标（server-icon.png，玩家在多人游戏列表看到的图标） ──

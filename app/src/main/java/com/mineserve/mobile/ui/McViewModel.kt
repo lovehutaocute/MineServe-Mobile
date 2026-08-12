@@ -788,8 +788,7 @@ class McViewModel(
     }
 
     fun setJavaVersion(version: JavaVersion) = updateConfig {
-        val active = it.installedCores.firstOrNull { core -> core.name == it.activeCoreName }
-        it.copy(selectedJavaVersion = if (active?.core == ServerCore.PowerNukkitX) JavaVersion.Java21 else version)
+        it.copy(selectedJavaVersion = version)
     }
 
     fun setJavaCardAtBottom(atBottom: Boolean) =
@@ -842,7 +841,6 @@ class McViewModel(
         if (core == ServerCore.PowerNukkitX) it.copy(
             selectedCore = core,
             mcVersion = "latest",
-            selectedJavaVersion = JavaVersion.Java21,
             localPort = if (it.localPort == 25565) 19132 else it.localPort
         ) else it.copy(selectedCore = core)
     }
@@ -914,14 +912,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 val current = config.value
-                val active = current.installedCores.firstOrNull { it.name == current.activeCoreName }
-                val startConfig = if (active?.core == ServerCore.PowerNukkitX &&
-                    current.selectedJavaVersion != JavaVersion.Java21) {
-                    val corrected = current.copy(selectedJavaVersion = JavaVersion.Java21)
-                    repo.saveConfig(corrected)
-                    _messageFlow.tryEmit("PowerNukkitX 已自动切换为 Java 21")
-                    corrected
-                } else current
+                val startConfig = current
                 controller.start(startConfig)
                 startKeepAliveService()
                 _messageFlow.tryEmit(str(R.string.s196))
@@ -2265,10 +2256,12 @@ class McViewModel(
 
     // ── 定时备份配置 ────────────────────────────────────────────────
 
-    fun setAutoBackupInterval(min: Int) = updateConfig { it.copy(autoBackupIntervalMin = min) }
+    fun setAutoBackupInterval(min: Int) = updateConfig {
+        it.copy(autoBackupIntervalMin = if (min <= 0) 0 else min.coerceIn(5, 10080))
+    }
     fun setAutoBackupType(type: com.mineserve.mobile.data.AutoBackupType) =
         updateConfig { it.copy(autoBackupType = type) }
-    fun setMaxSnapshots(max: Int) = updateConfig { it.copy(maxSnapshots = max) }
+    fun setMaxSnapshots(max: Int) = updateConfig { it.copy(maxSnapshots = max.coerceIn(1, 100)) }
 
     // ── 服务端核心下载相关 ──────────────────────────────────────────
 
@@ -2387,7 +2380,7 @@ class McViewModel(
             val core = it.installedCores.firstOrNull { installed -> installed.name == name }
             it.copy(
                 activeCoreName = name,
-                selectedJavaVersion = if (core?.core == ServerCore.PowerNukkitX) JavaVersion.Java21 else it.selectedJavaVersion
+                selectedJavaVersion = it.selectedJavaVersion
             )
         }
     }

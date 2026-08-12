@@ -141,7 +141,8 @@ class BackupManager(private val termux: TermuxRuntime) {
             dir.walkTopDown().forEach { f ->
                 val rel = f.relativeTo(dir)
                 val relStr = rel.path.replace('\\', '/')
-                if (relStr == "logs" || relStr.startsWith("logs/") || relStr == "session.lock") return@forEach
+                if (relStr == "logs" || relStr.startsWith("logs/") ||
+                    relStr == "session.lock" || relStr.endsWith("/session.lock")) return@forEach
                 if (f.isDirectory) {
                     zos.putNextEntry(java.util.zip.ZipEntry(relStr + "/"))
                     zos.closeEntry()
@@ -163,9 +164,11 @@ class BackupManager(private val termux: TermuxRuntime) {
     ): String? {
         if (!ExternalBackupStore.ensure()) return null
         val dir = serverDir(dirName)
-        val worlds = listOf(
-            File(dir, "world"), File(dir, "world_nether"), File(dir, "world_the_end"), File(dir, "worlds")
-        )
+        val worlds = if (PowerNukkitXLayout.isPowerNukkitX(dir)) {
+            PowerNukkitXLayout.worldDirectories(dir)
+        } else {
+            listOf(File(dir, "world"), File(dir, "world_nether"), File(dir, "world_the_end"))
+        }
         if (!worlds.any { it.isDirectory }) return null
         val out = File(ExternalBackupStore.rootDir, backupName(BackupKind.World, dirName, origin = origin))
         return if (zipDirs(worlds, out)) {
@@ -212,7 +215,10 @@ class BackupManager(private val termux: TermuxRuntime) {
             stopServerIfRunning()
             val serverDir = serverDir(dirName)
             // 备份旧 world
-            listOf("world", "world_nether", "world_the_end", "worlds").forEach { dim ->
+            val dims = if (PowerNukkitXLayout.isPowerNukkitX(serverDir)) {
+                listOf(PowerNukkitXLayout.worldsDirectory)
+            } else listOf("world", "world_nether", "world_the_end")
+            dims.forEach { dim ->
                 val d = File(serverDir, dim)
                 if (d.exists()) {
                     val bak = File(serverDir, "$dim.bak.${ts()}")
@@ -342,8 +348,10 @@ class BackupManager(private val termux: TermuxRuntime) {
                 }
             }
 
-            val serverDir = worldDir(dirName).parentFile
-            val dims = listOf("world", "world_nether", "world_the_end", "worlds")
+            val serverDir = worldDir(dirName).parentFile ?: return@withContext false
+            val dims = if (PowerNukkitXLayout.isPowerNukkitX(serverDir)) {
+                listOf(PowerNukkitXLayout.worldsDirectory)
+            } else listOf("world", "world_nether", "world_the_end")
 
             // 2. 备份当前三维度目录（重命名为 *.bak.<timestamp>）
             dims.forEach { dim ->

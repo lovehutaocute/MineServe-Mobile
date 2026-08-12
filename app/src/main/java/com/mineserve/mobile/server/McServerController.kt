@@ -24,6 +24,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import java.util.jar.JarFile
 
 /**
@@ -277,7 +278,14 @@ class McServerController(
         val official = resolveDownloadUrl(core, version)
         return if (core == ServerCore.PowerNukkitX) {
             // ponytail: three fixed channels cover mainland acceleration and the official fallback.
-            listOf("https://ghfast.top/$official", "https://gh-proxy.com/$official", official).distinct()
+            listOf(
+                "https://ghfast.top/$official",
+                "https://gh-proxy.com/$official",
+                "https://mirror.ghproxy.com/$official",
+                "https://ghproxy.net/$official",
+                "https://github.moeyy.xyz/$official",
+                official
+            ).distinct()
         } else listOf(official)
     }
 
@@ -433,7 +441,7 @@ class McServerController(
         } else {
             "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/${java.net.URLEncoder.encode(version, "UTF-8")}"
         }
-        val release = fetchJson(endpoint)
+        val release = fetchGithubJson(endpoint)
         return release["assets"]?.jsonArray
             ?.map { it.jsonObject }
             ?.firstOrNull { it["name"]?.jsonPrimitive?.content == "powernukkitx.jar" }
@@ -532,12 +540,12 @@ class McServerController(
 
     private fun fetchPowerNukkitXVersionOptions(): List<CoreVersionOption> {
         val releaseObjects = runCatching {
-            fetchJsonElement("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases?per_page=30")
+            fetchGithubJsonElement("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases?per_page=30")
                 .jsonArray.map { it.jsonObject }
         }.getOrElse {
             listOf(runCatching {
-                fetchJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")
-            }.getOrNull() ?: return listOf(CoreVersionOption("latest")))
+                fetchGithubJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")
+            }.getOrNull() ?: return listOf(CoreVersionOption("latest", "官方未标注")))
         }
         val options = releaseObjects
             .filter {
@@ -551,7 +559,7 @@ class McServerController(
             .distinctBy { it.version }
         if (options.isNotEmpty()) return options
         termux.emitLog("[download] PowerNukkitX 核心版本信息获取失败，使用 latest 兜底")
-        return listOf(CoreVersionOption("latest"))
+        return listOf(CoreVersionOption("latest", "官方未标注"))
     }
 
     private fun parsePowerNukkitXGameVersion(body: String): String? {
@@ -560,6 +568,55 @@ class McServerController(
             Regex("(?i)(?:bedrock|minecraft)\\s*(?:version|v)?\\s*[|:：-]?\\s*([0-9]+(?:\\.[0-9]+)+)")
         )
         return patterns.firstNotNullOfOrNull { pattern -> pattern.find(body)?.groupValues?.get(1) }
+    }
+
+    private fun resolvePowerNukkitXDigest(version: String): String? {
+        val endpoint = if (version == "latest") {
+            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest"
+        } else {
+            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/${java.net.URLEncoder.encode(version, "UTF-8")}"
+        }
+        return fetchGithubJson(endpoint)["assets"]?.jsonArray
+            ?.map { it.jsonObject }
+            ?.firstOrNull { it["name"]?.jsonPrimitive?.content == "powernukkitx.jar" }
+            ?.get("digest")?.jsonPrimitive?.content
+            ?.removePrefix("sha256:")
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                val read = input.read(buffer)
+                if (read <= 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun fetchGithubJson(url: String): JsonObject = fetchGithubJsonElement(url).jsonObject
+
+    private fun fetchGithubJsonElement(url: String): JsonElement {
+        val candidates = listOf(
+            url,
+            "https://ghfast.top/$url",
+            "https://gh-proxy.com/$url",
+            "https://mirror.ghproxy.com/$url",
+            "https://ghproxy.net/$url",
+            "https://github.moeyy.xyz/$url"
+        ).distinct()
+        var last: Exception? = null
+        for (candidate in candidates) {
+            try {
+                return fetchJsonElement(candidate)
+            } catch (e: Exception) {
+                last = e
+                termux.emitLog("[download] GitHub 版本源失败，尝试下一个镜像: $candidate")
+            }
+        }
+        throw last ?: RuntimeException("GitHub API unavailable")
     }
 
     private fun fetchNeoForgeVersions(): List<String> = DEFAULT_MC_VERSIONS
@@ -621,6 +678,9 @@ class McServerController(
      */
     suspend fun downloadCoreTo(jarPath: String, config: McConfig, dirName: String = "default", onProgress: (Long, Long, Long) -> Unit) = withContext(Dispatchers.IO) {
         val urls = resolveDownloadUrls(config.selectedCore, config.mcVersion)
+        val expectedDigest = if (config.selectedCore == ServerCore.PowerNukkitX) {
+            runCatching { resolvePowerNukkitXDigest(config.mcVersion) }.getOrNull()
+        } else null
         Log.i(TAG, "downloadCoreTo: core=${config.selectedCore}, version=${config.mcVersion}, urls=$urls")
         termux.emitLog("[download] 开始下载 ${config.selectedCore.displayName} ${config.mcVersion}")
         termux.emitLog("[download] 保存路径: $jarPath")
@@ -630,7 +690,8 @@ class McServerController(
 
         var lastError: Exception? = null
         // 普通核心保持 3 次重试；PowerNukkitX 依次尝试加速通道和官方源。
-        repeat(3) { attempt ->
+        val maxAttempts = if (config.selectedCore == ServerCore.PowerNukkitX) urls.size else 3
+        repeat(maxAttempts) { attempt ->
             val url = urls[attempt % urls.size]
             try {
                 termux.emitLog("[download] 通道 ${attempt + 1}/${urls.size}: $url")
@@ -650,8 +711,17 @@ class McServerController(
                 }
                 if (config.selectedCore == ServerCore.PowerNukkitX) {
                     JarFile(outFile).use { jar ->
-                        check(jar.getEntry("cn/nukkit/Server.class") != null) {
+                        check(
+                            jar.getEntry("org/powernukkitx/Server.class") != null ||
+                                jar.getEntry("org/powernukkitx/JarStart.class") != null ||
+                                jar.getEntry("cn/nukkit/Server.class") != null
+                        ) {
                             "PowerNukkitX 下载内容不是有效核心 JAR"
+                        }
+                    }
+                    if (expectedDigest != null) {
+                        check(sha256(outFile).equals(expectedDigest, ignoreCase = true)) {
+                            "PowerNukkitX SHA-256 校验失败"
                         }
                     }
                 }
@@ -728,9 +798,6 @@ class McServerController(
         // 找到当前选用的核心
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
-        if (activeCore.core == ServerCore.PowerNukkitX && config.selectedJavaVersion != JavaVersion.Java21) {
-            throw RuntimeException("PowerNukkitX 需要 Java 21，请先安装 Java 21 运行环境")
-        }
         val jarFile = termux.serverJarFileFor(activeCore.dirName)
         if (!jarFile.exists()) {
             throw RuntimeException("核心 ${activeCore.name} 的 server.jar 不存在，请重新下载")
