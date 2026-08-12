@@ -20,3 +20,4 @@ local.properties
 
 
 cloudflare/.wrangler/
+.git-backup.log

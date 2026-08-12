@@ -51,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.ServerCore
+import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
@@ -74,12 +75,14 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val availableVersions by vm.availableVersions.collectAsState()
+    val versionHints by vm.versionHints.collectAsState()
     val isLoadingVersions by vm.isLoadingVersions.collectAsState()
     val isDownloadingCore by vm.isDownloadingCore.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
     val consoleLines by vm.consoleLines.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val usesCoreVersion = config.selectedCore == ServerCore.PowerNukkitX
 
     // 自定义版本输入框
     var customVersion by remember { mutableStateOf("") }
@@ -123,6 +126,10 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                 } else {
                     installed.forEach { core ->
+                        val versionText = "${core.core.displayName} ${core.version}" +
+                            (if (core.core == ServerCore.PowerNukkitX) {
+                                " · 支持游戏：${versionHints[core.version] ?: "官方未标注"}"
+                            } else "") + "  ·  文件夹: ${core.dirName}"
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -147,7 +154,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                     }
                                 }
                                 Text(
-                                    "${core.core.displayName} ${core.version}  ·  文件夹: ${core.dirName}",
+                                    versionText,
                                     color = Muted,
                                     fontSize = 11.sp
                                 )
@@ -187,6 +194,9 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         SegPill(
                             text = core.displayName,
                             selected = config.selectedCore == core,
+                            unselectedBackground = if (core == ServerCore.PowerNukkitX) {
+                                Coral.copy(alpha = 0.16f)
+                            } else com.mineserve.mobile.ui.theme.FieldGray,
                             onClick = { vm.selectCore(core) }
                         )
                     }
@@ -203,6 +213,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         ServerCore.Vanilla -> "Vanilla：Minecraft 官方原版服务端"
                         ServerCore.Velocity -> "Velocity：高性能代理端，可连接多个后端服务器（不支持插件/模组）"
                         ServerCore.BungeeCord -> "BungeeCord：经典代理端，支持子服务器间切换（不支持插件/模组）"
+                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端；选择的是核心 Release 版本，默认 UDP 端口 19132，推荐使用 Java 25（不强制）"
                         ServerCore.Unknown -> "未知核心：核心类型无法自动识别（通常来自还原备份），可在设置中修改"
                     },
                     color = Muted,
@@ -226,8 +237,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
             }
 
-            // 选择游戏版本
-            McCard(title = stringResource(R.string.s471)) {
+            McCard(title = if (usesCoreVersion) "选择核心版本" else stringResource(R.string.s471)) {
                 if (isLoadingVersions) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -245,17 +255,26 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         availableVersions.take(20).forEach { ver ->
-                            SegPill(
-                                text = ver,
-                                selected = config.mcVersion == ver,
-                                onClick = { vm.setMcVersion(ver) }
-                            )
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                SegPill(
+                                    text = ver,
+                                    selected = config.mcVersion == ver,
+                                    onClick = { vm.setMcVersion(ver) }
+                                )
+                                if (usesCoreVersion) {
+                                    Text(
+                                        "支持游戏：${versionHints[ver] ?: "官方未标注（以核心官方说明为准）"}",
+                                        color = if (versionHints[ver] == null) Muted else Coral,
+                                        fontSize = 9.sp
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Text(stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (usesCoreVersion) "手动输入核心版本" else stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -265,7 +284,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     OutlinedTextField(
                         value = customVersion,
                         onValueChange = { customVersion = it },
-                        placeholder = { Text(stringResource(R.string.s475), fontSize = 12.sp) },
+                        placeholder = { Text(if (usesCoreVersion) "例如 3.0.2" else stringResource(R.string.s475), fontSize = 12.sp) },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -287,11 +306,29 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.s478, config.mcVersion),
+                    if (usesCoreVersion) "当前核心版本：${config.mcVersion}" else stringResource(R.string.s478, config.mcVersion),
                     color = Indigo,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
+                if (usesCoreVersion) {
+                    Text(
+                        "支持游戏：${versionHints[config.mcVersion] ?: "官方未标注（以核心官方说明为准）"}",
+                        color = if (versionHints[config.mcVersion] == null) Muted else Coral,
+                        fontSize = 10.sp
+                    )
+                }
+                InstallerJavaNotice(
+                    core = config.selectedCore,
+                    minecraftVersion = config.mcVersion
+                )
+                if (usesCoreVersion) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "客户端必须与所选 PowerNukkitX Release 支持的 Bedrock 协议匹配；出现“需更新客户端”时，请更新客户端或选择支持该客户端版本的核心。",
+                        color = Coral, fontSize = 11.sp
+                    )
+                }
             }
 
             // 下载服务端
@@ -351,10 +388,20 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                 } else {
                     Text(
-                        stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
+                        if (usesCoreVersion) {
+                            "准备下载 ${config.selectedCore.displayName} 核心版本 ${config.mcVersion}"
+                        } else stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
                         color = Muted,
-                        fontSize = 11.sp
+                    fontSize = 11.sp
+                )
+                if (config.selectedCore == ServerCore.PowerNukkitX) {
+                    Text(
+                        "基岩版服务端 · UDP 19132 · 推荐 Java 25（不强制） · 游戏版本以官方 Release 标注为准",
+                        color = Coral,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
+                }
                     Spacer(Modifier.height(10.dp))
                     // 自定义名称输入
                     Text(stringResource(R.string.s483), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
@@ -407,6 +454,68 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+private data class InstallerJavaRequirement(
+    val recommendedJava: JavaVersion?,
+    val exactLegacyForgeRequirement: Boolean
+)
+
+private fun installerJavaRequirement(
+    core: ServerCore,
+    minecraftVersion: String
+): InstallerJavaRequirement? {
+    if (!core.needsInstaller) return null
+
+    val versionParts = minecraftVersion
+        .trim()
+        .removePrefix("v")
+        .split('.')
+        .mapNotNull { it.toIntOrNull() }
+    val major = versionParts.getOrNull(0)
+    val minor = versionParts.getOrNull(1)
+    val patch = versionParts.getOrNull(2)
+    if (major != 1 || minor == null) return InstallerJavaRequirement(null, false)
+
+    val java = when {
+        minor <= 16 -> JavaVersion.Java8
+        minor > 20 || (minor == 20 && (patch ?: 0) >= 5) -> JavaVersion.Java25
+        else -> JavaVersion.Java17
+    }
+    return InstallerJavaRequirement(
+        recommendedJava = java,
+        exactLegacyForgeRequirement = core == ServerCore.Forge && minecraftVersion == "1.12.2"
+    )
+}
+
+@Composable
+private fun InstallerJavaNotice(core: ServerCore, minecraftVersion: String) {
+    val requirement = installerJavaRequirement(core, minecraftVersion) ?: return
+    Spacer(Modifier.height(10.dp))
+    Text(
+        if (requirement.exactLegacyForgeRequirement) {
+            "Forge 1.12.2 建议使用 Java 8 安装和启动。"
+        } else if (requirement.recommendedJava != null) {
+            "${core.displayName} $minecraftVersion 建议准备 ${requirement.recommendedJava.displayName} 运行环境。"
+        } else {
+            "${core.displayName} 安装需要兼容的 Java 运行环境。"
+        },
+        color = Coral,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.SemiBold
+    )
+    Spacer(Modifier.height(3.dp))
+    Text(
+        "首次安装会下载并配置依赖，耗时可能较长，请耐心等待。",
+        color = Coral,
+        fontSize = 11.sp
+    )
+    Spacer(Modifier.height(3.dp))
+    Text(
+        "注意：此处提示的 Java 版本有可能不对，请以服务器核心官方文档和安装器提示为准。",
+        color = Coral,
+        fontSize = 11.sp
+    )
 }
 
 

@@ -9,6 +9,8 @@ import java.net.URL
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 内置多线程下载模块（基于 HTTP Range 分段并行，开源思路：分块下载 + 合并）。
@@ -34,6 +36,24 @@ object MultiThreadDownloader {
     /** 每个分片的最小尺寸，避免分片过多 */
     private const val MIN_CHUNK_BYTES = 256 * 1024L
 
+    /** A caller-owned download session that can stop every active HTTP stream. */
+    class DownloadSession {
+        private val cancelled = AtomicBoolean(false)
+        private val connections = ConcurrentHashMap.newKeySet<HttpURLConnection>()
+        @Volatile private var executor: ExecutorService? = null
+
+        fun cancel() {
+            cancelled.set(true)
+            connections.forEach { runCatching { it.disconnect() } }
+            executor?.shutdownNow()
+        }
+
+        internal fun isCancelled() = cancelled.get()
+        internal fun register(connection: HttpURLConnection) { connections += connection }
+        internal fun unregister(connection: HttpURLConnection) { connections -= connection }
+        internal fun setExecutor(value: ExecutorService?) { executor = value }
+    }
+
     /**
      * 下载 url 到 target。自动读取 [DownloadPrefs] 开关与线程数。
      *
@@ -44,11 +64,12 @@ object MultiThreadDownloader {
         url: String,
         target: File,
         onProgress: (Long, Long, Long) -> Unit = { _, _, _ -> },
-        onLog: ((String) -> Unit)? = null
+        onLog: ((String) -> Unit)? = null,
+        session: DownloadSession? = null
     ) {
         val enabled = DownloadPrefs.isEnabled()
         val threads = DownloadPrefs.threadCount()
-        download(url, target, threads, enabled, onProgress, onLog)
+        download(url, target, threads, enabled, onProgress, onLog, session)
     }
 
     /**
@@ -60,14 +81,16 @@ object MultiThreadDownloader {
         threads: Int,
         enabled: Boolean,
         onProgress: (Long, Long, Long) -> Unit = { _, _, _ -> },
-        onLog: ((String) -> Unit)? = null
+        onLog: ((String) -> Unit)? = null,
+        session: DownloadSession? = null
     ) {
+        checkCancelled(session)
         val threadCount = threads.coerceAtLeast(1)
-        val total = probeLength(url)
+        val total = probeLength(url, session)
         if (!enabled || threadCount <= 1 || total <= 0 || total < MIN_MULTI_BYTES) {
             if (!enabled) onLog?.invoke("多线程下载未启用，使用单流下载")
             if (total in 1 until MIN_MULTI_BYTES) onLog?.invoke("文件较小，使用单流下载")
-            singleStream(url, target, total, onProgress)
+            singleStream(url, target, total, onProgress, session)
             return
         }
 
@@ -78,6 +101,7 @@ object MultiThreadDownloader {
         onLog?.invoke("多线程下载：$chunkCount 线程，总大小 ${total / 1024 / 1024}MB")
 
         val pool: ExecutorService = Executors.newFixedThreadPool(chunkCount)
+        session?.setExecutor(pool)
         val done = AtomicLong(0L)
         val errors = java.util.concurrent.ConcurrentLinkedQueue<Exception>()
         val started = System.currentTimeMillis()
@@ -86,7 +110,7 @@ object MultiThreadDownloader {
             ranges.forEach { range ->
                 pool.execute {
                     try {
-                        downloadRange(url, target, range.first, range.second, onProgress, done)
+                        downloadRange(url, target, range.first, range.second, onProgress, done, session)
                     } catch (e: Exception) {
                         errors.add(e)
                         Log.w(TAG, "range ${range.first}-${range.second} failed: ${e.message}")
@@ -96,8 +120,10 @@ object MultiThreadDownloader {
             // 等待所有分片完成
             pool.shutdown()
             while (!pool.awaitTermination(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                checkCancelled(session)
                 reportSpeed(done.get(), total, started, onProgress)
             }
+            checkCancelled(session)
             if (!errors.isEmpty()) {
                 throw RuntimeException("多线程分片下载失败: ${errors.peek()?.message ?: "未知错误"}")
             }
@@ -107,6 +133,7 @@ object MultiThreadDownloader {
             onProgress(target.length(), total, 0L)
         } finally {
             pool.shutdownNow()
+            session?.setExecutor(null)
             ranges.forEach { (start, _) ->
                 val part = partFile(target, start)
                 if (part.exists()) part.delete()
@@ -132,12 +159,14 @@ object MultiThreadDownloader {
         File(target.parentFile, "${target.name}.part$start")
 
     /** 探测 Content-Length（Range: bytes=0-0 + Content-Range 响应头） */
-    private fun probeLength(urlStr: String): Long {
+    private fun probeLength(urlStr: String, session: DownloadSession?): Long {
         var conn: HttpURLConnection? = null
         return try {
             conn = openConn(urlStr).apply {
                 setRequestProperty("Range", "bytes=0-0")
             }
+            session?.register(conn)
+            checkCancelled(session)
             val code = conn.responseCode
             if (code == 206) {
                 // Content-Range: bytes 0-0/12345
@@ -146,14 +175,19 @@ object MultiThreadDownloader {
                 if (slash < 0) return -1L
                 cr.substring(slash + 1).trim().toLongOrNull() ?: -1L
             } else if (code in 200..299) {
-                conn.contentLengthLong
+                // A 200 response ignored the Range header; use one stream so a mirror
+                // cannot be mistaken for a range-capable endpoint and corrupt the JAR.
+                -1L
             } else {
                 -1L
             }
+        } catch (e: java.util.concurrent.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "probeLength failed: ${e.message}")
             -1L
         } finally {
+            conn?.let { session?.unregister(it) }
             conn?.disconnect()
         }
     }
@@ -165,13 +199,16 @@ object MultiThreadDownloader {
         start: Long,
         end: Long,
         onProgress: (Long, Long, Long) -> Unit,
-        done: AtomicLong
+        done: AtomicLong,
+        session: DownloadSession?
     ) {
         var conn: HttpURLConnection? = null
         try {
             conn = openConn(urlStr).apply {
                 setRequestProperty("Range", "bytes=$start-$end")
             }
+            session?.register(conn)
+            checkCancelled(session)
             val code = conn.responseCode
             if (code != 206) {
                 throw RuntimeException("Range 请求返回 HTTP $code")
@@ -183,6 +220,7 @@ object MultiThreadDownloader {
                 val buf = ByteArray(BUFFER)
                 conn.inputStream.use { input ->
                     while (true) {
+                        checkCancelled(session)
                         val read = input.read(buf)
                         if (read <= 0) break
                         output.write(buf, 0, read)
@@ -193,6 +231,7 @@ object MultiThreadDownloader {
                 output.close()
             }
         } finally {
+            conn?.let { session?.unregister(it) }
             conn?.disconnect()
         }
     }
@@ -225,10 +264,12 @@ object MultiThreadDownloader {
     }
 
     /** 单流下载（Range 不支持 / 未启用 / 小文件时的降级路径） */
-    private fun singleStream(urlStr: String, target: File, total: Long, onProgress: (Long, Long, Long) -> Unit) {
+    private fun singleStream(urlStr: String, target: File, total: Long, onProgress: (Long, Long, Long) -> Unit, session: DownloadSession?) {
         var conn: HttpURLConnection? = null
         try {
             conn = openConn(urlStr)
+            session?.register(conn)
+            checkCancelled(session)
             val code = conn.responseCode
             if (code !in 200..299) {
                 throw RuntimeException("HTTP $code 下载失败: $urlStr")
@@ -242,6 +283,7 @@ object MultiThreadDownloader {
                 FileOutputStream(target).use { fos ->
                     val buffer = ByteArray(BUFFER)
                     while (true) {
+                        checkCancelled(session)
                         val read = input.read(buffer)
                         if (read <= 0) break
                         fos.write(buffer, 0, read)
@@ -259,8 +301,13 @@ object MultiThreadDownloader {
             }
             onProgress(downloaded, actualTotal, 0L)
         } finally {
+            conn?.let { session?.unregister(it) }
             conn?.disconnect()
         }
+    }
+
+    private fun checkCancelled(session: DownloadSession?) {
+        if (session?.isCancelled() == true) throw java.util.concurrent.CancellationException("Download cancelled")
     }
 
     private fun openConn(urlStr: String): HttpURLConnection {

@@ -52,11 +52,26 @@ class PlayerManager(private val termux: TermuxRuntime) {
         File(termux.installer.rootDir, "home/servers/$dirName")
 
     /** 读取 ops.json；文件不存在或解析失败时返回空列表 */
-    fun readOps(dirName: String): List<OpEntry> = readJsonList(File(serverDir(dirName), "ops.json"))
+    fun readOps(dirName: String): List<OpEntry> {
+        val dir = serverDir(dirName)
+        val textFile = File(dir, "ops.txt")
+        if (PowerNukkitXLayout.isPowerNukkitX(dir) && textFile.isFile) {
+            return textFile.readLines().mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                .map { OpEntry(it, "", 4) }
+        }
+        return readJsonList(File(dir, "ops.json"))
+    }
 
     /** 读取 whitelist.json；文件不存在或解析失败时返回空列表 */
-    fun readWhitelist(dirName: String): List<WhitelistEntry> =
-        readJsonList(File(serverDir(dirName), "whitelist.json"))
+    fun readWhitelist(dirName: String): List<WhitelistEntry> {
+        val dir = serverDir(dirName)
+        val textFile = File(dir, "white-list.txt")
+        if (PowerNukkitXLayout.isPowerNukkitX(dir) && textFile.isFile) {
+            return textFile.readLines().mapNotNull { it.trim().takeIf(String::isNotEmpty) }
+                .map { WhitelistEntry(it, "") }
+        }
+        return readJsonList(File(dir, "whitelist.json"))
+    }
 
     /** 读取 banned-players.json；文件不存在或解析失败时返回空列表 */
     fun readBanned(dirName: String): List<BannedEntry> =
@@ -114,6 +129,7 @@ class PlayerManager(private val termux: TermuxRuntime) {
         if (!termux.isMcRunning()) return false
         // 1. 发送 op 命令添加 OP（等级为 server.properties 默认值，通常 4）
         termux.sendCommand("op $name")
+        if (PowerNukkitXLayout.isPowerNukkitX(serverDir(dirName))) return true
         // 2. 等待 MC 回写 ops.json（含 UUID）
         try { Thread.sleep(800) } catch (_: InterruptedException) {}
         // 3. 修改 ops.json 中该玩家的 level 字段

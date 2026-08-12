@@ -27,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.ui.screens.BackupScreen
 import com.mineserve.mobile.ui.screens.DashboardScreen
+import com.mineserve.mobile.ui.screens.DiagnosticsScreen
 import com.mineserve.mobile.ui.screens.DownloadHelpScreen
 import com.mineserve.mobile.ui.screens.DownloadScreen
 import com.mineserve.mobile.ui.screens.FileManagerScreen
@@ -45,7 +46,7 @@ import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -126,6 +127,7 @@ fun McApp() {
                             onNavigateProperties = { subPage = SubPage.Properties },
                             onNavigatePlugins = { tab = McTab.Plugins; subPage = null }
                         )
+                        SubPage.Diagnostics -> DiagnosticsScreen(vm = vm, onBack = { subPage = null })
                         null -> {}
                     }
                 }
@@ -133,7 +135,8 @@ fun McApp() {
                     McTab.Dashboard -> DashboardScreen(
                         vm = vm,
                         onShowLogs = { showLogs = true },
-                        onShowDownloadHelp = { subPage = SubPage.DownloadHelp }
+                        onShowDownloadHelp = { subPage = SubPage.DownloadHelp },
+                        onShowDiagnostics = { subPage = SubPage.Diagnostics }
                     )
                     McTab.Download -> DownloadScreen(
                         vm = vm,

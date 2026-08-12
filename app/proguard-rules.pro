@@ -34,5 +34,16 @@
 # ---------- Compose ----------
 -keep class androidx.compose.** { *; }
 
+# Keep native entry points, dispatcher discovery, and manifest components.
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keep class kotlinx.coroutines.android.** { *; }
+-keep public class com.mineserve.mobile.McApplication { *; }
+-keep public class com.mineserve.mobile.MainActivity { *; }
+-keep public class com.mineserve.mobile.service.** { *; }
+-keep public class com.mineserve.mobile.BootReceiver { *; }
+
 # ---------- 数据/工具 ----------
 # xz / commons-compress 无反射，无需规则

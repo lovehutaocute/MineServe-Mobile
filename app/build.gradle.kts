@@ -18,8 +18,8 @@ android {
         applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
-        versionCode = 8
-        versionName = "1.0.7"
+        versionCode = 27
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -49,9 +49,8 @@ android {
         release {
             // R8 混淆仅正式发版时启用：gradlew assembleRelease -PreleaseR8=true
             // 本地测试/不更新 release 的构建保持无混淆（避免混淆引发的运行时问题干扰排查）
-            val enableR8 = (project.findProperty("releaseR8") as String?)?.toBoolean() ?: false
-            isMinifyEnabled = enableR8
-            isShrinkResources = enableR8
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

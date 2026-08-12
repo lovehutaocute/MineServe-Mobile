@@ -9,6 +9,7 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.io.RandomAccessFile
+import java.util.concurrent.TimeUnit
 
 /**
  * 命令执行器（Termux 原生模式，不依赖 proot）：
@@ -38,9 +39,12 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         // 显式设置 PATH 和 LD_LIBRARY_PATH，确保 /system/bin/sh 能找到 Termux 命令
         // ProcessBuilder.environment() 在某些 Android 版本上可能不正确传递 PATH
         // LD_LIBRARY_PATH 需包含 usr/lib/（Termux compat 实际解压路径），否则 proot 找不到 libtalloc.so.2
-        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
-        val envSetup = "export PATH='$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsrLib:/system/lib64'; " +
+        val compatUsr = "$prefix/data/data/com.termux/files/usr"
+        val compatUsrLib = "$compatUsr/lib"
+        val envSetup = "export PATH='$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'; " +
+            "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
+            "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
             "export TMPDIR='$prefix/tmp'; "
@@ -58,7 +62,8 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         val caBundle = "$prefix/etc/ssl/certs/ca-certificates.crt"
         // compat 路径：dpkg-deb -x 解包时 compat 符号链接被覆盖，库实际落在 usr/lib/
         // 必须加入 LD_LIBRARY_PATH，否则 proot 找不到 libtalloc.so.2
-        val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        val compatUsr = "$prefix/data/data/com.termux/files/usr"
+        val compatUsrLib = "$compatUsr/lib"
         // Termux rootfs 的共享库标准位置为 $PREFIX/usr/lib（bash 依赖的 readline/ncurses
         // 等都在这里）；仅靠 $prefix/lib 会导致这些命令启动失败（退出码 126）。
         // 顺序：$prefix/lib → compat 实际落点 → Termux 标准 usr/lib → 系统库
@@ -70,9 +75,11 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         ).joinToString(":")
         return mapOf(
             "HOME" to "$prefix/home",
-            "PATH" to "$prefix/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
+            "PATH" to "$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin",
             "TMPDIR" to "$prefix/tmp",
             "LD_LIBRARY_PATH" to libPath,
+            "FONTCONFIG_PATH" to "$prefix/etc/fonts",
+            "FONTCONFIG_FILE" to "$prefix/etc/fonts/fonts.conf",
             "PREFIX" to "$prefix",
             "TERM" to "xterm-256color",
             "LANG" to "en_US.UTF-8",
@@ -113,6 +120,46 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
             }
         }
         return process.waitFor()
+    }
+
+    /** Execute a setup command with an app-side deadline; coreutils timeout may be unavailable. */
+    fun execOnceWithTimeout(
+        timeoutMs: Long,
+        vararg command: String,
+        env: Map<String, String> = emptyMap()
+    ): Int {
+        val full = buildExecCommand(command.toList())
+        Log.d(TAG, "execOnceWithTimeout[$timeoutMs]: ${full.joinToString(" ").take(200)}")
+        val pb = ProcessBuilder(full).apply {
+            redirectErrorStream(true)
+            redirectInput(File("/dev/null"))
+            directory(File(installer.rootDir, "home").apply { mkdirs() })
+            environment().putAll(termuxEnv())
+            env.forEach { (k, v) -> environment()[k] = v }
+        }
+        val process = pb.start()
+        process.outputStream.close()
+        val reader = Thread {
+            runCatching {
+                BufferedReader(InputStreamReader(process.inputStream)).useLines { lines ->
+                    lines.forEach { line ->
+                        _consoleFlow.tryEmit(line)
+                        Log.d(TAG, "  | $line")
+                    }
+                }
+            }
+        }
+        reader.start()
+        val completed = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!completed) {
+            Log.w(TAG, "execOnceWithTimeout: command timed out after ${timeoutMs}ms")
+            process.destroy()
+            if (!process.waitFor(2, TimeUnit.SECONDS)) process.destroyForcibly()
+            reader.join(2_000)
+            return 124
+        }
+        reader.join(2_000)
+        return process.exitValue()
     }
 
     /**

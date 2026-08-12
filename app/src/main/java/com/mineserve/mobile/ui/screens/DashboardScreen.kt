@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.InstalledCore
+import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.ui.HeaderBlock
@@ -87,7 +88,6 @@ import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
 import com.mineserve.mobile.ui.theme.Muted
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -98,10 +98,18 @@ import kotlinx.coroutines.withContext
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp: () -> Unit) {
+fun DashboardScreen(
+    vm: McViewModel,
+    onShowLogs: () -> Unit,
+    onShowDownloadHelp: () -> Unit,
+    onShowDiagnostics: () -> Unit
+) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
-    val deviceStats by vm.deviceStats.collectAsState()
+    val resources by vm.serverResources.collectAsState()
+    val diagnosticReport by vm.diagnosticReport.collectAsState()
+    val isDiagnosing by vm.isDiagnosing.collectAsState()
+    val isRepairingRuntime by vm.isRepairingRuntime.collectAsState()
     val installedPlugins by vm.installedPlugins.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
     val bootstrapError by vm.bootstrapError.collectAsState()
@@ -109,10 +117,17 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     val lanIp by vm.lanIp.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val consoleLines by vm.consoleLines.map { it.takeLast(5) }.collectAsState(initial = emptyList())
+    LaunchedEffect(Unit) { vm.refreshLanIp() }
     val isInstalling by vm.isInstalling.collectAsState()
+    val installedJava by vm.installedJava.collectAsState()
+    val javaOperation by vm.javaOperation.collectAsState()
     // 依赖是否已全部装齐（installSteps 全部 Done）
-    val depsInstalled = state.installSteps.isNotEmpty() &&
-        state.installSteps.all { it.status == com.mineserve.mobile.data.StepStatus.Done }
+    val dependencySteps = state.installSteps.filter { it.step != com.mineserve.mobile.data.InstallStep.Jdk }
+    val depsInstalled = dependencySteps.isNotEmpty() && dependencySteps.all {
+        it.status == com.mineserve.mobile.data.StepStatus.Done
+    }
+    val javaInstalled = JavaVersion.values().filter { it != JavaVersion.Java21 }.all { it in installedJava }
+    val javaCardAtBottom = config.javaCardAtBottom || javaInstalled
     val downloadProgress by vm.downloadProgress.collectAsState()
     val bootstrapSpeed by vm.bootstrapSpeed.collectAsState()
     val currentMirrorIndex by vm.currentMirrorIndex.collectAsState()
@@ -125,7 +140,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var showDeleteDepsConfirm by remember { mutableStateOf(false) }
     var showCoreDropdown by remember { mutableStateOf(false) }
+    var showJavaDropdown by remember { mutableStateOf(false) }
     var switchInProgress by remember { mutableStateOf(false) }
+    var switchingFromMirror by remember { mutableStateOf(-1) }
+    LaunchedEffect(currentMirrorIndex) {
+        if (switchInProgress && (currentMirrorIndex == -1 || currentMirrorIndex != switchingFromMirror)) {
+            switchInProgress = false
+        }
+    }
     // 服务器图标选择器
     val iconPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -152,6 +174,11 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             vm.refreshInstalledPlugins()
         }
     }
+    LaunchedEffect(isBootstrapped) {
+        vm.refreshJava()
+        vm.refreshDependencies()
+        vm.runDiagnostics()
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -169,81 +196,83 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
             HeroBlock(state = state, coreLabel = coreLabel)
+            if (!javaCardAtBottom) {
+                JavaManagementCard(
+                    vm = vm,
+                    installed = installedJava,
+                    busy = isInstalling,
+                    operation = javaOperation,
+                    atBottom = false,
+                    allInstalled = false
+                )
+            }
 
-            // ── 设备状态卡片（常规权限可采集） ──
-            McCard(title = stringResource(R.string.s341)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    DeviceStatCell(
-                        label = stringResource(R.string.s342),
-                        value = if (deviceStats.totalMemoryMb > 0)
-                            "${formatDeviceMb(deviceStats.availMemoryMb)} / ${formatDeviceMb(deviceStats.totalMemoryMb)}"
-                        else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s343),
-                        value = if (deviceStats.totalStorageMb > 0)
-                            "${formatDeviceMb(deviceStats.availStorageMb)} / ${formatDeviceMb(deviceStats.totalStorageMb)}"
-                        else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s344),
-                        value = when {
-                            deviceStats.batteryPercent < 0 -> "--"
-                            deviceStats.isCharging -> stringResource(R.string.s345, deviceStats.batteryPercent)
-                            else -> "${deviceStats.batteryPercent}%"
-                        },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                // 网络数据（总上传/下载 + 实时速度）
-                Spacer(Modifier.height(10.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    DeviceStatCell(
-                        label = stringResource(R.string.s346),
-                        value = if (deviceStats.totalRxBytes > 0) formatNetBytes(deviceStats.totalRxBytes) else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s347),
-                        value = if (deviceStats.totalTxBytes > 0) formatNetBytes(deviceStats.totalTxBytes) else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s348),
-                        value = if (deviceStats.rxSpeedBps > 0) "${formatNetBytes(deviceStats.rxSpeedBps)}/s" else "--",
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.s349),
-                        value = if (deviceStats.txSpeedBps > 0) "${formatNetBytes(deviceStats.txSpeedBps)}/s" else "--",
-                        modifier = Modifier.weight(1f)
-                    )
+            McCard(title = "运行诊断", compact = true) {
+                val issues = diagnosticReport.issueCount
+                Text(
+                    when {
+                        isRepairingRuntime -> "正在执行安全修复，完成后会自动复检"
+                        isDiagnosing -> "正在检查当前服务端和运行环境"
+                        diagnosticReport.generatedAtMs == 0L -> "尚未执行诊断"
+                        issues == 0 -> "当前运行环境检查通过"
+                        else -> "发现 $issues 项需要注意的问题"
+                    },
+                    color = when { isRepairingRuntime || isDiagnosing -> Indigo; issues == 0 && diagnosticReport.generatedAtMs > 0 -> Mint; else -> Coral },
+                    fontSize = 12.sp, fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onShowDiagnostics, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
+                        Text("查看详情", color = Indigo, fontSize = 12.sp)
+                    }
+                    Button(
+                        onClick = { vm.safeRepairRuntime() },
+                        enabled = !isDiagnosing && !isRepairingRuntime && isBootstrapped,
+                        modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo)
+                    ) { Text(if (isRepairingRuntime) "修复中" else "一键安全修复", color = Color.White, fontSize = 12.sp) }
                 }
             }
 
+            McCard(title = "服务端资源", compact = true) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    DeviceStatCell(
+                        label = "进程内存",
+                        value = resources.processMemoryMb?.let { "${it} MB / ${config.maxHeapMb} MB" } ?: "未运行",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "目录可用空间",
+                        value = resources.availableBytes?.let(::formatServerBytes) ?: "暂不可用",
+                        modifier = Modifier.weight(1f)
+                    )
+                    DeviceStatCell(
+                        label = "Java",
+                        value = if (resources.javaAvailable) "${config.selectedJavaVersion.displayName} 已就绪" else "${config.selectedJavaVersion.displayName} 不可用",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text("服务端目录占用：${resources.directoryBytes?.let(::formatServerBytes) ?: "暂不可用"}", color = Muted, fontSize = 11.sp)
+            }
+
             // ── MC 终端入口（设备状态卡片下方） ──
-            Button(
+            OutlinedButton(
                 onClick = { vm.launchMcConsole(); onShowLogs() },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF424242)),
-                shape = RoundedCornerShape(12.dp),
+                shape = RoundedCornerShape(10.dp),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp)
+                    .padding(horizontal = 16.dp, vertical = 2.dp)
             ) {
-                Text(stringResource(R.string.s350), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Text(stringResource(R.string.s350), color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
 
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
-                McCard(title = stringResource(R.string.s351)) {
+                McCard(title = stringResource(R.string.s351), compact = true) {
                     // 下载提示行（卡片内顶部）
                     DownloadHintHeader(
                         isBusy = true,
@@ -325,17 +354,14 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                                             return@OutlinedButton
                                         }
                                         android.util.Log.i("DashboardScreen", "[切换] 按钮点击: currentMirrorIndex=$currentMirrorIndex, 即将调用 vm.switchBootstrapMirror()")
+                                        switchingFromMirror = currentMirrorIndex
                                         switchInProgress = true
                                         vm.switchBootstrapMirror()
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar(mirrorSwitchMsg)
-                                            delay(1500)
-                                            switchInProgress = false
-                                            android.util.Log.i("DashboardScreen", "[切换] switchInProgress 已重置为 false")
-                                        }
+                                        scope.launch { snackbarHostState.showSnackbar(mirrorSwitchMsg) }
                                     },
                                     enabled = !switchInProgress,
                                     shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(48.dp),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
                                     Text(
@@ -362,6 +388,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             if (!depsInstalled) {
             McCard(
                 title = stringResource(R.string.s357),
+                compact = true,
                 trailing = {
                     Text(
                         stringResource(R.string.s358),
@@ -381,7 +408,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     onShowHelp = onShowDownloadHelp
                 )
                 Spacer(Modifier.height(8.dp))
-                state.installSteps.forEachIndexed { idx, step ->
+                dependencySteps.forEachIndexed { idx, step ->
                     val tag = when (step.status) {
                         com.mineserve.mobile.data.StepStatus.Done -> stringResource(R.string.s361)
                         com.mineserve.mobile.data.StepStatus.Active -> stringResource(R.string.s362)
@@ -440,7 +467,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // 启动哪个服务端（显示已安装的核心列表，支持下拉选择）
-            McCard(title = stringResource(R.string.s368)) {
+            McCard(title = stringResource(R.string.s368), compact = true) {
                 val installed = config.installedCores
                 val activeCore = installed.find { it.name == config.activeCoreName }
                 if (installed.isEmpty()) {
@@ -514,6 +541,9 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                                                 color = Muted,
                                                 fontSize = 11.sp
                                             )
+                                            if (core.core.isBedrock) {
+                                                Text("基岩版 · UDP", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
                                         }
                                     },
                                     onClick = {
@@ -531,61 +561,72 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             // 启停控制
             McCard(
                 title = stringResource(R.string.s377),
+                compact = true,
                 trailing = {
                     IconButton(onClick = { showStartSettings = true }) {
                         Icon(Icons.Outlined.Settings, stringResource(R.string.s378), tint = Indigo, modifier = Modifier.size(18.dp))
                     }
                 }
             ) {
+                val activeServerCore = config.installedCores.find { it.name == config.activeCoreName }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Button(
-                        onClick = { vm.startServer() },
-                        enabled = !state.isRunning && isBootstrapped,
-                        colors = ButtonDefaults.buttonColors(containerColor = Mint),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (state.isRunning && state.runningSinceMs == 0L) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                color = Color.White,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(Modifier.size(6.dp))
+                    Box(modifier = Modifier.weight(0.9f)) {
+                        OutlinedButton(
+                            onClick = { showJavaDropdown = true },
+                            enabled = !state.isRunning,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                        ) { Text(config.selectedJavaVersion.displayName, color = Indigo, fontSize = 12.sp) }
+                        DropdownMenu(
+                            expanded = showJavaDropdown,
+                            onDismissRequest = { showJavaDropdown = false }
+                        ) {
+                            JavaVersion.values().forEach { version ->
+                                DropdownMenuItem(
+                                    text = { Text(version.displayName) },
+                                    onClick = { vm.setJavaVersion(version); showJavaDropdown = false }
+                                )
+                            }
                         }
-                        Text(
-                            if (state.isRunning && state.runningSinceMs == 0L) stringResource(R.string.s379) else stringResource(R.string.s380),
-                            color = Color.White,
-                            fontWeight = FontWeight.SemiBold
-                        )
                     }
-
                     Button(
                         onClick = {
-                            isStopping = true
-                            vm.stopServer()
-                            scope.launch { isStopping = false }
+                            if (state.isRunning) {
+                                isStopping = true
+                                vm.stopServer()
+                                scope.launch { isStopping = false }
+                            } else {
+                                vm.startServer()
+                            }
                         },
-                        enabled = !isStopping && state.isRunning,
-                        colors = ButtonDefaults.buttonColors(containerColor = Coral),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f)
+                        enabled = if (state.isRunning) !isStopping else isBootstrapped,
+                        colors = ButtonDefaults.buttonColors(containerColor = if (state.isRunning) Coral else Mint),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1.1f),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)
                     ) {
-                        if (isStopping) {
+                        if (state.isRunning && isStopping) {
                             CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
+                                modifier = Modifier.size(16.dp),
                                 color = Color.White,
                                 strokeWidth = 2.dp
                             )
                             Spacer(Modifier.size(6.dp))
                         }
                         Text(
-                            if (isStopping) stringResource(R.string.s381) else stringResource(R.string.s382),
+                            when {
+                                state.isRunning && isStopping -> stringResource(R.string.s381)
+                                state.isRunning -> stringResource(R.string.s382)
+                                else -> stringResource(R.string.s380)
+                            },
                             color = Color.White,
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 12.sp
                         )
                     }
                 }
@@ -601,10 +642,21 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     color = Muted,
                     fontSize = 10.sp
                 )
+                if (activeServerCore?.core == ServerCore.PowerNukkitX &&
+                    (config.selectedJavaVersion == JavaVersion.Java8 || config.selectedJavaVersion == JavaVersion.Java17)) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "注意：PowerNukkitX 更推荐使用 Java 25；当前 Java 版本可能不兼容，实际要求以核心文档和启动日志为准。",
+                        color = Coral,
+                        fontSize = 11.sp
+                    )
+                }
             }
 
             // ── 服务器图标（server-icon.png，玩家在多人游戏列表看到的图标） ──
-            McCard(title = stringResource(R.string.ui_server_icon)) {
+            McCard(title = stringResource(R.string.ui_server_icon), compact = true) {
+                val activeCoreForIcon = config.installedCores.find { it.name == config.activeCoreName }
+                val iconUnsupported = activeCoreForIcon?.core == ServerCore.PowerNukkitX
                 val iconVersion by vm.serverIconVersion.collectAsState()
                 val iconBmp by produceState<Bitmap?>(initialValue = null, iconVersion) {
                     value = withContext(Dispatchers.IO) {
@@ -634,7 +686,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
                         Text(
-                            stringResource(R.string.ui_server_icon_hint),
+                            if (iconUnsupported) "PowerNukkitX 暂不支持 Java Edition 的 server-icon.png。" else stringResource(R.string.ui_server_icon_hint),
                             color = Muted,
                             fontSize = 10.sp,
                             lineHeight = 14.sp
@@ -645,6 +697,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = { iconPickerLauncher.launch("image/*") },
+                        enabled = !iconUnsupported,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
@@ -653,6 +706,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                     }
                     OutlinedButton(
                         onClick = { vm.removeServerIcon() },
+                        enabled = !iconUnsupported,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
                     ) {
@@ -672,7 +726,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // ── 服务器地址 ──
-            McCard(title = stringResource(R.string.s386)) {
+            McCard(title = stringResource(R.string.s386), compact = true) {
                 // 局域网
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -706,7 +760,7 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
             }
 
             // 插件入口（精简）
-            McCard(title = stringResource(R.string.s390)) {
+            McCard(title = stringResource(R.string.s390), compact = true) {
                 if (installedPlugins.isEmpty()) {
                     Text(stringResource(R.string.s391), color = Muted, fontSize = 11.sp)
                 } else {
@@ -751,6 +805,16 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
                 }
             }
             // QQ 交流群入口
+            if (javaCardAtBottom) {
+                JavaManagementCard(
+                    vm = vm,
+                    installed = installedJava,
+                    busy = isInstalling,
+                    operation = javaOperation,
+                    atBottom = true,
+                    allInstalled = javaInstalled
+                )
+            }
             QqGroupCard()
             Spacer(Modifier.height(16.dp))
         }
@@ -876,6 +940,78 @@ fun DashboardScreen(vm: McViewModel, onShowLogs: () -> Unit, onShowDownloadHelp:
  * - isBusy=false 时显示 idleText + 下载图标
  */
 @Composable
+private fun JavaManagementCard(
+    vm: McViewModel,
+    installed: Set<JavaVersion>,
+    busy: Boolean,
+    operation: String?,
+    atBottom: Boolean,
+    allInstalled: Boolean
+) {
+    McCard(title = "Java 运行环境", compact = true) {
+        Text("仅提供 Java 8、Java 17、Java 25", color = Muted, fontSize = 11.sp)
+        Text(
+            "注意：Java 8 使用 Ubuntu ARM64 glibc 原生运行库，非 Termux 官方源；需要 Ubuntu 容器。",
+            color = Coral,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(8.dp))
+        if (operation != null) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Indigo)
+                Spacer(Modifier.width(8.dp))
+                Text(operation, color = Indigo, fontSize = 12.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        JavaVersion.values().forEach { version ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(version.displayName, modifier = Modifier.weight(1f), fontSize = 13.sp)
+                Text(
+                    if (version in installed) "已安装" else "未安装",
+                    color = if (version in installed) Mint else Muted,
+                    fontSize = 11.sp
+                )
+                if (version !in installed) {
+                    TextButton(onClick = { vm.installJava(version) }, enabled = !busy) {
+                        Text("安装", color = Indigo)
+                    }
+                }
+            }
+        }
+        if (JavaVersion.values().filter { it != JavaVersion.Java21 }.all { it in installed }) {
+            OutlinedButton(
+                onClick = { vm.clearAndReinstallJava() },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) { Text("清除并重装 Java", color = Coral, fontSize = 12.sp) }
+        }
+        Spacer(Modifier.height(6.dp))
+        if (allInstalled) {
+            Text("三个 Java 版本均已安装，卡片已自动置于页面底部", color = Muted, fontSize = 11.sp)
+        } else {
+            OutlinedButton(
+                onClick = { vm.setJavaCardAtBottom(!atBottom) },
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    if (atBottom) "恢复默认位置" else "将卡片移至页面底部",
+                    color = Indigo,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun DownloadHintHeader(
     isBusy: Boolean,
     busyText: String,
@@ -941,6 +1077,13 @@ private fun formatSpeedShort(bytesPerSec: Long): String {
         bytesPerSec >= 1024 -> String.format("%.0f KB/s", bytesPerSec / 1024.0)
         else -> "$bytesPerSec B/s"
     }
+}
+
+private fun formatServerBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824L -> String.format(java.util.Locale.US, "%.1f GB", bytes / 1_073_741_824.0)
+    bytes >= 1_048_576L -> String.format(java.util.Locale.US, "%.1f MB", bytes / 1_048_576.0)
+    bytes >= 1_024L -> String.format(java.util.Locale.US, "%.1f KB", bytes / 1_024.0)
+    else -> "$bytes B"
 }
 
 // ── 设备状态卡片辅助组件 ────────────────────────────────────────────

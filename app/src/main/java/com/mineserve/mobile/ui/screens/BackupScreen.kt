@@ -38,6 +38,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -63,12 +64,18 @@ import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.EmptyHint
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
+import com.mineserve.mobile.ui.SegPill
 import com.mineserve.mobile.ui.theme.Coral
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Muted
+import com.mineserve.mobile.data.AutoBackupType
+import com.mineserve.mobile.server.BackupManager
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
@@ -76,6 +83,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
+    val config by vm.config.collectAsState()
     val snapshots by vm.snapshots.collectAsState()
     var isSnapshotting by remember { mutableStateOf(false) }
     var showDeleteWorldConfirm by remember { mutableStateOf(false) }
@@ -146,7 +154,46 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_backup), title = stringResource(R.string.s324))
 
+            McCard(title = "自动备份") {
+                Text("仅在服务端运行时写入公共备份目录，自动清理仅作用于同服务器、同类型的自动备份。", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(0 to "关闭", 30 to "30分钟", 60 to "1小时", 180 to "3小时").forEach { (minutes, label) ->
+                        SegPill(text = label, selected = config.autoBackupIntervalMin == minutes) {
+                            vm.setAutoBackupInterval(minutes)
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AutoBackupType.entries.forEach { type ->
+                        SegPill(text = type.displayName, selected = config.autoBackupType == type) {
+                            vm.setAutoBackupType(type)
+                        }
+                    }
+                }
+            }
+
             // 外部备份权限引导（未授权时显示，醒目样式）
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = if (config.autoBackupIntervalMin > 0) config.autoBackupIntervalMin.toString() else "",
+                    onValueChange = { vm.setAutoBackupInterval(it.toIntOrNull() ?: 0) },
+                    label = { Text("自定义间隔（分钟）") },
+                    singleLine = true,
+                    modifier = Modifier.width(180.dp)
+                )
+                OutlinedTextField(
+                    value = config.maxSnapshots.toString(),
+                    onValueChange = { vm.setMaxSnapshots(it.toIntOrNull() ?: config.maxSnapshots) },
+                    label = { Text("自动保留数量") },
+                    singleLine = true,
+                    modifier = Modifier.width(150.dp)
+                )
+            }
+            Text("间隔范围 5–10080 分钟；保留数量范围 1–100。输入 0 可关闭自动备份。", color = Muted, fontSize = 11.sp)
+
             if (!hasStoragePerm) {
                 Box(
                     modifier = Modifier
@@ -211,9 +258,8 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 )
             }
 
-            // 快照操作
-            McCard(title = stringResource(R.string.s325)) {
-                Text(stringResource(R.string.s326), color = Muted, fontSize = 11.sp)
+            McCard(title = "手动世界备份") {
+                Text("保存到 /storage/emulated/0/世界与服务器的备份/", color = Muted, fontSize = 11.sp)
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
@@ -233,7 +279,7 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                                 isSnapshotting = false
                                 val msg = if (path != null) context.getString(R.string.s329, path) else context.getString(R.string.s330)
                                 snackbarHostState.showSnackbar(msg)
-                                vm.loadSnapshots()
+                                refreshExtBackups()
                             }
                         },
                         enabled = isBootstrapped && !isSnapshotting,
@@ -292,18 +338,20 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 } else {
                     extBackups.forEachIndexed { i, f ->
                         if (i > 0) Spacer(Modifier.height(6.dp))
+                        val info = vm.externalBackupInfo(f)
+                        val kindLabel = if (info.kind == BackupManager.BackupKind.World) "世界备份" else "完整服务器"
+                        val coreLabel = if (info.kind == BackupManager.BackupKind.Server) " · 核心: ${info.coreTag ?: "—"}" else ""
+                        val detail = "$kindLabel · ${info.origin?.label ?: "历史"} · 目录: ${info.dirName ?: "—"}" +
+                            "$coreLabel · ${formatBackupTime(info.createdTime, f.lastModified())} · ${formatBytesCompat(f.length())}"
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(f.name, fontSize = 11.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                                Text(
-                                    formatBytesCompat(f.length()),
-                                    color = Muted, fontSize = 10.sp
-                                )
+                                Text(detail, color = Muted, fontSize = 10.sp)
                             }
                             // 世界备份 → 还原世界；服务器备份 → 还原服务器（含重名检测）
                             TextButton(
                                 onClick = {
-                                    if (f.name.startsWith("world_")) {
+                                    if (info.kind == BackupManager.BackupKind.World) {
                                         vm.restoreWorldFromExternal(f.name)
                                     } else {
                                         vm.requestRestoreServer(f.name)
@@ -391,9 +439,9 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 }
             }
 
-            // 备份列表
+            // 旧应用私有快照仅保留读取、恢复和删除能力，不再创建新文件。
             McCard(
-                title = stringResource(R.string.s332, snapshots.size),
+                title = "历史私有快照（${snapshots.size}）",
                 trailing = {
                     IconButton(onClick = { vm.loadSnapshots() }) {
                         Icon(Icons.Outlined.Refresh, stringResource(R.string.s333), tint = Indigo, modifier = Modifier.size(18.dp))
@@ -470,4 +518,9 @@ private fun formatBytesCompat(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     if (bytes < 1024 * 1024) return "%.1f KB".format(bytes / 1024.0)
     return "%.1f MB".format(bytes / 1024.0 / 1024.0)
+}
+
+private fun formatBackupTime(parsed: Long, modified: Long): String {
+    val time = parsed.takeIf { it > 0 } ?: modified
+    return if (time > 0) SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date(time)) else "未知时间"
 }

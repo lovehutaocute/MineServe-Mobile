@@ -83,7 +83,7 @@ fun HeaderBlock(
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
             .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
-            .padding(horizontal = 16.dp, vertical = 14.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Text(
             text = eyebrow,
@@ -92,11 +92,11 @@ fun HeaderBlock(
             fontWeight = FontWeight.Bold,
             letterSpacing = 0.6.sp
         )
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             text = title,
             color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 19.sp,
+            fontSize = 18.sp,
             fontWeight = FontWeight.Bold
         )
     }
@@ -149,12 +149,12 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(16.dp))
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(10.dp))
             .background(
                 Brush.linearGradient(colors = listOf(Indigo, IndigoDark))
             )
-            .padding(horizontal = 14.dp, vertical = 12.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
         Column {
             // 启动中：isRunning 且尚未完成启动（runningSinceMs == 0）
@@ -187,7 +187,7 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                 HeroStat(
                     if (state.isRunning) String.format("%.1f", state.tps) else "--",
@@ -259,17 +259,18 @@ fun McCard(
     title: String,
     modifier: Modifier = Modifier,
     trailing: (@Composable () -> Unit)? = null,
+    compact: Boolean = false,
     content: @Composable () -> Unit
 ) {
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 8.dp),
-        shape = RoundedCornerShape(18.dp),
+            .padding(horizontal = 14.dp, vertical = if (compact) 4.dp else 7.dp),
+        shape = RoundedCornerShape(8.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = androidx.compose.foundation.BorderStroke(1.dp, Line)
     ) {
-        Column(Modifier.padding(16.dp)) {
+        Column(Modifier.padding(if (compact) 12.dp else 14.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -283,7 +284,7 @@ fun McCard(
                 )
                 trailing?.invoke()
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(if (compact) 8.dp else 10.dp))
             content()
         }
     }
@@ -363,12 +364,13 @@ fun SegPill(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    unselectedBackground: Color = FieldGray,
     onClick: () -> Unit
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Indigo else FieldGray)
+            .background(if (selected) Indigo else unselectedBackground)
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {

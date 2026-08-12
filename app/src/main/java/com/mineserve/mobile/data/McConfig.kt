@@ -5,6 +5,8 @@ import kotlinx.serialization.Serializable
 /**
  * 服务端核心类型：Paper / Purpur / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
  */
+enum class PropertiesMode { JavaProperties, PowerNukkitXYaml, Unsupported }
+
 @Serializable
 enum class ServerCore(val displayName: String) {
     Paper("Paper"),
@@ -16,10 +18,13 @@ enum class ServerCore(val displayName: String) {
     Vanilla("Vanilla"),
     Velocity("Velocity"),
     BungeeCord("BungeeCord"),
+    PowerNukkitX("PowerNukkitX"),
     Unknown("未知");
 
     /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
-    val supportsPlugins: Boolean get() = this == Paper || this == Purpur
+    val isBedrock: Boolean get() = this == PowerNukkitX
+
+    val supportsPlugins: Boolean get() = this == Paper || this == Purpur || this == PowerNukkitX
 
     /** 是否支持 Fabric/Forge 模组体系 */
     val supportsMods: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
@@ -27,8 +32,15 @@ enum class ServerCore(val displayName: String) {
     /** 是否支持桥接兼容层（插件↔模组互转，如 CardBoard 等，需用户自行安装） */
     val supportsBridge: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
 
+    val propertiesMode: PropertiesMode
+        get() = when (this) {
+            PowerNukkitX -> PropertiesMode.PowerNukkitXYaml
+            Unknown -> PropertiesMode.Unsupported
+            else -> PropertiesMode.JavaProperties
+        }
+
     /** 是否需 installer 流程（下载 installer.jar 后需执行安装命令生成启动环境） */
-    val needsInstaller: Boolean get() = this == NeoForge || this == Quilt
+    val needsInstaller: Boolean get() = this == Forge || this == NeoForge || this == Quilt
 }
 
 /**
@@ -108,6 +120,20 @@ enum class InstallStep(val label: String) {
 }
 
 @Serializable
+enum class JavaVersion(val displayName: String, val packageName: String, val directoryName: String) {
+    Java8("Java 8", "ubuntu-java8", "java-8-ubuntu"),
+    Java17("Java 17", "openjdk-17", "java-17-openjdk"),
+    Java21("Java 21", "openjdk-21", "java-21-openjdk"),
+    Java25("Java 25", "openjdk-25", "java-25-openjdk")
+}
+
+@Serializable
+enum class AutoBackupType(val displayName: String) {
+    World("世界备份"),
+    Server("完整服务器")
+}
+
+@Serializable
 enum class StepStatus { Done, Active, Wait }
 
 @Serializable
@@ -148,10 +174,15 @@ data class McConfig(
     val boreServerAddr: String = "",
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
+    val selectedJavaVersion: JavaVersion = JavaVersion.Java17,
+    /** 用户手动将 Java 管理卡片固定到概览页底部。 */
+    val javaCardAtBottom: Boolean = false,
     val keepWifiLock: Boolean = true,
     val keepCpuWakelock: Boolean = true,
     /** 自动备份间隔（分钟），0 表示关闭 */
     val autoBackupIntervalMin: Int = 0,
+    /** 自动备份内容，默认仅备份世界以避免无意生成大型 ZIP。 */
+    val autoBackupType: AutoBackupType = AutoBackupType.World,
     /** 保留的最大快照数量，超过则自动删除最旧的 */
     val maxSnapshots: Int = 10,
     /** Termux 环境/依赖下载源，默认镜像优先 */
@@ -186,5 +217,6 @@ data class ServerState(
     },
     val currentProgress: Int = 0           // 0-100 安装进度
 ) {
-    val isInstallComplete: Boolean get() = installSteps.all { it.status == StepStatus.Done }
+    val isInstallComplete: Boolean get() = installSteps.filter { it.step != InstallStep.Jdk }.isNotEmpty() &&
+        installSteps.filter { it.step != InstallStep.Jdk }.all { it.status == StepStatus.Done }
 }

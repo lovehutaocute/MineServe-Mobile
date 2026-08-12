@@ -164,7 +164,7 @@ private val propertySpecs: List<PropertySpec> = listOf(
 
 
 @Composable
-fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
+fun JavaPropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
     val loaded by vm.serverProperties.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val config by vm.config.collectAsState()
@@ -292,7 +292,8 @@ private fun PropertySwitch(
     title: String,
     subtitle: String,
     checked: Boolean,
-    onChange: (Boolean) -> Unit
+    onChange: (Boolean) -> Unit,
+    enabled: Boolean = true
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -304,7 +305,8 @@ private fun PropertySwitch(
         }
         Switch(
             checked = checked,
-            onCheckedChange = onChange,
+            onCheckedChange = if (enabled) onChange else null,
+            enabled = enabled,
             colors = SwitchDefaults.colors(
                 checkedThumbColor = Indigo,
                 checkedTrackColor = IndigoSoft
@@ -319,7 +321,8 @@ private fun LabeledNumberField(
     label: String,
     desc: String = "",
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
@@ -327,6 +330,7 @@ private fun LabeledNumberField(
     DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         sanitize = { it.filter(Char::isDigit) },
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -339,6 +343,7 @@ private fun LabeledNumberField(
 private fun renderProperty(
     spec: PropertySpec,
     props: Map<String, String>,
+    enabled: Boolean = true,
     onChange: (String) -> Unit
 ) {
     val label = if (spec.labelRes != 0) stringResource(spec.labelRes) else "PVP"
@@ -348,26 +353,30 @@ private fun renderProperty(
             title = label,
             subtitle = desc,
             checked = boolOf(props, spec.key, spec.default.toBoolean()),
-            onChange = { onChange(it.toString()) }
+            onChange = { if (enabled) onChange(it.toString()) },
+            enabled = enabled
         )
         PropType.Int -> LabeledNumberField(
             label = label,
             desc = desc,
             value = props[spec.key] ?: spec.default,
-            onValueChange = onChange
+            onValueChange = { if (enabled) onChange(it) },
+            enabled = enabled
         )
         PropType.Enum -> EnumField(
             label = label,
             desc = desc,
             value = props[spec.key] ?: spec.default,
             options = spec.options,
-            onValueChange = onChange
+            onValueChange = { if (enabled) onChange(it) },
+            enabled = enabled
         )
         PropType.Text -> LabeledTextField(
             label = label,
             desc = desc,
             value = props[spec.key] ?: spec.default,
-            onValueChange = onChange
+            onValueChange = { if (enabled) onChange(it) },
+            enabled = enabled
         )
     }
 }
@@ -380,7 +389,8 @@ private fun EnumField(
     desc: String,
     value: String,
     options: List<Pair<Int, String>>,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
@@ -390,7 +400,7 @@ private fun EnumField(
             SegPill(
                 text = stringResource(displayRes),
                 selected = value == v,
-                onClick = { onValueChange(v) }
+                onClick = { if (enabled) onValueChange(v) }
             )
         }
     }
@@ -402,7 +412,8 @@ private fun LabeledTextField(
     label: String,
     desc: String,
     value: String,
-    onValueChange: (String) -> Unit
+    onValueChange: (String) -> Unit,
+    enabled: Boolean = true
 ) {
     Text(label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
     if (desc.isNotEmpty()) Text(desc, color = Muted, fontSize = 10.sp)
@@ -410,7 +421,131 @@ private fun LabeledTextField(
     DebouncedTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         singleLine = true,
         modifier = Modifier.fillMaxWidth()
     )
+}
+
+private enum class PnxFieldType { Toggle, Number, Text, Choice }
+
+private data class PnxField(
+    val key: String,
+    val label: String,
+    val type: PnxFieldType,
+    val default: String,
+    val options: List<String> = emptyList()
+)
+
+private val pnxGroups = listOf(
+    "服务器" to listOf(
+        PnxField("server-ip", "监听地址", PnxFieldType.Text, "0.0.0.0"),
+        PnxField("server-port", "UDP 端口", PnxFieldType.Number, "19132"),
+        PnxField("max-players", "最大玩家数", PnxFieldType.Number, "20"),
+        PnxField("motd", "主 MOTD", PnxFieldType.Text, "PowerNukkitX Server"),
+        PnxField("sub-motd", "副 MOTD", PnxFieldType.Text, "powernukkitx.org"),
+        PnxField("language", "语言", PnxFieldType.Text, "eng"),
+        PnxField("level-name", "默认世界", PnxFieldType.Text, "world"),
+        PnxField("auto-save", "自动保存", PnxFieldType.Toggle, "true"),
+        PnxField("white-list", "启用白名单", PnxFieldType.Toggle, "false"),
+        PnxField("online-mode", "Xbox 验证", PnxFieldType.Toggle, "true")
+    ),
+    "玩法" to listOf(
+        PnxField("gamemode", "默认游戏模式", PnxFieldType.Choice, "survival", listOf("survival", "creative", "adventure", "spectator")),
+        PnxField("force-gamemode", "强制游戏模式", PnxFieldType.Toggle, "false"),
+        PnxField("difficulty", "难度", PnxFieldType.Choice, "easy", listOf("peaceful", "easy", "normal", "hard")),
+        PnxField("pvp", "允许 PVP", PnxFieldType.Toggle, "true"),
+        PnxField("view-distance", "视距", PnxFieldType.Number, "8"),
+        PnxField("spawn-protection", "出生保护范围", PnxFieldType.Number, "16"),
+        PnxField("allow-nether", "允许下界", PnxFieldType.Toggle, "true"),
+        PnxField("allow-the-end", "允许末地", PnxFieldType.Toggle, "true"),
+        PnxField("enable-command-block", "允许命令方块", PnxFieldType.Toggle, "false"),
+        PnxField("spawn-animals", "启用实体生成", PnxFieldType.Toggle, "true"),
+        PnxField("weather-cycle", "启用天气", PnxFieldType.Toggle, "true"),
+        PnxField("daylight-cycle", "启用昼夜循环", PnxFieldType.Toggle, "true"),
+        PnxField("hunger", "启用饥饿", PnxFieldType.Toggle, "true")
+    ),
+    "性能" to listOf(PnxField("base-tps", "基础 TPS", PnxFieldType.Number, "20")),
+    "网络" to listOf(PnxField("enable-status", "启用查询", PnxFieldType.Toggle, "true"))
+)
+
+@Composable
+fun PropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
+    val config by vm.config.collectAsState()
+    when (config.installedCores.firstOrNull { it.name == config.activeCoreName }?.core) {
+        com.mineserve.mobile.data.ServerCore.PowerNukkitX -> PowerNukkitXPropertiesScreen(vm, onBack, showBackBar)
+        null -> PropertiesEmptyScreen(onBack, showBackBar)
+        else -> JavaPropertiesScreen(vm, onBack, showBackBar)
+    }
+}
+
+@Composable
+private fun PropertiesEmptyScreen(onBack: () -> Unit, showBackBar: Boolean) {
+    Column(Modifier.fillMaxSize()) {
+        if (showBackBar) BackBar(title = "服务器配置", onBack = onBack)
+        HeaderBlock("配置", "服务器配置", statusBarPadding = !showBackBar)
+        Text("请先下载并选择一个服务端核心。", color = Muted, modifier = Modifier.padding(16.dp))
+    }
+}
+
+@Composable
+private fun PowerNukkitXPropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean) {
+    val loaded by vm.serverProperties.collectAsState()
+    val state by vm.serverState.collectAsState()
+    var props by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var restartConfirm by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { vm.loadServerProperties() }
+    LaunchedEffect(loaded) { props = loaded }
+
+    Column(Modifier.fillMaxSize()) {
+        if (showBackBar) BackBar(title = "基岩版配置", onBack = onBack)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            HeaderBlock("POWERNUKKITX", "基岩版服务器配置", statusBarPadding = !showBackBar)
+            Text(
+                "配置来源为 pnx.yml。端口会同步保存到 server.properties；其他未列出内容保持原样。",
+                color = Coral, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            pnxGroups.forEach { (title, fields) ->
+                McCard(title = title, compact = true) {
+                    fields.forEachIndexed { index, field ->
+                        PnxFieldRow(field, props[field.key] ?: field.default) { value ->
+                            props = props.toMutableMap().apply { put(field.key, value) }
+                        }
+                        if (index != fields.lastIndex) Spacer(Modifier.height(8.dp))
+                    }
+                }
+            }
+            McCard(title = "高级", compact = true) {
+                Text("未确认的高级 YAML 项不会在此编辑，避免覆盖 PowerNukkitX 的原始配置。", color = Muted, fontSize = 11.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+        Button(
+            onClick = { if (state.isRunning) restartConfirm = true else vm.saveServerProperties(props) },
+            colors = ButtonDefaults.buttonColors(containerColor = Indigo), shape = RoundedCornerShape(8.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+        ) { Text("保存配置", color = Color.White, fontWeight = FontWeight.Bold) }
+    }
+    if (restartConfirm) AlertDialog(
+        onDismissRequest = { restartConfirm = false }, title = { Text("保存配置") },
+        text = { Text("服务端正在运行，保存后需要重启才会完全生效。") },
+        confirmButton = { TextButton(onClick = { restartConfirm = false; vm.saveServerProperties(props) }) { Text("保存", color = Indigo) } },
+        dismissButton = { TextButton(onClick = { restartConfirm = false }) { Text("取消", color = Coral) } }
+    )
+}
+
+@Composable
+@OptIn(ExperimentalLayoutApi::class)
+private fun PnxFieldRow(field: PnxField, value: String, onChange: (String) -> Unit) {
+    when (field.type) {
+        PnxFieldType.Toggle -> PropertySwitch(field.label, "", value.equals("true", true), { onChange(it.toString()) })
+        PnxFieldType.Number -> LabeledNumberField(field.label, value = value, onValueChange = onChange)
+        PnxFieldType.Text -> LabeledTextField(field.label, "", value, onChange)
+        PnxFieldType.Choice -> {
+            Text(field.label, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                field.options.forEach { option -> SegPill(option, value == option) { onChange(option) } }
+            }
+        }
+    }
 }
