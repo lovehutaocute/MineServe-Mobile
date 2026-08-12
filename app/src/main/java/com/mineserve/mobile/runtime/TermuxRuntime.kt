@@ -1616,7 +1616,21 @@ class TermuxRuntime(context: Context) {
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
             "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments nogui"
         val rootfs = java8Rootfs
-        val sharedMemory = File(rootfs, "tmp").apply { mkdirs() }
+        // PRoot creates glue files outside the guest rootfs. Keep this path in
+        // the app-owned prefix; Termux's compatibility /usr/tmp may be absent
+        // or inaccessible on newer Android storage namespaces.
+        val prootTmp = File(installer.rootDir, "tmp/java8-proot").apply {
+            mkdirs()
+            setReadable(true, false)
+            setWritable(true, false)
+            setExecutable(true, false)
+        }
+        val sharedMemory = File(rootfs, "tmp").apply {
+            mkdirs()
+            setReadable(true, false)
+            setWritable(true, false)
+            setExecutable(true, false)
+        }
         val resolver = prepareUbuntuDns(rootfs)
         val proot = listOf(
             File(installer.rootDir, "bin/proot"),
@@ -1637,6 +1651,8 @@ class TermuxRuntime(context: Context) {
             redirectErrorStream(true)
             directory(serverDir)
             environment().putAll(executor.termuxEnv())
+            environment()["PROOT_TMP_DIR"] = prootTmp.absolutePath
+            environment()["TMPDIR"] = prootTmp.absolutePath
         }.start()
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
         if (isLegacyForgeLaunch) emitLog("[startMc] Java 8 Forge: validating launch jar from verified library")
