@@ -188,25 +188,15 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             }
 
             // 选择核心类型
-            McCard(
-                title = "PowerNukkitX · 唯一基岩版服务端",
-                modifier = Modifier.background(IndigoSoft.copy(alpha = 0.35f), RoundedCornerShape(10.dp))
-            ) {
-                Text("支持 Bedrock 客户端；核心版本和支持的游戏版本以官方 Release 说明为准。", color = Indigo, fontSize = 12.sp)
-                Spacer(Modifier.height(4.dp))
-                Text("默认 UDP 端口 19132 · 推荐 Java 25（不强制）", color = Muted, fontSize = 11.sp)
-                Spacer(Modifier.height(8.dp))
-                OutlinedButton(onClick = { vm.selectCore(ServerCore.PowerNukkitX) }) {
-                    Text(if (config.selectedCore == ServerCore.PowerNukkitX) "已选择 PowerNukkitX" else "选择 PowerNukkitX")
-                }
-            }
-
             McCard(title = stringResource(R.string.s457)) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ServerCore.values().forEach { core ->
                         SegPill(
                             text = core.displayName,
                             selected = config.selectedCore == core,
+                            unselectedBackground = if (core == ServerCore.PowerNukkitX) {
+                                Coral.copy(alpha = 0.16f)
+                            } else com.mineserve.mobile.ui.theme.FieldGray,
                             onClick = { vm.selectCore(core) }
                         )
                     }
@@ -402,8 +392,16 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             "准备下载 ${config.selectedCore.displayName} 核心版本 ${config.mcVersion}"
                         } else stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
                         color = Muted,
-                        fontSize = 11.sp
+                    fontSize = 11.sp
+                )
+                if (config.selectedCore == ServerCore.PowerNukkitX) {
+                    Text(
+                        "基岩版服务端 · UDP 19132 · 推荐 Java 25（不强制） · 游戏版本以官方 Release 标注为准",
+                        color = Coral,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
+                }
                     Spacer(Modifier.height(10.dp))
                     // 自定义名称输入
                     Text(stringResource(R.string.s483), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)

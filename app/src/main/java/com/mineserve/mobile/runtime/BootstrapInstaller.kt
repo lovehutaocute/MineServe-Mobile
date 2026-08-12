@@ -89,6 +89,9 @@ class BootstrapInstaller(private val context: Context) {
     @Volatile
     private var activeConn: HttpURLConnection? = null
 
+    @Volatile
+    private var activeDownloadSession: MultiThreadDownloader.DownloadSession? = null
+
     /** 请求停止当前镜像源下载并切换到下一个 */
     fun requestStopAndSwitch() {
         val idx = _currentMirrorIndex.value
@@ -100,6 +103,7 @@ class BootstrapInstaller(private val context: Context) {
             Log.w(TAG, "[切换] 立即 disconnect 活动连接: ${conn.url?.toString()?.take(60)}")
             try { conn.disconnect() } catch (e: Exception) { Log.w(TAG, "[切换] disconnect 异常: ${e.message}") }
         }
+        activeDownloadSession?.cancel()
     }
 
     private fun log(msg: String) {
@@ -450,6 +454,8 @@ class BootstrapInstaller(private val context: Context) {
             log("尝试 $label: ${url.take(80)}...")
             try {
                 rootfsFile.delete()
+                val downloadSession = MultiThreadDownloader.DownloadSession()
+                activeDownloadSession = downloadSession
                 Log.i(TAG, "[下载] 开始下载（多线程=${DownloadPrefs.isEnabled()}），url=${url.take(100)}")
                 if (DownloadPrefs.isEnabled()) {
                     // 多线程分片下载（内置模块），保留镜像源切换与 SHA256 校验
@@ -465,7 +471,8 @@ class BootstrapInstaller(private val context: Context) {
                                 }
                                 onSpeed?.invoke(downloaded, speedBps)
                             },
-                            onLog = ::log
+                            onLog = ::log,
+                            session = downloadSession
                         )
                     }
                 } else {
@@ -508,6 +515,8 @@ class BootstrapInstaller(private val context: Context) {
                     Log.i(TAG, "[切换] catch 块检测到 stopAndSwitchRequested=true, 重置标志继续下一个镜像源")
                     stopAndSwitchRequested = false
                 }
+            } finally {
+                activeDownloadSession = null
             }
         }
         Log.e(TAG, "[下载] 所有 ${mirrorUrls.size} 个镜像源均失败, lastError=${lastError?.message}")

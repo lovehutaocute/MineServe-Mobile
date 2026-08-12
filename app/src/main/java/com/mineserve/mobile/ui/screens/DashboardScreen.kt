@@ -88,7 +88,6 @@ import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
 import com.mineserve.mobile.ui.theme.Muted
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -118,6 +117,7 @@ fun DashboardScreen(
     val lanIp by vm.lanIp.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val consoleLines by vm.consoleLines.map { it.takeLast(5) }.collectAsState(initial = emptyList())
+    LaunchedEffect(Unit) { vm.refreshLanIp() }
     val isInstalling by vm.isInstalling.collectAsState()
     val installedJava by vm.installedJava.collectAsState()
     val javaOperation by vm.javaOperation.collectAsState()
@@ -142,6 +142,12 @@ fun DashboardScreen(
     var showCoreDropdown by remember { mutableStateOf(false) }
     var showJavaDropdown by remember { mutableStateOf(false) }
     var switchInProgress by remember { mutableStateOf(false) }
+    var switchingFromMirror by remember { mutableStateOf(-1) }
+    LaunchedEffect(currentMirrorIndex) {
+        if (switchInProgress && (currentMirrorIndex == -1 || currentMirrorIndex != switchingFromMirror)) {
+            switchInProgress = false
+        }
+    }
     // 服务器图标选择器
     val iconPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -348,17 +354,14 @@ fun DashboardScreen(
                                             return@OutlinedButton
                                         }
                                         android.util.Log.i("DashboardScreen", "[切换] 按钮点击: currentMirrorIndex=$currentMirrorIndex, 即将调用 vm.switchBootstrapMirror()")
+                                        switchingFromMirror = currentMirrorIndex
                                         switchInProgress = true
                                         vm.switchBootstrapMirror()
-                                        scope.launch {
-                                            snackbarHostState.showSnackbar(mirrorSwitchMsg)
-                                            delay(1500)
-                                            switchInProgress = false
-                                            android.util.Log.i("DashboardScreen", "[切换] switchInProgress 已重置为 false")
-                                        }
+                                        scope.launch { snackbarHostState.showSnackbar(mirrorSwitchMsg) }
                                     },
                                     enabled = !switchInProgress,
                                     shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.height(48.dp),
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 4.dp)
                                 ) {
                                     Text(

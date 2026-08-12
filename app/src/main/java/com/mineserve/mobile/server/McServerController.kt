@@ -38,6 +38,11 @@ class McServerController(
     private val repo: ServerRepository
 ) {
 
+    private val powerNukkitXRepos = listOf(
+        "PowerNukkitX/PowerNukkitX",
+        "PowerNukkitX/PowerNukkitX-Legacy"
+    )
+
     data class CoreVersionOption(
         val version: String,
         val supportedGameVersion: String? = null
@@ -437,15 +442,8 @@ class McServerController(
     }
 
     private fun resolvePowerNukkitXUrl(version: String): String {
-        val endpoint = if (version == "latest") {
-            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest"
-        } else {
-            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/${java.net.URLEncoder.encode(version, "UTF-8")}"
-        }
-        val release = fetchGithubJson(endpoint)
-        return release["assets"]?.jsonArray
-            ?.map { it.jsonObject }
-            ?.firstOrNull { it["name"]?.jsonPrimitive?.content == "powernukkitx.jar" }
+        val release = findPowerNukkitXRelease(version)
+        return powerNukkitXAsset(release)
             ?.get("browser_download_url")?.jsonPrimitive?.content
             ?: throw RuntimeException("PowerNukkitX $version: release has no powernukkitx.jar asset")
     }
@@ -540,13 +538,11 @@ class McServerController(
     private fun fetchBungeeVersions(): List<String> = listOf("latest")
 
     private fun fetchPowerNukkitXVersionOptions(): List<CoreVersionOption> {
-        val releaseObjects = runCatching {
-            fetchGithubJsonElement("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases?per_page=30")
-                .jsonArray.map { it.jsonObject }
-        }.getOrElse {
-            listOf(runCatching {
-                fetchGithubJson("https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest")
-            }.getOrNull() ?: return listOf(CoreVersionOption("latest", "官方未标注")))
+        val releaseObjects = powerNukkitXRepos.flatMap { repoName ->
+            runCatching {
+                fetchGithubJsonElement("https://api.github.com/repos/$repoName/releases?per_page=30")
+                    .jsonArray.map { it.jsonObject }
+            }.getOrDefault(emptyList())
         }
         val options = releaseObjects
             .filter {
@@ -572,17 +568,34 @@ class McServerController(
     }
 
     private fun resolvePowerNukkitXDigest(version: String): String? {
-        val endpoint = if (version == "latest") {
-            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/latest"
-        } else {
-            "https://api.github.com/repos/PowerNukkitX/PowerNukkitX/releases/tags/${java.net.URLEncoder.encode(version, "UTF-8")}"
-        }
-        return fetchGithubJson(endpoint)["assets"]?.jsonArray
-            ?.map { it.jsonObject }
-            ?.firstOrNull { it["name"]?.jsonPrimitive?.content == "powernukkitx.jar" }
+        return powerNukkitXAsset(findPowerNukkitXRelease(version))
             ?.get("digest")?.jsonPrimitive?.content
             ?.removePrefix("sha256:")
     }
+
+    private fun findPowerNukkitXRelease(version: String): JsonObject {
+        var last: Exception? = null
+        for (repoName in powerNukkitXRepos) {
+            try {
+                val endpoint = if (version == "latest") {
+                    "https://api.github.com/repos/$repoName/releases/latest"
+                } else {
+                    val tag = java.net.URLEncoder.encode(version, "UTF-8")
+                    "https://api.github.com/repos/$repoName/releases/tags/$tag"
+                }
+                val release = fetchGithubJson(endpoint)
+                if (powerNukkitXAsset(release) != null) return release
+            } catch (e: Exception) {
+                last = e
+                termux.emitLog("[download] PowerNukkitX 仓库回退: $repoName")
+            }
+        }
+        throw last ?: RuntimeException("PowerNukkitX release unavailable")
+    }
+
+    private fun powerNukkitXAsset(release: JsonObject): JsonObject? = release["assets"]?.jsonArray
+        ?.map { it.jsonObject }
+        ?.firstOrNull { it["name"]?.jsonPrimitive?.content.equals("powernukkitx.jar", true) }
 
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")

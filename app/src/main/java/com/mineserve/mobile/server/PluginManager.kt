@@ -583,9 +583,12 @@ class PluginManager(
         target: File,
         onProgress: (Long, Long, Long) -> Unit
     ) = kotlinx.coroutines.runBlocking {
-        MultiThreadDownloader.download(url, target, onProgress) { logMsg ->
-            Log.i(TAG, "download: $logMsg")
-        }
+        MultiThreadDownloader.download(
+            url = url,
+            target = target,
+            onProgress = onProgress,
+            onLog = { logMsg -> Log.i(TAG, "download: $logMsg") }
+        )
     }
 
     // ── 模组管理（Fabric/Forge 的 mods/ 目录） ─────────────────────

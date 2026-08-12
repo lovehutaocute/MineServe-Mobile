@@ -364,12 +364,13 @@ fun SegPill(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    unselectedBackground: Color = FieldGray,
     onClick: () -> Unit
 ) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(if (selected) Indigo else FieldGray)
+            .background(if (selected) Indigo else unselectedBackground)
             .clickable { onClick() }
             .padding(horizontal = 14.dp, vertical = 8.dp)
     ) {

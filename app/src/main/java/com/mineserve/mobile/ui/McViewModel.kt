@@ -61,6 +61,10 @@ import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.InetSocketAddress
 import java.net.Socket
+import java.net.DatagramPacket
+import java.net.DatagramSocket
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -627,10 +631,16 @@ class McViewModel(
                 if (available != null) DiagnosticStatus.Pass else DiagnosticStatus.Warning
             )
             val running = runtime.isMcRunning()
-            val portOk = if (running) probeLoopbackPort(cfg.localPort) else false
+            val bedrock = active.core == ServerCore.PowerNukkitX
+            val portOk = if (running) {
+                if (bedrock) probeBedrockUdpPort(cfg.localPort) else probeLoopbackPort(cfg.localPort)
+            } else false
+            val runningSince = repo.serverState.value.runningSinceMs
+            val starting = running && runningSince > 0L &&
+                android.os.SystemClock.elapsedRealtime() - runningSince < 15_000L
             checks += DiagnosticCheck(
-                "port", "本地端口 ${cfg.localPort}",
-                when { !running -> "服务端未运行，未检测端口"; portOk -> "127.0.0.1:${cfg.localPort} 可连接"; else -> "服务端运行中，但本地端口暂不可连接" },
+                "port", "本地${if (bedrock) "UDP" else "TCP"}端口 ${cfg.localPort}",
+                when { !running -> "服务端未运行，未检测端口"; portOk -> "127.0.0.1:${cfg.localPort} 可连接"; starting -> "服务端启动中，稍后复检"; else -> "服务端运行中，但本地端口暂未响应" },
                 when { !running -> DiagnosticStatus.NotApplicable; portOk -> DiagnosticStatus.Pass; else -> DiagnosticStatus.Warning }
             )
             val crash = (crashReportManager.listCrashReports() + crashReportManager.listNativeCrashReports(active.dirName))
@@ -646,6 +656,21 @@ class McViewModel(
 
     private fun probeLoopbackPort(port: Int): Boolean = try {
         Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 1_500); true }
+    } catch (_: Exception) { false }
+
+    private fun probeBedrockUdpPort(port: Int): Boolean = try {
+        DatagramSocket().use { socket ->
+            socket.soTimeout = 1_500
+            val packet = ByteBuffer.allocate(33).order(ByteOrder.BIG_ENDIAN)
+                .put(0x01.toByte())
+                .putLong(System.currentTimeMillis())
+                .put(byteArrayOf(0x00, 0xff.toByte(), 0xff.toByte(), 0x00, 0xfe.toByte(), 0xfe.toByte(), 0xfe.toByte(), 0xfe.toByte(), 0xfd.toByte(), 0xfd.toByte(), 0xfd.toByte(), 0xfd.toByte(), 0x12, 0x34, 0x56, 0x78))
+                .putLong(System.nanoTime()).array()
+            socket.send(DatagramPacket(packet, packet.size, java.net.InetAddress.getByName("127.0.0.1"), port))
+            val response = DatagramPacket(ByteArray(2048), 2048)
+            socket.receive(response)
+            response.length > 0
+        }
     } catch (_: Exception) { false }
 
     private fun formatDiagnosticBytes(bytes: Long): String = when {
@@ -1959,6 +1984,7 @@ class McViewModel(
                 if (ok) {
                     _messageFlow.tryEmit(str(R.string.s262))
                     _serverProperties.value = props
+                    refreshLanIp()
                 } else {
                     _errorFlow.tryEmit(str(R.string.s263))
                 }
