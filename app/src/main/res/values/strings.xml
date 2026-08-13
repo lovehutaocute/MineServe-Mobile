@@ -7,9 +7,11 @@
     <string name="notif_text_running">点击查看实时状态</string>
     <string name="tab_dashboard">概览</string>
     <string name="tab_download">下载</string>
+    <string name="tab_server_management">服务器管理</string>
     <string name="tab_players">玩家</string>
     <string name="tab_plugins">插件与模组</string>
     <string name="tab_files">文件</string>
+    <string name="tab_terminal">终端</string>
     <string name="tab_network">网络</string>
     <string name="tab_backup">世界与备份</string>
     <string name="tab_config">配置</string>
@@ -1197,4 +1199,3 @@
     <string name="termux_busy">执行中…</string>
     <string name="termux_placeholder">输入命令开始使用终端</string>
 </resources>
-

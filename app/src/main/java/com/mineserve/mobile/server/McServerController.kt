@@ -117,6 +117,9 @@ class McServerController(
             if (!termux.isReady()) {
                 throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
             }
+            if (!termux.prepareAptPackages("wget", "fontconfig", "ttf-dejavu")) {
+                return@withContext false
+            }
             val steps = InstallStep.values().filter { it != InstallStep.Jdk }
             steps.forEachIndexed { idx, step ->
                 repo.markStep(step, StepStatus.Active, idx * (100 / steps.size))
@@ -127,9 +130,9 @@ class McServerController(
                         "wget", "fontconfig", "ttf-dejavu"
                     )
                     InstallStep.Frp -> termux.execOnce("/system/bin/sh", "-c",
-                        "which frpc >/dev/null 2>&1 || apt-get -o DPkg::Lock::Timeout=60 install --allow-unauthenticated -y frp")
-                    InstallStep.Rclone -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "rclone")
-                    InstallStep.Proot -> termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot")
+                        "which frpc >/dev/null 2>&1 || (apt-cache show frp >/dev/null 2>&1 && apt-get -o DPkg::Lock::Timeout=60 install --allow-unauthenticated -y frp)")
+                    InstallStep.Rclone -> if (termux.prepareAptPackages("rclone")) termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "rclone") else 1
+                    InstallStep.Proot -> if (termux.prepareAptPackages("proot")) termux.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "proot") else 1
                 }
                 if (code == 0) {
                     termux.repairInstalledCommands()

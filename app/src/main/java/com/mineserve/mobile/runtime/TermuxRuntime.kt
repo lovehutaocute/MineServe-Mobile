@@ -223,6 +223,7 @@ class TermuxRuntime(context: Context) {
         val prefix = installer.rootDir
         if (!File(prefix, "etc/fonts/fonts.conf").isFile || !isCommandInstalled("fc-cache")) {
             emitLog("[repair] 正在补齐字体运行库...")
+            if (!prepareAptPackages("fontconfig", "ttf-dejavu")) return false
             execOnce(
                 "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
                 "--allow-unauthenticated", "-y", "fontconfig", "ttf-dejavu"
@@ -239,6 +240,10 @@ class TermuxRuntime(context: Context) {
         }
         emitLog("[java] 正在安装 ${version.displayName}")
         emitLog("[java] ${version.displayName} 正在下载并配置，首次安装可能需要数分钟")
+        if (!prepareAptPackages(version.packageName)) {
+            emitLog("[java] ${version.displayName} 安装失败：Termux 软件源或包索引不可用")
+            return@withContext false
+        }
         val code = execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", version.packageName)
         if (code == 0) fixJavaSymlinks(version)
         val installed = code == 0 && isJavaInstalled(version)
@@ -277,6 +282,11 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun ubuntuJava8InstallCommand(): String = """
+        echo "[java] 正在恢复 Ubuntu 未完成的软件包事务..."
+        if ! dpkg --configure -a || ! apt-get -o DPkg::Lock::Timeout=60 -f install -y; then
+          echo "[java] Ubuntu dpkg 恢复失败，未继续切换软件源；请稍后重试运行环境修复"
+          exit 1
+        fi
         install_openjdk8() {
           mirror="${'$'}1"
           echo "[java] Ubuntu APT 源: ${'$'}mirror"
@@ -311,6 +321,10 @@ class TermuxRuntime(context: Context) {
     }
 
     private fun prepareUbuntuRuntime(): Boolean {
+        if (!prepareAptPackages("proot")) {
+            emitLog("[java] Java 8 前置依赖 proot 无法从 Termux 软件源获取")
+            return false
+        }
         var code = execOnce(
             "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
             "--allow-unauthenticated", "-y", "proot"
@@ -795,6 +809,28 @@ class TermuxRuntime(context: Context) {
         env: Map<String, String> = emptyMap()
     ): Int = executor.execOnceWithTimeout(timeoutMs, *command, env = env)
 
+    /** Refresh the package index and verify every requested package before apt install. */
+    fun prepareAptPackages(vararg packages: String): Boolean {
+        if (!isReady()) return false
+        repairInstalledCommands()
+        val update = execOnce(
+            "apt-get", "-o", "DPkg::Lock::Timeout=60", "update",
+            "--allow-insecure-repositories", "-y"
+        )
+        if (update != 0) {
+            emitLog("[apt] 软件源更新失败，未继续安装；请切换软件源或检查网络后重试")
+            return false
+        }
+        val missing = packages.filter {
+            execOnce("apt-cache", "show", it) != 0
+        }
+        if (missing.isNotEmpty()) {
+            emitLog("[apt] 软件源索引中找不到：${missing.joinToString()}；未继续安装，请切换软件源后重试")
+            return false
+        }
+        return true
+    }
+
     /**
      * 执行 Termux shell 命令，输出逐行回调（Termux 终端面板专用，不与 MC 日志混流）。
      * 命令通过 sh -c 执行（含 Termux 环境 PATH/LD_LIBRARY_PATH），阻塞至命令结束。
@@ -852,8 +888,6 @@ class TermuxRuntime(context: Context) {
         val n = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable() +
             fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
         try {
-            // jvm 不完整（杀后台/覆盖安装后 libjli.so 缺失）→ 自动重装 openjdk
-            ensureJvmComplete()
             fixJavaSymlinks()
         } catch (e: Exception) {
             Log.w(TAG, "fixRootfsPermissions: fixJavaSymlinks failed: ${e.message}")
@@ -909,12 +943,13 @@ class TermuxRuntime(context: Context) {
 
         var repaired = fixDpkgWrapper() + fixUsrBin() + ensureRootfsExecutable()
         repaired += fixScriptsOnce() + fixAptSources() + ensureAptConfigs()
-        repaired += ensureJvmComplete()
+        repaired += ensureJvmComplete(javaVersion)
         fixJavaSymlinks(javaVersion)
 
         if (needsFonts) {
             if (!fontRuntimeReady(javaVersion)) {
                 emitLog("[repair] 正在补齐字体运行库...")
+                if (!prepareAptPackages("fontconfig", "ttf-dejavu")) return repaired
                 execOnce(
                     "apt-get", "-o", "DPkg::Lock::Timeout=60", "install",
                     "--allow-unauthenticated", "-y", "fontconfig", "ttf-dejavu"
@@ -1292,28 +1327,27 @@ class TermuxRuntime(context: Context) {
      * 启动时校验已安装的 JDK：不完整（如杀后台/覆盖安装后 libjli.so 缺失）时，
      * 仅重装对应版本。未安装的 JDK 不会被隐式安装。
      */
-    fun ensureJvmComplete(): Int {
+    fun ensureJvmComplete(version: JavaVersion): Int {
         var repaired = 0
-        JavaVersion.values().forEach { version ->
-            if (!isJavaInstalled(version) || isJavaComplete(version)) return@forEach
+        if (!isJavaInstalled(version) || isJavaComplete(version)) return 0
 
-            installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境不完整，正在修复...")
-            if (version == JavaVersion.Java8) {
-                val repairedJava8 = runBlocking { installJava8Ubuntu() }
-                if (repairedJava8) repaired++
-                else installer.onLog?.invoke("[bootstrap] Java 8 Ubuntu ARM64 运行时自动修复失败")
-                return@forEach
-            }
-            val code = execOnce(
-                "apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--reinstall",
-                "--allow-unauthenticated", "-y", version.packageName
-            )
-            if (code == 0 && isJavaComplete(version)) {
-                repaired++
-                installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境已修复")
-            } else {
-                installer.onLog?.invoke("[bootstrap] 警告: ${version.displayName} 运行环境修复失败")
-            }
+        installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境不完整，正在修复...")
+        if (version == JavaVersion.Java8) {
+            val repairedJava8 = runBlocking { installJava8Ubuntu() }
+            if (repairedJava8) repaired++
+            else installer.onLog?.invoke("[bootstrap] Java 8 Ubuntu ARM64 运行时自动修复失败")
+            return repaired
+        }
+        if (!prepareAptPackages(version.packageName)) return 0
+        val code = execOnce(
+            "apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--reinstall",
+            "--allow-unauthenticated", "-y", version.packageName
+        )
+        if (code == 0 && isJavaComplete(version)) {
+            repaired++
+            installer.onLog?.invoke("[bootstrap] ${version.displayName} 运行环境已修复")
+        } else {
+            installer.onLog?.invoke("[bootstrap] 警告: ${version.displayName} 运行环境修复失败")
         }
         fixJavaSymlinks()
         return repaired
@@ -1409,8 +1443,7 @@ class TermuxRuntime(context: Context) {
         // shebang 硬编码指向 /data/data/com.termux/... 解释器，不修复则 apt-get 无法执行
         // （退出码 126），JDK 永远装不完，bootstrap 陷入死循环。
         fixRootfsPermissions()
-        executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "update", "--allow-insecure-repositories", "-y")
-        // 安装 openjdk-25：Paper 26.x / MC 26.1+ 要求 Java 25+，openjdk-17 已不够
+        if (!prepareAptPackages("wget", "curl")) return false
         executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "wget", "curl")
         executor.execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "clean")
 

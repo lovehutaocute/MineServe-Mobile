@@ -41,12 +41,18 @@ import com.mineserve.mobile.ui.screens.PluginsScreen
 import com.mineserve.mobile.ui.screens.UpdateDialog
 import com.mineserve.mobile.ui.screens.PropertiesScreen
 import com.mineserve.mobile.ui.screens.SettingsScreen
+import com.mineserve.mobile.ui.screens.ServerManagementScreen
+import com.mineserve.mobile.ui.screens.ServerIconScreen
+import com.mineserve.mobile.ui.screens.TerminalScreen
+import com.mineserve.mobile.ui.screens.MoreScreen
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.MoreVert
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, More }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -103,6 +109,13 @@ fun McApp() {
                         )
                     )
                 }
+                NavigationBarItem(
+                    selected = subPage in setOf(SubPage.More, SubPage.Network, SubPage.Backup, SubPage.Diagnostics, SubPage.KeepAlive, SubPage.DownloadHelp, SubPage.MtGuide, SubPage.OpLevelGuide),
+                    onClick = { subPage = SubPage.More; showLogs = false },
+                    icon = { Icon(Icons.Outlined.MoreVert, contentDescription = "更多") },
+                    label = { Text("更多", fontSize = 10.sp) },
+                    colors = NavigationBarItemDefaults.colors(selectedIconColor = Indigo, selectedTextColor = Indigo, indicatorColor = IndigoSoft, unselectedIconColor = Muted, unselectedTextColor = Muted)
+                )
             }
         }
     ) { padding ->
@@ -125,16 +138,24 @@ fun McApp() {
                         SubPage.OpLevelGuide -> OpLevelGuideScreen(
                             onBack = { subPage = null },
                             onNavigateProperties = { subPage = SubPage.Properties },
-                            onNavigatePlugins = { tab = McTab.Plugins; subPage = null }
+                            onNavigatePlugins = { subPage = SubPage.Plugins }
                         )
                         SubPage.Diagnostics -> DiagnosticsScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.Plugins -> PluginsScreen(vm = vm)
+                        SubPage.ServerIcon -> ServerIconScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.More -> MoreScreen(
+                            onNetwork = { subPage = SubPage.Network },
+                            onBackup = { subPage = SubPage.Backup },
+                            onDiagnostics = { subPage = SubPage.Diagnostics },
+                            onKeepAlive = { subPage = SubPage.KeepAlive },
+                            onHelp = { subPage = SubPage.DownloadHelp }
+                        )
                         null -> {}
                     }
                 }
                 else -> when (tab) {
                     McTab.Dashboard -> DashboardScreen(
                         vm = vm,
-                        onShowLogs = { showLogs = true },
                         onShowDownloadHelp = { subPage = SubPage.DownloadHelp },
                         onShowDiagnostics = { subPage = SubPage.Diagnostics }
                     )
@@ -142,16 +163,19 @@ fun McApp() {
                         vm = vm,
                         onShowDownloadHelp = { subPage = SubPage.DownloadHelp }
                     )
+                    McTab.ServerManagement -> ServerManagementScreen(
+                        vm = vm,
+                        onPlugins = { subPage = SubPage.Plugins },
+                        onProperties = { subPage = SubPage.Properties },
+                        onIcon = { subPage = SubPage.ServerIcon }
+                    )
                     McTab.Players -> PlayersScreen(
                         vm = vm,
                         onNavigateProperties = { subPage = SubPage.Properties },
                         onNavigateOpGuide = { subPage = SubPage.OpLevelGuide }
                     )
-                    McTab.Plugins -> PluginsScreen(vm = vm)
                     McTab.Files -> FileManagerScreen(vm = vm, onOpenMtGuide = { subPage = SubPage.MtGuide })
-                    McTab.Network -> NetworkScreen(vm = vm, onBack = {}, showBackBar = false)
-                    McTab.Backup -> BackupScreen(vm = vm, onBack = {})
-                    McTab.Config -> PropertiesScreen(vm = vm, onBack = {}, showBackBar = false)
+                    McTab.Terminal -> TerminalScreen(vm = vm)
                     McTab.Settings -> SettingsScreen(
                         vm = vm,
                         onNavigate = { subPage = it }

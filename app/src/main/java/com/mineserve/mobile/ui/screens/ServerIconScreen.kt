@@ -1,0 +1,54 @@
+package com.mineserve.mobile.ui.screens
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.mineserve.mobile.ui.BackBar
+import com.mineserve.mobile.ui.McViewModel
+import com.mineserve.mobile.ui.theme.Coral
+import com.mineserve.mobile.ui.theme.Indigo
+import com.mineserve.mobile.ui.theme.Muted
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+@Composable
+fun ServerIconScreen(vm: McViewModel, onBack: () -> Unit) {
+    val version by vm.serverIconVersion.collectAsState()
+    val bitmap by produceState<Bitmap?>(null, version) {
+        value = withContext(Dispatchers.IO) { vm.serverIconFile()?.let { BitmapFactory.decodeFile(it.absolutePath) } }
+    }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let(vm::setServerIcon) }
+    Column(Modifier.fillMaxSize()) {
+        BackBar("服务器图标", onBack)
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("Java Edition 服务器图标", fontSize = 18.sp)
+            Text("图片会裁剪并缩放为 64x64 PNG，重启服务器后生效。", color = Muted, fontSize = 12.sp)
+            bitmap?.let { Image(it.asImageBitmap(), null, Modifier.size(96.dp), contentScale = ContentScale.Crop) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = { launcher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("更换图标") }
+                OutlinedButton(onClick = vm::removeServerIcon, modifier = Modifier.weight(1f)) { Text("恢复默认", color = Coral) }
+            }
+        }
+    }
+}

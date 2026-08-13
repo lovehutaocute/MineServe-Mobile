@@ -100,7 +100,6 @@ import kotlinx.coroutines.withContext
 @Composable
 fun DashboardScreen(
     vm: McViewModel,
-    onShowLogs: () -> Unit,
     onShowDownloadHelp: () -> Unit,
     onShowDiagnostics: () -> Unit
 ) {
@@ -260,16 +259,6 @@ fun DashboardScreen(
             }
 
             // ── MC 终端入口（设备状态卡片下方） ──
-            OutlinedButton(
-                onClick = { vm.launchMcConsole(); onShowLogs() },
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp)
-            ) {
-                Text(stringResource(R.string.s350), color = Indigo, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            }
-
             // bootstrap 初始化进度（未完成时显示）
             if (!isBootstrapped) {
                 McCard(title = stringResource(R.string.s351), compact = true) {
@@ -395,7 +384,6 @@ fun DashboardScreen(
                         color = Indigo,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.clickable { onShowLogs() }
                     )
                 }
             ) {
@@ -654,77 +642,6 @@ fun DashboardScreen(
             }
 
             // ── 服务器图标（server-icon.png，玩家在多人游戏列表看到的图标） ──
-            McCard(title = stringResource(R.string.ui_server_icon), compact = true) {
-                val activeCoreForIcon = config.installedCores.find { it.name == config.activeCoreName }
-                val iconUnsupported = activeCoreForIcon?.core == ServerCore.PowerNukkitX
-                val iconVersion by vm.serverIconVersion.collectAsState()
-                val iconBmp by produceState<Bitmap?>(initialValue = null, iconVersion) {
-                    value = withContext(Dispatchers.IO) {
-                        vm.serverIconFile()?.let { BitmapFactory.decodeFile(it.absolutePath) }
-                    }
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(IndigoSoft),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        val previewBmp = iconBmp
-                        if (previewBmp != null) {
-                            Image(
-                                bitmap = previewBmp.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.size(56.dp),
-                                contentScale = ContentScale.Crop
-                            )
-                        } else {
-                            Text("🖼️", fontSize = 22.sp)
-                        }
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            if (iconUnsupported) "PowerNukkitX 暂不支持 Java Edition 的 server-icon.png。" else stringResource(R.string.ui_server_icon_hint),
-                            color = Muted,
-                            fontSize = 10.sp,
-                            lineHeight = 14.sp
-                        )
-                    }
-                }
-                Spacer(Modifier.height(10.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = { iconPickerLauncher.launch("image/*") },
-                        enabled = !iconUnsupported,
-                        colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(stringResource(R.string.ui_server_icon_change), color = Color.White, fontSize = 12.sp)
-                    }
-                    OutlinedButton(
-                        onClick = { vm.removeServerIcon() },
-                        enabled = !iconUnsupported,
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(stringResource(R.string.ui_server_icon_reset), color = Coral, fontSize = 12.sp)
-                    }
-                }
-                // 服务器运行中：更换/删除图标不会立即生效，醒目提示需重启
-                if (state.isRunning) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        stringResource(R.string.ui_server_icon_running_warn),
-                        color = Coral,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-
             // ── 服务器地址 ──
             McCard(title = stringResource(R.string.s386), compact = true) {
                 // 局域网

@@ -24,10 +24,8 @@ import com.mineserve.mobile.data.DiagnosticCheck
 import com.mineserve.mobile.data.DiagnosticReport
 import com.mineserve.mobile.data.DiagnosticStatus
 import com.mineserve.mobile.data.ServerResourceStats
-import com.mineserve.mobile.data.ApkDownloader
-import com.mineserve.mobile.data.UpdateChecker
-import com.mineserve.mobile.data.UpdateCheckResult
-import com.mineserve.mobile.data.UpdateInfo
+import com.mineserve.mobile.data.AppRelease
+import com.mineserve.mobile.data.AppUpdateService
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.CrashReportManager
 import com.mineserve.mobile.server.McServerController
@@ -142,6 +140,69 @@ class McViewModel(
 
     private val _termuxBusy = MutableStateFlow(false)
     val termuxBusy: StateFlow<Boolean> = _termuxBusy.asStateFlow()
+
+    private val terminalMutex = Mutex()
+    private val _terminalSessions = MutableStateFlow(
+        listOf(
+            TerminalSession("minecraft", "MC 控制台", TerminalSessionType.Minecraft),
+            TerminalSession("termux-1", "Termux 1", TerminalSessionType.Termux)
+        )
+    )
+    val terminalSessions: StateFlow<List<TerminalSession>> = _terminalSessions.asStateFlow()
+    private val _activeTerminalSessionId = MutableStateFlow("minecraft")
+    val activeTerminalSessionId: StateFlow<String> = _activeTerminalSessionId.asStateFlow()
+
+    fun createTerminalSession() {
+        val next = (_terminalSessions.value.count { it.type == TerminalSessionType.Termux } + 1)
+        val id = "termux-${System.nanoTime()}"
+        _terminalSessions.value = _terminalSessions.value + TerminalSession(id, "Termux $next", TerminalSessionType.Termux)
+        _activeTerminalSessionId.value = id
+    }
+
+    fun selectTerminalSession(id: String) { _activeTerminalSessionId.value = id }
+
+    fun closeTerminalSession(id: String) {
+        val session = _terminalSessions.value.firstOrNull { it.id == id } ?: return
+        if (session.type == TerminalSessionType.Minecraft) return
+        val remaining = _terminalSessions.value.filterNot { it.id == id }
+        if (remaining.none { it.type == TerminalSessionType.Termux }) {
+            val fallback = TerminalSession("termux-${System.nanoTime()}", "Termux 1", TerminalSessionType.Termux)
+            _terminalSessions.value = remaining + fallback
+            _activeTerminalSessionId.value = fallback.id
+        } else {
+            _terminalSessions.value = remaining
+            if (_activeTerminalSessionId.value == id) _activeTerminalSessionId.value = remaining.first().id
+        }
+    }
+
+    fun executeTerminalCommand(id: String, command: String) {
+        if (command.isBlank()) return
+        val session = _terminalSessions.value.firstOrNull { it.id == id } ?: return
+        if (session.type != TerminalSessionType.Termux || !isBootstrapped.value) return
+        viewModelScope.launch {
+            terminalMutex.withLock {
+                updateTerminalSession(id) { it.copy(busy = true).append("$ $command") }
+                try {
+                    withContext(Dispatchers.IO) { repo.termuxRuntime.refreshTermux() }
+                    val exit = withContext(Dispatchers.IO) {
+                        repo.termuxRuntime.execTermux(command) { line -> updateTerminalSession(id) { it.append(line) } }
+                    }
+                    if (exit != 0) updateTerminalSession(id) { it.append("(退出码 $exit)") }
+                } catch (e: Exception) {
+                    updateTerminalSession(id) { it.append("执行错误: ${e.message}") }
+                } finally {
+                    updateTerminalSession(id) { it.copy(busy = false) }
+                }
+            }
+        }
+    }
+
+    private fun updateTerminalSession(id: String, transform: (TerminalSession) -> TerminalSession) {
+        _terminalSessions.value = _terminalSessions.value.map { if (it.id == id) transform(it) else it }
+    }
+
+    private fun TerminalSession.append(line: String): TerminalSession =
+        copy(lines = (lines + line).takeLast(500))
 
     /** 执行 Termux shell 命令（IO 线程，输出实时追加到 termuxLines，命令回显 $ cmd） */
     fun execTermuxCommand(command: String) {
@@ -309,10 +370,10 @@ class McViewModel(
     sealed interface UpdateUiState {
         data object Idle : UpdateUiState
         data object Checking : UpdateUiState
-        data class Available(val info: UpdateInfo) : UpdateUiState
-        data class Downloading(val progress: Float, val info: UpdateInfo) : UpdateUiState
-        data class Downloaded(val info: UpdateInfo) : UpdateUiState
-        data class Failed(val message: String) : UpdateUiState
+        data class Available(val release: AppRelease) : UpdateUiState
+        data class Downloading(val progress: Float, val release: AppRelease) : UpdateUiState
+        data class Downloaded(val release: AppRelease, val apkPath: String) : UpdateUiState
+        data class Failed(val message: String, val release: AppRelease? = null) : UpdateUiState
     }
 
     private val _updateState = MutableStateFlow<UpdateUiState>(UpdateUiState.Idle)
@@ -325,6 +386,7 @@ class McViewModel(
     /** 最近一次更新检查结果描述（设置页显示），如「已是最新版本 · 08:30」 */
     private val _lastUpdateCheckResult = MutableStateFlow<String?>(null)
     val lastUpdateCheckResult: StateFlow<String?> = _lastUpdateCheckResult.asStateFlow()
+    private var skippedReleaseTag: String? = null
 
     fun dismissUpdateDialog() { _updateDialogVisible.value = false }
 
@@ -335,8 +397,9 @@ class McViewModel(
         _updateState.value = UpdateUiState.Checking
         if (manual) _updateDialogVisible.value = true // 手动检查：立即显示检查中对话框
         viewModelScope.launch {
-            when (val result = UpdateChecker.checkLatest(BuildConfig.VERSION_NAME)) {
-                is UpdateCheckResult.Latest -> {
+            try {
+                val release = AppUpdateService.latest(BuildConfig.VERSION_NAME)
+                if (release == null) {
                     _updateState.value = UpdateUiState.Idle
                     _lastUpdateCheckResult.value =
                         "${app.getString(R.string.update_already_latest)} · ${nowTime()}"
@@ -344,26 +407,22 @@ class McViewModel(
                         _updateDialogVisible.value = false
                         _messageFlow.tryEmit(app.getString(R.string.update_already_latest))
                     }
-                }
-                is UpdateCheckResult.Update -> {
-                    _updateState.value = UpdateUiState.Available(result.info)
+                } else {
+                    _updateState.value = UpdateUiState.Available(release)
                     _lastUpdateCheckResult.value =
-                        "${app.getString(R.string.update_available, result.info.versionName)} · ${nowTime()}"
-                    if (manual) {
+                        "${app.getString(R.string.update_available, release.tag)} · ${nowTime()}"
+                    if (manual || skippedReleaseTag != release.tag) {
                         _updateDialogVisible.value = true
-                    } else {
-                        showUpdateNotification(app, result.info)
+                        if (!manual) showUpdateNotification(app, release)
                     }
                 }
-                is UpdateCheckResult.Error -> {
-                    _updateState.value = UpdateUiState.Idle
+            } catch (e: Exception) {
+                    _updateState.value = UpdateUiState.Failed(e.message ?: "检查更新失败")
                     _lastUpdateCheckResult.value =
                         "${app.getString(R.string.update_check_failed)} · ${nowTime()}"
                     if (manual) {
-                        _updateDialogVisible.value = false
-                        _messageFlow.tryEmit(app.getString(R.string.update_check_failed))
+                        _updateDialogVisible.value = true
                     }
-                }
             }
         }
     }
@@ -376,11 +435,17 @@ class McViewModel(
         if (_updateState.value is UpdateUiState.Available) _updateDialogVisible.value = true
     }
 
+    fun skipCurrentUpdate() {
+        val state = _updateState.value as? UpdateUiState.Available ?: return
+        skippedReleaseTag = state.release.tag
+        dismissUpdateDialog()
+    }
+
     /** 打开浏览器跳到 GitHub Release 页面（供用户手动下载更新） */
     fun openGithubUpdate() {
         val state = _updateState.value
         if (state !is UpdateUiState.Available) return
-        val url = state.info.htmlUrl.ifBlank { "https://github.com/lovehutaocute/MineServe-Mobile/releases/latest" }
+        val url = "https://github.com/lovehutaocute/MineServe-Mobile/releases/latest"
         try {
             val intent = android.content.Intent(
                 android.content.Intent.ACTION_VIEW,
@@ -394,20 +459,24 @@ class McViewModel(
     }
 
     /** 开始下载新版 APK（完成后自动调系统安装器） */
-    fun downloadUpdate() {        val state = _updateState.value
-        if (state !is UpdateUiState.Available) return
+    fun downloadUpdate() {
+        val state = _updateState.value
+        val release = when (state) {
+            is UpdateUiState.Available -> state.release
+            is UpdateUiState.Failed -> state.release
+            else -> null
+        } ?: return
         val app = McApplication.get()
-        _updateState.value = UpdateUiState.Downloading(0f, state.info)
+        _updateState.value = UpdateUiState.Downloading(0f, release)
         viewModelScope.launch {
             try {
                 val target = File(app.cacheDir, "update/MineServeMobile-latest.apk")
-                ApkDownloader.download(state.info.downloadUrl, target) { p ->
-                    _updateState.value = UpdateUiState.Downloading(p, state.info)
+                AppUpdateService.download(release.apkUrls, target) { p ->
+                    _updateState.value = UpdateUiState.Downloading(p, release)
                 }
-                _updateState.value = UpdateUiState.Downloaded(state.info)
-                installApk(app, target)
+                _updateState.value = UpdateUiState.Downloaded(release, target.absolutePath)
             } catch (e: Exception) {
-                _updateState.value = UpdateUiState.Failed(e.message ?: app.getString(R.string.update_download_failed))
+                _updateState.value = UpdateUiState.Failed(e.message ?: app.getString(R.string.update_download_failed), release)
             }
         }
     }
@@ -415,6 +484,17 @@ class McViewModel(
     /** 调系统安装器安装 APK */
     fun installApk(context: Context, file: File) {
         try {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
+                !context.packageManager.canRequestPackageInstalls()) {
+                context.startActivity(
+                    Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                        Uri.parse("package:${context.packageName}")
+                    ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+                _messageFlow.tryEmit("请允许安装未知应用后，再点击安装更新")
+                return
+            }
             val uri = FileProvider.getUriForFile(
                 context, context.packageName + ".fileprovider", file
             )
@@ -428,8 +508,10 @@ class McViewModel(
         }
     }
 
+    fun installDownloadedUpdate(path: String) = installApk(McApplication.get(), File(path))
+
     /** 自动检查发现新版时发系统通知，点击进入更新对话框 */
-    private fun showUpdateNotification(app: Context, info: UpdateInfo) {
+    private fun showUpdateNotification(app: Context, info: AppRelease) {
         val nm = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val contentIntent = PendingIntent.getActivity(
             app, 1001,
@@ -441,7 +523,7 @@ class McViewModel(
         )
         val notification = NotificationCompat.Builder(app, app.getString(R.string.notif_channel_id))
             .setSmallIcon(android.R.drawable.stat_sys_download_done)
-            .setContentTitle(app.getString(R.string.update_notif_title, info.versionName))
+            .setContentTitle(app.getString(R.string.update_notif_title, info.tag))
             .setContentText(app.getString(R.string.update_notif_text))
             .setContentIntent(contentIntent)
             .setAutoCancel(true)

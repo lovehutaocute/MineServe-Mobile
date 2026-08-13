@@ -5,11 +5,11 @@ import androidx.compose.material.icons.outlined.Backup
 import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Dashboard
 import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.People
 import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.Terminal
+import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.mineserve.mobile.R
 
@@ -17,12 +17,9 @@ import com.mineserve.mobile.R
 enum class McTab(val labelRes: Int, val icon: ImageVector) {
     Dashboard(R.string.tab_dashboard, Icons.Outlined.Dashboard),
     Download(R.string.tab_download, Icons.Outlined.Download),
+    ServerManagement(R.string.tab_server_management, Icons.Outlined.Dns),
     Players(R.string.tab_players, Icons.Outlined.People),
-    Plugins(R.string.tab_plugins, Icons.Outlined.Extension),
     Files(R.string.tab_files, Icons.Outlined.Folder),
-    Network(R.string.tab_network, Icons.Outlined.Cloud),
-    Backup(R.string.tab_backup, Icons.Outlined.Backup),
-    Config(R.string.tab_config, Icons.Outlined.Tune),
+    Terminal(R.string.tab_terminal, Icons.Outlined.Terminal),
     Settings(R.string.tab_settings, Icons.Outlined.Settings)
 }
-
