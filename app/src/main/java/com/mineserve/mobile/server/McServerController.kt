@@ -488,7 +488,16 @@ class McServerController(
         val mcPrefix = version.removePrefix("1.") + "." // "1.20.4" → "20.4."
         val versions = Regex("<version>([^<]+)</version>").findAll(xml).map { it.groupValues[1] }.toList()
         val matched = versions.filter { it.startsWith(mcPrefix) }
-        val ver = matched.maxWithOrNull(compareBy { it.split(".").mapNotNull { p -> p.substringBefore("-").toIntOrNull() } })
+        val ver = matched.maxWithOrNull(Comparator { a, b ->
+            val pa = a.split(".").mapNotNull { it.substringBefore("-").toIntOrNull() }
+            val pb = b.split(".").mapNotNull { it.substringBefore("-").toIntOrNull() }
+            for (i in 0 until maxOf(pa.size, pb.size)) {
+                val va = pa.getOrElse(i) { 0 }
+                val vb = pb.getOrElse(i) { 0 }
+                if (va != vb) return@Comparator va.compareTo(vb)
+            }
+            0
+        })
             ?: Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
             ?: throw RuntimeException("NeoForge: no version for MC $version")
         return "https://maven.neoforged.net/releases/net/neoforged/neoforge/$ver/neoforge-$ver-installer.jar"
