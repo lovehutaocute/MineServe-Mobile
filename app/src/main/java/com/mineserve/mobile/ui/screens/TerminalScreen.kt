@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,7 +56,16 @@ fun TerminalScreen(vm: McViewModel) {
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
     val visibleLines = if (active.type == TerminalSessionType.Minecraft) mcLines else active.lines
-    LaunchedEffect(visibleLines.size) { if (visibleLines.isNotEmpty()) listState.scrollToItem(visibleLines.lastIndex) }
+    val isNearBottom by remember {
+        derivedStateOf {
+            val layout = listState.layoutInfo
+            layout.totalItemsCount == 0 ||
+                (layout.visibleItemsInfo.lastOrNull()?.index ?: -1) >= layout.totalItemsCount - 2
+        }
+    }
+    LaunchedEffect(visibleLines.size) {
+        if (visibleLines.isNotEmpty() && isNearBottom) listState.scrollToItem(visibleLines.lastIndex)
+    }
     Column(Modifier.fillMaxSize().background(Color(0xFF121419)).imePadding()) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("终端", color = Color(0xFFE8E8E8), fontSize = 22.sp, fontFamily = FontFamily.Monospace)

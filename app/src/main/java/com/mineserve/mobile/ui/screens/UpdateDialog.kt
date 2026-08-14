@@ -55,7 +55,12 @@ fun UpdateDialog(vm: McViewModel) {
                     )
                 }
             },
-            confirmButton = { TextButton(onClick = vm::downloadUpdate) { Text("下载更新", color = Indigo) } },
+            confirmButton = {
+                Row {
+                    TextButton(onClick = vm::openGithubUpdate) { Text("打开 GitHub") }
+                    TextButton(onClick = vm::downloadUpdate) { Text("下载更新", color = Indigo) }
+                }
+            },
             dismissButton = { TextButton(onClick = vm::skipCurrentUpdate) { Text("本次不更新") } }
         )
         is UpdateUiState.Downloading -> AlertDialog(

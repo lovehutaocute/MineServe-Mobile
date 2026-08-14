@@ -103,7 +103,8 @@ enum class AptMirror(val displayName: String, val url: String) {
     Aliyun("阿里云镜像", "https://mirrors.aliyun.com/termux/apt/termux-main"),
     Ustc("中科大镜像 (USTC)", "https://mirrors.ustc.edu.cn/termux/apt/termux-main"),
     Nju("南京大学镜像", "https://mirror.nju.edu.cn/termux/apt/termux-main"),
-    Official("Termux 官方", "https://packages.termux.dev/apt/termux-main")
+    // Kept only for old DataStore values; new installs never select an overseas APT source.
+    Official("清华镜像 (旧配置)", "https://mirrors.tuna.tsinghua.edu.cn/termux/apt/termux-main")
 }
 
 /**

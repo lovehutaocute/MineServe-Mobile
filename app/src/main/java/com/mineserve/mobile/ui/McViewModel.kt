@@ -66,6 +66,7 @@ import java.nio.ByteOrder
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
+import android.content.ClipData
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
@@ -132,6 +133,10 @@ class McViewModel(
 
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
+
+    /** Small, stable preview for cards that only show the latest few server messages. */
+    private val _consolePreviewLines = MutableStateFlow<List<String>>(emptyList())
+    val consolePreviewLines: StateFlow<List<String>> = _consolePreviewLines.asStateFlow()
 
     // ── Termux 终端（会话面板） ─────────────────────────────
 
@@ -443,16 +448,14 @@ class McViewModel(
 
     /** 打开浏览器跳到 GitHub Release 页面（供用户手动下载更新） */
     fun openGithubUpdate() {
-        val state = _updateState.value
-        if (state !is UpdateUiState.Available) return
-        val url = "https://github.com/lovehutaocute/MineServe-Mobile/releases/latest"
+        val url = (_updateState.value as? UpdateUiState.Available)?.release?.releaseUrl
+            ?: com.mineserve.mobile.data.AppUpdateService.PROJECT_URL
         try {
             val intent = android.content.Intent(
                 android.content.Intent.ACTION_VIEW,
                 android.net.Uri.parse(url)
             ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             McApplication.get().startActivity(intent)
-            dismissUpdateDialog()
         } catch (e: Exception) {
             _messageFlow.tryEmit("无法打开浏览器: ${e.message}")
         }
@@ -484,6 +487,14 @@ class McViewModel(
     /** 调系统安装器安装 APK */
     fun installApk(context: Context, file: File) {
         try {
+            if (!AppUpdateService.isApk(file)) {
+                throw IllegalStateException("更新 APK 已损坏或不是有效安装包，请重新下载")
+            }
+            val archive = context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
+                ?: throw IllegalStateException("无法读取更新 APK 的包信息，请重新下载")
+            if (archive.packageName != context.packageName) {
+                throw IllegalStateException("更新 APK 包名不匹配，已拒绝安装")
+            }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
                 !context.packageManager.canRequestPackageInstalls()) {
                 context.startActivity(
@@ -501,6 +512,21 @@ class McViewModel(
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+                clipData = ClipData.newRawUri("update-apk", uri)
+            }
+            val installers = context.packageManager.queryIntentActivities(
+                intent,
+                android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+            )
+            if (installers.isEmpty()) {
+                throw IllegalStateException("未找到系统安装器，请检查设备是否允许安装 APK")
+            }
+            installers.forEach { handler ->
+                context.grantUriPermission(
+                    handler.activityInfo.packageName,
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
             }
             context.startActivity(intent)
         } catch (e: Exception) {
@@ -896,13 +922,19 @@ class McViewModel(
     }
 
     fun refreshJava() {
-        if (isBootstrapped.value) _installedJava.value = repo.termuxRuntime.installedJavaVersions()
+        if (!isBootstrapped.value) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _installedJava.value = repo.termuxRuntime.installedJavaVersions()
+        }
     }
 
     fun refreshDependencies() {
         if (!isBootstrapped.value) return
-        repo.updateServerState { state ->
-            state.copy(installSteps = repo.termuxRuntime.installedDependencySteps())
+        viewModelScope.launch(Dispatchers.IO) {
+            val steps = repo.termuxRuntime.installedDependencySteps()
+            repo.updateServerState { state ->
+                state.copy(installSteps = steps)
+            }
         }
     }
 
@@ -975,7 +1007,13 @@ class McViewModel(
     fun setKeepWifiLock(v: Boolean) = updateConfig { it.copy(keepWifiLock = v) }
     fun setKeepCpuWakelock(v: Boolean) = updateConfig { it.copy(keepCpuWakelock = v) }
     fun setAptMirror(mirror: com.mineserve.mobile.data.AptMirror) =
-        updateConfig { it.copy(aptMirror = mirror) }
+        viewModelScope.launch {
+            val effective = if (mirror == com.mineserve.mobile.data.AptMirror.Official) {
+                com.mineserve.mobile.data.AptMirror.Tuna
+            } else mirror
+            repo.saveConfig(config.value.copy(aptMirror = effective))
+            withContext(Dispatchers.IO) { repo.termuxRuntime.setAptMirror(effective) }
+        }
     fun setDownloadMirror(mirror: com.mineserve.mobile.data.DownloadMirror) =
         updateConfig { it.copy(downloadMirror = mirror) }
 
@@ -2768,7 +2806,7 @@ class McViewModel(
     init {
         loadPlayerHistory()
         startServerResourceCollection()
-        // 订阅 consoleFlow，使用环形缓冲 + 批量刷新（100ms），避免每行 O(n) 拷贝
+        // 订阅 consoleFlow，使用环形缓冲 + 批量刷新，避免每行 O(n) 拷贝。
         viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->
                 synchronized(consoleBuffer) {
@@ -2782,18 +2820,19 @@ class McViewModel(
         // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
-                // 无 UI 订阅时（后台/无页面）长睡，仅控制台可见时保持 100ms 高频刷新
+                // 无 UI 订阅时（后台/无页面）长睡，控制台可见时以帧友好的频率刷新。
                 if (_consoleLines.subscriptionCount.value <= 0) {
                     delay(2000)
                     continue
                 }
-                delay(100)
+                delay(200)
                 if (consoleDirty) {
                     val snapshot: List<String> = synchronized(consoleBuffer) {
                         consoleDirty = false
                         consoleBuffer.toList()
                     }
                     _consoleLines.value = snapshot
+                    _consolePreviewLines.value = snapshot.takeLast(8)
                 }
             }
         }

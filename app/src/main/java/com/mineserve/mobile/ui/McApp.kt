@@ -23,6 +23,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.ui.screens.BackupScreen
@@ -65,7 +66,11 @@ fun McApp() {
     var subPage by remember { mutableStateOf<SubPage?>(null) }
 
     // 启动自动检查更新（后台执行，发现新版发通知）
-    LaunchedEffect(Unit) { vm.checkForUpdate(manual = false) }
+    LaunchedEffect(Unit) {
+        // Let the first screen settle before starting a best-effort network request.
+        delay(1_000)
+        vm.checkForUpdate(manual = false)
+    }
     // 更新通知点击 → 打开更新对话框
     LaunchedEffect(McApplication.get().openUpdateRequest.value) {
         if (McApplication.get().openUpdateRequest.value) {

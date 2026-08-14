@@ -121,7 +121,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             Text(stringResource(R.string.s1012), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(6.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                AptMirror.values().forEach { mirror ->
+                AptMirror.values().filter { it != AptMirror.Official }.forEach { mirror ->
                     SegPill(
                         text = mirror.displayName,
                         selected = config.aptMirror == mirror,

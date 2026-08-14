@@ -59,7 +59,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import kotlinx.coroutines.flow.map
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.asImageBitmap
@@ -115,7 +114,7 @@ fun DashboardScreen(
     val tunnelState by vm.tunnelState.collectAsState()
     val lanIp by vm.lanIp.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val consoleLines by vm.consoleLines.map { it.takeLast(5) }.collectAsState(initial = emptyList())
+    val consoleLines by vm.consolePreviewLines.collectAsState()
     LaunchedEffect(Unit) { vm.refreshLanIp() }
     val isInstalling by vm.isInstalling.collectAsState()
     val installedJava by vm.installedJava.collectAsState()
@@ -176,7 +175,8 @@ fun DashboardScreen(
     LaunchedEffect(isBootstrapped) {
         vm.refreshJava()
         vm.refreshDependencies()
-        vm.runDiagnostics()
+        // Full diagnostics may probe commands, files and ports. Keep an empty first-run screen responsive.
+        if (isBootstrapped && config.activeCoreName != null) vm.runDiagnostics()
     }
 
     Scaffold(

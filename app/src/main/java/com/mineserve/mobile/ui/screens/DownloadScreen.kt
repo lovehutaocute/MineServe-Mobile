@@ -79,7 +79,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val isLoadingVersions by vm.isLoadingVersions.collectAsState()
     val isDownloadingCore by vm.isDownloadingCore.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
-    val consoleLines by vm.consoleLines.collectAsState()
+    val consoleLines by vm.consolePreviewLines.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val usesCoreVersion = config.selectedCore == ServerCore.PowerNukkitX

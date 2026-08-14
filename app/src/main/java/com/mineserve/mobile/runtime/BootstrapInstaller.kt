@@ -57,24 +57,24 @@ class BootstrapInstaller(private val context: Context) {
 
     /** 镜像源列表（公开供 UI 显示名称） */
     val mirrorSources: List<String> = listOf(
-        "GitHub 直连",
+        "ghfast.top",
         "gh-proxy.com",
         "mirror.ghproxy.com",
         "ghproxy.net",
         "github.moeyy.xyz",
         "gh.api.99988866.xyz",
-        "ghfast.top"
+        "GitHub 直连"
     )
 
     /** 镜像源 URL 前缀列表 */
     private val mirrorUrls: List<String> = listOf(
-        "https://github.com/termux/termux-packages/releases/download",
+        "https://ghfast.top/https://github.com/termux/termux-packages/releases/download",
         "https://gh-proxy.com/https://github.com/termux/termux-packages/releases/download",
         "https://mirror.ghproxy.com/https://github.com/termux/termux-packages/releases/download",
         "https://ghproxy.net/https://github.com/termux/termux-packages/releases/download",
         "https://github.moeyy.xyz/https://github.com/termux/termux-packages/releases/download",
         "https://gh.api.99988866.xyz/https://github.com/termux/termux-packages/releases/download",
-        "https://ghfast.top/https://github.com/termux/termux-packages/releases/download"
+        "https://github.com/termux/termux-packages/releases/download"
     )
 
     /** 当前正在使用的镜像源索引（-1 表示未在下载中） */

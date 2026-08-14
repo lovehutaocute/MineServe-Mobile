@@ -5,6 +5,7 @@ import android.util.Log
 import android.system.Os
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.AptMirror
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.StepState
 import com.mineserve.mobile.data.StepStatus
@@ -303,9 +304,11 @@ class TermuxRuntime(context: Context) {
           fi
           return 1
         }
+        # The dedicated Ubuntu rootfs may not have CA certificates yet. Use
+        # domestic HTTP only for this bootstrap transaction, then install
+        # ca-certificates together with Java for subsequent HTTPS use.
         install_openjdk8 http://mirrors.tuna.tsinghua.edu.cn/ubuntu-ports || \
-          install_openjdk8 http://mirrors.ustc.edu.cn/ubuntu-ports || \
-          install_openjdk8 http://ports.ubuntu.com/ubuntu-ports
+          install_openjdk8 http://mirrors.ustc.edu.cn/ubuntu-ports
     """.trimIndent()
 
     private fun java8UbuntuReady(): Boolean {
@@ -359,8 +362,7 @@ class TermuxRuntime(context: Context) {
         val archive = File(installer.tmpDir, archiveName)
         val urls = listOf(
             "https://mirrors.tuna.tsinghua.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/$archiveName",
-            "https://mirrors.ustc.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/$archiveName",
-            "https://cdimage.ubuntu.com/ubuntu-base/releases/20.04/release/$archiveName"
+            "https://mirrors.ustc.edu.cn/ubuntu-cdimage/ubuntu-base/releases/20.04/release/$archiveName"
         )
         return try {
             emitLog("[java] 正在下载 Ubuntu 20.04 ARM64 基础 rootfs（非 Docker Hub）")
@@ -1066,6 +1068,17 @@ class TermuxRuntime(context: Context) {
             Log.w(TAG, "fixAptSources: ${e.message}")
             0
         }
+    }
+
+    /** Applies the selected domestic APT mirror immediately for later Java/dependency installs. */
+    fun setAptMirror(mirror: AptMirror) {
+        if (!installer.isReady()) return
+        val effective = if (mirror == AptMirror.Official) AptMirror.Tuna else mirror
+        File(installer.rootDir, "etc/apt/sources.list").apply {
+            parentFile?.mkdirs()
+            writeText("deb ${effective.url} stable main\n")
+        }
+        emitLog("[apt] 已切换至 ${effective.displayName}")
     }
 
     /**

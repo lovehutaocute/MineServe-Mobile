@@ -1,7 +1,6 @@
 package com.mineserve.mobile
 
 import android.Manifest
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -10,7 +9,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import com.mineserve.mobile.service.McForegroundService
 import com.mineserve.mobile.ui.McApp
 import com.mineserve.mobile.ui.theme.MineServeMobileTheme
 
@@ -33,15 +31,6 @@ class MainActivity : ComponentActivity() {
                 McApp()
             }
         }
-    }
-
-    override fun onStart() {
-        super.onStart()
-        // 启动前台服务（必须在 App 处于前台时触发，规避 Android 12+ 后台启动 FGS 限制）
-        val intent = Intent(this, McForegroundService::class.java).apply {
-            action = McForegroundService.ACTION_START
-        }
-        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun ensureNotificationPermission() {
