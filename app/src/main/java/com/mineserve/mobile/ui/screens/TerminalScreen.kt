@@ -89,7 +89,7 @@ fun TerminalScreen(vm: McViewModel) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFF121419)).imePadding()) {
+    Column(Modifier.fillMaxSize().background(Color(0xFF121419))) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("终端", color = Color(0xFFE8E8E8), fontSize = 22.sp, fontFamily = FontFamily.Monospace)
             Row {
@@ -128,7 +128,7 @@ fun TerminalScreen(vm: McViewModel) {
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().padding(8.dp, 8.dp, 16.dp, 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().imePadding().padding(8.dp, 8.dp, 16.dp, 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (active.type == TerminalSessionType.Minecraft) ">" else "$", color = Color(0xFF57E357), fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 14.dp))
             OutlinedTextField(value = input, onValueChange = { input = it }, singleLine = true, modifier = Modifier.weight(1f), enabled = !active.busy)
             IconButton(onClick = {
