@@ -480,11 +480,15 @@ class McServerController(
 
     private fun resolveNeoForgeUrl(version: String): String {
         val xml = fetchText("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml")
-        // NeoForge 版本号与 MC 版本对应（MC 1.20.4 → NeoForge 20.4.x）：取去点后以 MC 短号开头的最大版本
-        val mcShort = version.removePrefix("1.").replace(".", "") // "1.20.4" → "204"
+        // NeoForge 版本号与 MC 版本对应（MC 1.20.4 → NeoForge 20.4.x）。
+        // 修复：保留末尾点号作为段边界，避免 "211" 误匹配 21.11.x（MC 1.21.11）。
+        //   旧逻辑去掉所有点号后 startsWith("211") 同时命中 21.1.x 和 21.11.x，
+        //   maxOrNull 字符串比较又选出 21.11.x，导致 1.21.1 变成 1.21.11。
+        //   新逻辑 startsWith("21.1.") 只匹配 21.1.x，再用数字段比较取最新 build。
+        val mcPrefix = version.removePrefix("1.") + "." // "1.20.4" → "20.4."
         val versions = Regex("<version>([^<]+)</version>").findAll(xml).map { it.groupValues[1] }.toList()
-        val matched = versions.filter { it.replace(".", "").startsWith(mcShort) }
-        val ver = matched.maxOrNull()
+        val matched = versions.filter { it.startsWith(mcPrefix) }
+        val ver = matched.maxWithOrNull(compareBy { it.split(".").mapNotNull { p -> p.substringBefore("-").toIntOrNull() } })
             ?: Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
             ?: throw RuntimeException("NeoForge: no version for MC $version")
         return "https://maven.neoforged.net/releases/net/neoforged/neoforge/$ver/neoforge-$ver-installer.jar"
