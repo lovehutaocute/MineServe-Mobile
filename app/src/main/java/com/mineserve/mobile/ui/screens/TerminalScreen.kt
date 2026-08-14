@@ -25,6 +25,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -66,13 +68,26 @@ fun TerminalScreen(vm: McViewModel) {
     val visibleLines = remember(rawLines, translateLogs, active.type) {
         if (translateLogs && active.type == TerminalSessionType.Minecraft) rawLines.map(TerminalLogTranslator::translate) else rawLines
     }
-    val isNearBottom by remember {
-        derivedStateOf {
+    // 追踪用户是否手动向上滚动；用户在底部附近时自动滚动跟随新日志
+    var userScrolledUp by remember { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow {
             val layout = listState.layoutInfo
-            layout.totalItemsCount == 0 || (layout.visibleItemsInfo.lastOrNull()?.index ?: -1) >= layout.totalItemsCount - 2
+            val lastVisible = layout.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisible < layout.totalItemsCount - 2
+        }.distinctUntilChanged().collect { scrolledUp -> userScrolledUp = scrolledUp }
+    }
+    // 切换会话时重置滚动状态并跳到底部
+    LaunchedEffect(activeId) {
+        userScrolledUp = false
+        if (visibleLines.isNotEmpty()) listState.scrollToItem(visibleLines.lastIndex)
+    }
+    // 新日志到达时，若用户未手动上滑，自动滚动到底部
+    LaunchedEffect(visibleLines.lastOrNull()) {
+        if (visibleLines.isNotEmpty() && !userScrolledUp) {
+            listState.scrollToItem(visibleLines.lastIndex)
         }
     }
-    LaunchedEffect(visibleLines.size) { if (visibleLines.isNotEmpty() && isNearBottom) listState.scrollToItem(visibleLines.lastIndex) }
 
     Column(Modifier.fillMaxSize().background(Color(0xFF121419)).imePadding()) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {

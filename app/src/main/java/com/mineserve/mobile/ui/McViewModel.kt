@@ -2983,8 +2983,12 @@ class McViewModel(
         // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
-                // 无 UI 订阅时（后台/无页面）长睡，控制台可见时以帧友好的频率刷新。
-                if (_consoleLines.subscriptionCount.value <= 0) {
+                // 无任何 UI 订阅时（后台/无页面）长睡，有订阅时以帧友好的频率刷新。
+                // 同时检查 consoleLines 和 consolePreviewLines，确保下载页（仅订阅
+                // preview）也能实时获取日志，不再需要先进入终端页。
+                val hasSubscribers = _consoleLines.subscriptionCount.value > 0 ||
+                    _consolePreviewLines.subscriptionCount.value > 0
+                if (!hasSubscribers) {
                     delay(2000)
                     continue
                 }

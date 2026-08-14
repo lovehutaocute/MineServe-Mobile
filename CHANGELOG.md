@@ -7,6 +7,9 @@
 - **关键修复**：NeoForge 自定义版本 `1.21.1` 被误装为 `1.21.11` 的问题。根因是 `resolveNeoForgeUrl` 去掉版本号所有点号后做前缀匹配，`"211"` 同时命中 `21.1.x`（MC 1.21.1）和 `21.11.x`（MC 1.21.11），再经字符串比较选出 `21.11.x` 的 installer。修复为保留末尾点号作为段边界（`"21.1."` 只匹配 `21.1.x`），并用数字段比较取最新 build 号。
 - 移除 `MinecraftVersionNormalizer` 中将 `1.21.11` 强制纠正为 `1.21.1` 的错误逻辑——`1.21.11` 是真实存在的 MC 版本，该纠正反而误伤了合法输入。
 - NeoForge installer 版本选取改用数字段比较（`21.1.10 > 21.1.9`），避免字符串比较导致 build 号排序错误。
+- **修复**：NeoForge/Forge 安装偶现 `java: inaccessible or not found` 错误。根因是 `runInstallerWithRetry` 直接用 `execOnce("java", ...)` 依赖 PATH 查找 java，但 apt post-install 偶尔未创建 `$PREFIX/bin/java` wrapper 脚本。修复为安装前先调用 `ensureJavaReady()` 确保 wrapper 就绪，并用绝对路径执行 installer。
+- 终端页面日志自动滚动至底部：旧逻辑以 `visibleLines.size` 作为触发键，缓冲区满后 size 不变导致停止滚动；改为追踪用户滚动状态，新日志到达时若用户未手动上滑则自动跟随。
+- 修复下载页日志需先进入终端页才能显示且刷新延迟严重的问题：日志推送循环仅检查 `consoleLines` 订阅数，下载页只订阅 `consolePreviewLines` 导致订阅数为 0、循环跳过更新；改为同时检查两者订阅数。
 
 ## 1.1.3
 

@@ -66,10 +66,22 @@ class McServerController(
             lastCode = if (javaVersion == JavaVersion.Java8) {
                 termux.runJava8Installer(jarPath, serverDir)
             } else {
-                termux.execOnce(
-                    "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
-                    "-jar", jarPath, "--installServer", serverDir.absolutePath
-                )
+                // 确保 java wrapper 脚本就绪，避免 "java: inaccessible or not found"
+                // apt post-install 偶尔未正确创建 $PREFIX/bin/java wrapper，
+                // 此处主动修复，用绝对路径执行 installer 而非依赖 PATH 查找。
+                val javaPath = termux.ensureJavaReady()
+                if (javaPath != null) {
+                    termux.execOnce(
+                        javaPath, "-Djava.io.tmpdir=${tempDir.absolutePath}",
+                        "-jar", jarPath, "--installServer", serverDir.absolutePath
+                    )
+                } else {
+                    termux.emitLog("[install] 错误: java 未就绪，尝试用 PATH 中的 java")
+                    termux.execOnce(
+                        "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
+                        "-jar", jarPath, "--installServer", serverDir.absolutePath
+                    )
+                }
             }
             if (lastCode == 0) return 0
             if (attempt < 2) {
