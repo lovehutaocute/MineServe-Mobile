@@ -16,6 +16,7 @@ import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +47,8 @@ import com.mineserve.mobile.ui.screens.ServerManagementScreen
 import com.mineserve.mobile.ui.screens.ServerIconScreen
 import com.mineserve.mobile.ui.screens.TerminalScreen
 import com.mineserve.mobile.ui.screens.MoreScreen
+import com.mineserve.mobile.ui.screens.CrashReportsScreen
+import com.mineserve.mobile.ui.screens.CrashReportDialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import com.mineserve.mobile.ui.theme.Indigo
@@ -53,7 +56,7 @@ import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, More }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, CrashReports, More }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -61,6 +64,8 @@ enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAli
 @Composable
 fun McApp() {
     val vm: McViewModel = viewModel(factory = McViewModel.Factory)
+    val currentCrashContent by vm.currentCrashContent.collectAsState()
+    val currentCrashAnalysis by vm.currentCrashAnalysis.collectAsState()
     var tab by remember { mutableStateOf(McTab.Dashboard) }
     var showLogs by remember { mutableStateOf(false) }
     var subPage by remember { mutableStateOf<SubPage?>(null) }
@@ -148,12 +153,14 @@ fun McApp() {
                         SubPage.Diagnostics -> DiagnosticsScreen(vm = vm, onBack = { subPage = null })
                         SubPage.Plugins -> PluginsScreen(vm = vm)
                         SubPage.ServerIcon -> ServerIconScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.CrashReports -> CrashReportsScreen(vm = vm, onBack = { subPage = null })
                         SubPage.More -> MoreScreen(
                             onNetwork = { subPage = SubPage.Network },
                             onBackup = { subPage = SubPage.Backup },
                             onDiagnostics = { subPage = SubPage.Diagnostics },
                             onKeepAlive = { subPage = SubPage.KeepAlive },
-                            onHelp = { subPage = SubPage.DownloadHelp }
+                            onHelp = { subPage = SubPage.DownloadHelp },
+                            onCrashReports = { subPage = SubPage.CrashReports }
                         )
                         null -> {}
                     }
@@ -191,5 +198,8 @@ fun McApp() {
 
         // 软件更新对话框（全局，覆盖所有页面）
         UpdateDialog(vm = vm)
+        val crashContent = currentCrashContent
+        val crashAnalysis = currentCrashAnalysis
+        if (crashContent != null && crashAnalysis != null) CrashReportDialog(crashContent, crashAnalysis, vm::clearCrashContent)
     }
 }

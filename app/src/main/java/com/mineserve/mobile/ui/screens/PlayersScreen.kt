@@ -2,6 +2,8 @@ package com.mineserve.mobile.ui.screens
 
 import androidx.compose.ui.res.stringResource
 import com.mineserve.mobile.R
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -137,6 +139,7 @@ fun PlayersScreen(
     var activeTab by remember { mutableStateOf(PlayerListTab.Online) }
     var detailPlayer by remember { mutableStateOf<DetailInfo?>(null) }
     var showHistory by remember { mutableStateOf(false) }
+    val historyExportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri -> uri?.let(vm::exportPlayerHistory) }
 
     // 进入页面/切换核心/服务器启动状态变化时刷新 OP/白名单/封禁列表
     // （服务器启动完成后 ops.json 等才会生成，故监听 isRunning）
@@ -298,7 +301,10 @@ fun PlayersScreen(
     if (showHistory) {
         PlayerHistoryDialog(
             history = playerHistory,
-            onDismiss = { showHistory = false }
+            summaries = vm.playerActivitySummaries(),
+            onDismiss = { showHistory = false },
+            onExport = { historyExportLauncher.launch("player_activity.csv") },
+            onClear = vm::clearPlayerHistory
         )
     }
 }
@@ -308,8 +314,14 @@ fun PlayersScreen(
 @Composable
 private fun PlayerHistoryDialog(
     history: List<McViewModel.PlayerHistoryEntry>,
-    onDismiss: () -> Unit
+    summaries: List<McViewModel.PlayerActivitySummary>,
+    onDismiss: () -> Unit,
+    onExport: () -> Unit,
+    onClear: () -> Unit
 ) {
+    var search by remember { mutableStateOf("") }
+    var clearConfirm by remember { mutableStateOf(false) }
+    val filtered = remember(history, search) { history.filter { it.player.contains(search, ignoreCase = true) } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -335,7 +347,9 @@ private fun PlayerHistoryDialog(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                 ) {
-                    history.forEach { h ->
+                    Text("${summaries.size} 名玩家，累计在线 ${formatActivitySeconds(summaries.sumOf { it.totalSeconds })}", color = Muted, fontSize = 11.sp)
+                    OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, label = { Text("搜索玩家") })
+                    filtered.forEach { h ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -365,7 +379,7 @@ private fun PlayerHistoryDialog(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
-                                Text(h.time, color = Muted, fontSize = 10.sp)
+                                Text(buildString { append(h.time); if (h.sessionStart != null && h.sessionEnd != null) append("  |  ${formatActivitySeconds(((h.sessionEnd - h.sessionStart) / 1000).coerceAtLeast(0))}"); if (h.interrupted) append("  |  中断") }, color = Muted, fontSize = 10.sp)
                             }
                         }
                     }
@@ -373,9 +387,20 @@ private fun PlayerHistoryDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
+            Row {
+                TextButton(onClick = onExport) { Text("导出 CSV") }
+                TextButton(onClick = { clearConfirm = true }) { Text("清空", color = Coral) }
+                TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
+            }
         }
     )
+    if (clearConfirm) AlertDialog(onDismissRequest = { clearConfirm = false }, title = { Text("清空活动记录") }, text = { Text("仅清空当前服务器的玩家活动记录，无法恢复。") }, confirmButton = { TextButton(onClick = { onClear(); clearConfirm = false }) { Text("清空", color = Coral) } }, dismissButton = { TextButton(onClick = { clearConfirm = false }) { Text("取消") } })
+}
+
+private fun formatActivitySeconds(seconds: Long): String = when {
+    seconds >= 3600 -> "${seconds / 3600} 小时 ${(seconds % 3600) / 60} 分"
+    seconds >= 60 -> "${seconds / 60} 分"
+    else -> "${seconds} 秒"
 }
 
 // ── 服务器状态横幅 ──────────────────────────────────────────────────

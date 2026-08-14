@@ -28,6 +28,14 @@ class PlayerManager(private val termux: TermuxRuntime) {
 
     /** 宽松回退：兼容无日志前缀冒号的极端格式（如直接输出 "Steve joined the game"） */
     private val joinLeaveLooseRegex = Regex("([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?(?:joined|left) the game")
+    private val powerNukkitJoinRegex = Regex("(?:^|[: ]\\s*)([A-Za-z0-9_]{1,16})(?:\\[[^]]*])?\\s+logged in with entity id", RegexOption.IGNORE_CASE)
+    private val powerNukkitLeaveRegex = Regex("(?:^|[: ]\\s*)([A-Za-z0-9_]{1,16})(?:\\[[^]]*])?\\s+disconnected(?:[: ]|$)", RegexOption.IGNORE_CASE)
+
+    fun extractPowerNukkitPlayerEvent(line: String): Pair<String, Boolean>? {
+        powerNukkitJoinRegex.find(line)?.groupValues?.getOrNull(1)?.let { return it to true }
+        powerNukkitLeaveRegex.find(line)?.groupValues?.getOrNull(1)?.let { return it to false }
+        return null
+    }
 
     @Serializable
     data class OpEntry(val name: String, val uuid: String, val level: Int = 4)

@@ -41,7 +41,14 @@ class ServerRepository(
     private val CONFIG_KEY = stringPreferencesKey("config_json")
 
     val configFlow: Flow<McConfig> = context.configDataStore.data.map { prefs ->
-        prefs[CONFIG_KEY]?.let { json.decodeFromString<McConfig>(it) } ?: McConfig()
+        val stored = prefs[CONFIG_KEY]?.let { json.decodeFromString<McConfig>(it) } ?: McConfig()
+        val correctedCores = stored.installedCores.map { core ->
+            core.copy(version = MinecraftVersionNormalizer.forCore(core.core, core.version))
+        }
+        stored.copy(
+            mcVersion = MinecraftVersionNormalizer.forCore(stored.selectedCore, stored.mcVersion),
+            installedCores = correctedCores
+        )
     }
 
     /** Config 写入 debounce 通道，避免输入框每字符触发磁盘写入 */

@@ -30,6 +30,7 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Folder
@@ -84,6 +85,11 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
     val files by vm.fileList.collectAsState()
     val currentPath by vm.currentPath.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
+    val editorFile by vm.textEditorFile.collectAsState()
+    if (editorFile != null) {
+        TextFileEditorScreen(vm, editorFile!!, onBack = vm::closeTextFile)
+        return
+    }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
@@ -314,6 +320,8 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                                 exportTarget = File(entry.path)
                                 exportLauncher.launch(if (entry.isDirectory) "${entry.name}.zip" else entry.name)
                             },
+                            onEdit = { vm.openTextFile(File(entry.path)) },
+                            canEdit = vm.canEditTextFile(File(entry.path)),
                             onDelete = {
                                 showDeleteConfirm = File(entry.path)
                             }
@@ -409,6 +417,8 @@ private fun FileItemRow(
     entry: McViewModel.FileEntry,
     onClick: () -> Unit,
     onExport: () -> Unit,
+    onEdit: () -> Unit,
+    canEdit: Boolean,
     onDelete: () -> Unit
 ) {
     Row(
@@ -476,6 +486,10 @@ private fun FileItemRow(
                 tint = Indigo,
                 modifier = Modifier.size(18.dp)
             )
+        }
+
+        if (canEdit) IconButton(onClick = onEdit) {
+            Icon(Icons.Outlined.Edit, contentDescription = "编辑文本", tint = Indigo, modifier = Modifier.size(18.dp))
         }
 
         // 删除按钮

@@ -15,6 +15,7 @@ import android.net.Uri
 import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.ServerCore
+import com.mineserve.mobile.data.MinecraftVersionNormalizer
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.data.TunnelState
@@ -28,6 +29,8 @@ import com.mineserve.mobile.data.AppRelease
 import com.mineserve.mobile.data.AppUpdateService
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.CrashReportManager
+import com.mineserve.mobile.server.CrashReportAnalyzer
+import com.mineserve.mobile.server.SafeTextFile
 import com.mineserve.mobile.server.McServerController
 import com.mineserve.mobile.server.PlayerManager
 import com.mineserve.mobile.server.PluginManager
@@ -42,6 +45,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.Dispatchers
@@ -850,10 +854,32 @@ class McViewModel(
      * 解析 MC 控制台输出，提取 TPS / 玩家数 / 启动状态等运行时信息。
      * 使用快速前缀检查避免不必要的正则匹配。
      */
+    private var lastJavaCompatibilityWarning: String? = null
+
     private fun parseConsoleLine(line: String) {
         try {
+            val requiredJava = CrashReportAnalyzer.requiredJavaVersion(line)
+            if (requiredJava != null) {
+                val selected = when (config.value.selectedJavaVersion) {
+                    JavaVersion.Java8 -> 8; JavaVersion.Java17 -> 17; JavaVersion.Java21 -> 21; JavaVersion.Java25 -> 25
+                }
+                if (selected < requiredJava) {
+                    val core = config.value.installedCores.firstOrNull { it.name == config.value.activeCoreName }?.core?.displayName ?: "当前核心"
+                    val warning = "$core 当前选择 Java $selected，但日志要求至少 Java $requiredJava"
+                    if (warning != lastJavaCompatibilityWarning) {
+                        lastJavaCompatibilityWarning = warning
+                        _errorFlow.tryEmit("Java 版本不支持：$warning")
+                    }
+                }
+            }
             // 快速前缀检查：只有包含关键子串的行才进一步处理
             when {
+                playerManager.extractPowerNukkitPlayerEvent(line) != null -> {
+                    val (name, joined) = playerManager.extractPowerNukkitPlayerEvent(line)!!
+                    repo.updateServerState { it.copy(onlinePlayers = (it.onlinePlayers + if (joined) 1 else -1).coerceAtLeast(0)) }
+                    if (joined) addOnlinePlayer(name) else removeOnlinePlayer(name)
+                    recordPlayerEvent(name, if (joined) "进服" else "离服")
+                }
                 line.contains("joined the game") -> {
                     // 仅当提取到真实玩家名（日志前缀 + 合法名字）时才计数与记录，避免聊天消息误报
                     playerManager.extractPlayerName(line)?.let { name ->
@@ -996,8 +1022,13 @@ class McViewModel(
         ) else it.copy(selectedCore = core)
     }
 
-    fun setMcVersion(version: String) =
-        updateConfig { it.copy(mcVersion = version) }
+    fun setMcVersion(version: String) = updateConfig {
+        val normalized = MinecraftVersionNormalizer.forCore(it.selectedCore, version)
+        if (normalized != version.trim()) {
+            _messageFlow.tryEmit("已将 ${it.selectedCore.displayName} Minecraft 版本 ${version.trim()} 纠正为 $normalized")
+        }
+        it.copy(mcVersion = normalized)
+    }
 
     fun setLocalPort(port: Int) = updateConfig { it.copy(localPort = port) }
     fun setDomain(d: String) = updateConfig { it.copy(customDomain = d) }
@@ -1068,6 +1099,7 @@ class McViewModel(
         }
         viewModelScope.launch {
             try {
+                lastJavaCompatibilityWarning = null
                 val current = config.value
                 val startConfig = current
                 controller.start(startConfig)
@@ -1075,6 +1107,7 @@ class McViewModel(
                 _messageFlow.tryEmit(str(R.string.s196))
             } catch (e: Exception) {
                 repo.termuxRuntime.emitLog("[startMc] 启动失败: ${e.message}")
+                showStartupFailureReport(e)
                 _errorFlow.tryEmit(str(R.string.s197, e.message))
             }
         }
@@ -2146,14 +2179,18 @@ class McViewModel(
     data class PlayerHistoryEntry(
         val player: String,
         val event: String,
-        val time: String
+        val time: String,
+        val sessionStart: Long? = null,
+        val sessionEnd: Long? = null,
+        val interrupted: Boolean = false
     )
+    data class PlayerActivitySummary(val player: String, val sessions: Int, val totalSeconds: Long, val active: Boolean)
 
     private val _playerHistory: MutableStateFlow<List<PlayerHistoryEntry>> by lazy { MutableStateFlow(emptyList()) }
     val playerHistory: StateFlow<List<PlayerHistoryEntry>> by lazy { _playerHistory.asStateFlow() }
 
-    private val playerHistoryFile: java.io.File
-        get() = java.io.File(McApplication.get().filesDir, "player_history.json")
+    private val legacyPlayerHistoryFile: java.io.File get() = java.io.File(McApplication.get().filesDir, "player_history.json")
+    private fun playerHistoryFile() = java.io.File(McApplication.get().filesDir, "player-history/${activeDirName() ?: "unselected"}.json")
 
     private val historyJson: Json by lazy { Json { ignoreUnknownKeys = true } }
 
@@ -2162,19 +2199,24 @@ class McViewModel(
 
     /** 启动时异步加载历史记录文件（文件缺失/损坏时从空历史开始） */
     private fun loadPlayerHistory() {
+        // Activity data is isolated by active server. Do not merge a previous server's snapshot.
+        _playerHistory.value = emptyList()
         viewModelScope.launch(Dispatchers.IO) {
             historyMutex.withLock {
                 try {
-                    val f = playerHistoryFile
+                    val f = playerHistoryFile()
+                    if (!f.exists() && legacyPlayerHistoryFile.exists()) {
+                        f.parentFile?.mkdirs()
+                        legacyPlayerHistoryFile.copyTo(f, overwrite = false)
+                    }
                     if (f.exists()) {
                         val fileList = historyJson.decodeFromString<List<PlayerHistoryEntry>>(f.readText())
-                        // 与启动瞬间已记录的内存事件合并去重（按时间倒序，保留最新 500 条），
-                        // 避免文件加载晚于首条进服事件时覆盖内存新条目
-                        val merged = (_playerHistory.value + fileList)
-                            .distinct()
-                            .sortedByDescending { it.time }
-                            .take(500)
+                        val merged = fileList.distinct().sortedByDescending { it.time }
                         _playerHistory.value = merged
+                        // A process restart has no trustworthy leave timestamp. Preserve it as interrupted.
+                        val interrupted = merged.map { if (it.event == "进服" && it.sessionEnd == null) it.copy(interrupted = true) else it }
+                        _playerHistory.value = interrupted
+                        f.writeText(historyJson.encodeToString(interrupted))
                     }
                 } catch (e: Exception) {
                     // 忽略损坏文件
@@ -2185,18 +2227,68 @@ class McViewModel(
 
     /** 追加一条进服/离服事件并异步持久化（保留最近 500 条） */
     private fun recordPlayerEvent(player: String, event: String) {
-        val entry = PlayerHistoryEntry(player, event, timeNow())
-        _playerHistory.value = (listOf(entry) + _playerHistory.value).take(500)
+        val now = System.currentTimeMillis()
+        val previous = _playerHistory.value
+        val open = previous.firstOrNull { it.player.equals(player, true) && it.event == "进服" && it.sessionEnd == null && !it.interrupted }
+        val entry = if (event == "离服" && open != null) {
+            PlayerHistoryEntry(player, event, timeNow(), open.sessionStart ?: now, now)
+        } else {
+            PlayerHistoryEntry(player, event, timeNow(), if (event == "进服") now else null, null)
+        }
+        _playerHistory.value = listOf(entry) + previous.map {
+            if (event == "离服" && it == open) it.copy(sessionEnd = now) else it
+        }
         val snapshot = _playerHistory.value
         viewModelScope.launch(Dispatchers.IO) {
             historyMutex.withLock {
                 try {
-                    playerHistoryFile.writeText(historyJson.encodeToString(snapshot))
+                    val file = playerHistoryFile(); file.parentFile?.mkdirs()
+                    file.writeText(historyJson.encodeToString(snapshot))
                 } catch (e: Exception) {
                     // 写入失败不阻断运行
                 }
             }
         }
+    }
+
+    fun playerActivitySummaries(): List<PlayerActivitySummary> {
+        val entries = _playerHistory.value
+        return entries.groupBy { it.player }.map { (player, rows) ->
+            val seconds = rows.filter { it.event == "离服" && !it.interrupted }.sumOf { ((it.sessionEnd ?: 0L) - (it.sessionStart ?: 0L)).coerceAtLeast(0L) / 1000 }
+            PlayerActivitySummary(player, rows.count { it.event == "离服" }, seconds, rows.any { it.event == "进服" && it.sessionEnd == null })
+        }.sortedByDescending { it.totalSeconds }
+    }
+
+    fun interruptPlayerSessions() {
+        val open = _playerHistory.value.filter { it.event == "进服" && it.sessionEnd == null }
+        if (open.isEmpty()) return
+        val replacements = open.associateWith { it.copy(interrupted = true) }
+        _playerHistory.value = _playerHistory.value.map { replacements[it] ?: it }
+        val snapshot = _playerHistory.value
+        viewModelScope.launch(Dispatchers.IO) { historyMutex.withLock {
+            val file = playerHistoryFile(); file.parentFile?.mkdirs(); file.writeText(historyJson.encodeToString(snapshot))
+        } }
+    }
+
+    fun clearPlayerHistory() {
+        _playerHistory.value = emptyList()
+        viewModelScope.launch(Dispatchers.IO) { historyMutex.withLock { playerHistoryFile().delete() } }
+    }
+
+    fun exportPlayerHistory(uri: android.net.Uri) = viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) {
+                McApplication.get().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { out ->
+                    out.appendLine("player,event,time,session_start,session_end,duration_seconds,interrupted")
+                    _playerHistory.value.forEach { row ->
+                        fun csv(v: String) = "\"${v.replace("\"", "\"\"")}\""
+                        val duration = if (row.sessionStart != null && row.sessionEnd != null && !row.interrupted) ((row.sessionEnd - row.sessionStart) / 1000).toString() else ""
+                        out.appendLine(listOf(csv(row.player), csv(row.event), csv(row.time), row.sessionStart ?: "", row.sessionEnd ?: "", duration, row.interrupted).joinToString(","))
+                    }
+                } ?: error("无法创建导出文件")
+            }
+            _messageFlow.tryEmit("玩家活动已导出")
+        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "导出失败") }
     }
 
     private fun timeNow(): String =
@@ -2213,6 +2305,27 @@ class McViewModel(
     private fun removeOnlinePlayer(name: String) {
         _onlinePlayerNames.value = _onlinePlayerNames.value.filter { it != name }
     }
+
+    data class TextEditorFile(val path: String, val name: String, val content: String)
+    private val _textEditorFile = MutableStateFlow<TextEditorFile?>(null)
+    val textEditorFile: StateFlow<TextEditorFile?> = _textEditorFile.asStateFlow()
+
+    fun openTextFile(file: java.io.File) = viewModelScope.launch {
+        try {
+            val content = withContext(Dispatchers.IO) { SafeTextFile.read(fileManagerRoot, file) }
+            _textEditorFile.value = TextEditorFile(content.file.absolutePath, content.file.name, content.text)
+        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "无法打开文本文件") }
+    }
+    fun closeTextFile() { _textEditorFile.value = null }
+    fun saveTextFile(path: String, text: String) = viewModelScope.launch {
+        try {
+            withContext(Dispatchers.IO) { SafeTextFile.write(fileManagerRoot, java.io.File(path), text) }
+            _textEditorFile.value = TextEditorFile(path, java.io.File(path).name, text)
+            _messageFlow.tryEmit("文件已保存")
+            refreshFiles()
+        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "保存失败") }
+    }
+    fun canEditTextFile(file: java.io.File) = file.isFile && SafeTextFile.isSupported(file)
 
     /** 请求在线玩家列表（发送 list 命令，结果通过日志解析全量校正名单） */
     fun refreshOnlinePlayers() {
@@ -2376,7 +2489,10 @@ class McViewModel(
         if (!isBootstrapped.value) return
         viewModelScope.launch {
             try {
-                _crashReports.value = withContext(Dispatchers.IO) { crashReportManager.listCrashReports() }
+                _crashReports.value = withContext(Dispatchers.IO) {
+                    val native = activeDirName()?.let { crashReportManager.listNativeCrashReports(it) }.orEmpty()
+                    (crashReportManager.listCrashReports() + native).sortedByDescending { it.createdTime }
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s287, e.message))
             }
@@ -2386,12 +2502,45 @@ class McViewModel(
     /** 当前查看的崩溃报告全文（供 UI 展示） */
     private val _currentCrashContent = MutableStateFlow<String?>(null)
     val currentCrashContent: StateFlow<String?> = _currentCrashContent.asStateFlow()
+    private val _currentCrashAnalysis = MutableStateFlow<CrashReportAnalyzer.Analysis?>(null)
+    val currentCrashAnalysis: StateFlow<CrashReportAnalyzer.Analysis?> = _currentCrashAnalysis.asStateFlow()
+
+    /** Shows a structured report when validation fails before a process can create its own crash file. */
+    private fun showStartupFailureReport(error: Throwable) {
+        val text = buildString {
+            appendLine("MineServeMobile 启动失败报告")
+            appendLine("时间: ${timeNow()}")
+            appendLine("异常: ${error::class.java.name}: ${error.message ?: "未提供详情"}")
+            appendLine()
+            append(error.stackTraceToString())
+        }
+        _currentCrashContent.value = text
+        _currentCrashAnalysis.value = CrashReportAnalyzer.analyze(text)
+    }
+
+    private fun showStartupFailureReport(failure: McServerController.StartupFailure) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val report = failure.reportPath?.let { runCatching { File(it).readText() }.getOrNull() }
+            val text = report ?: buildString {
+                appendLine("MineServeMobile 启动失败报告")
+                appendLine("时间: ${timeNow()}")
+                appendLine("退出码: ${failure.code}")
+                appendLine("原因: ${failure.detail}")
+                appendLine("\n请查看当前服务端 latest.log 和 crash-reports 目录。")
+            }
+            withContext(kotlinx.coroutines.Dispatchers.Main) {
+                _currentCrashContent.value = text
+                _currentCrashAnalysis.value = CrashReportAnalyzer.analyze(text)
+            }
+        }
+    }
 
     /** 读取崩溃报告全文 */
     fun readCrashReport(fileName: String) {
         viewModelScope.launch {
             try {
-                _currentCrashContent.value = withContext(Dispatchers.IO) { crashReportManager.readCrashReport(fileName) }
+                _currentCrashContent.value = withContext(Dispatchers.IO) { java.io.File(_crashReports.value.firstOrNull { it.fileName == fileName }?.path ?: "").takeIf { it.isFile }?.readText() }
+                _currentCrashAnalysis.value = _currentCrashContent.value?.let(CrashReportAnalyzer::analyze)
                 if (_currentCrashContent.value == null) {
                     _errorFlow.tryEmit(str(R.string.s288))
                 }
@@ -2404,6 +2553,7 @@ class McViewModel(
     /** 关闭崩溃报告详情视图 */
     fun clearCrashContent() {
         _currentCrashContent.value = null
+        _currentCrashAnalysis.value = null
     }
 
     /** 删除崩溃报告 */
@@ -2805,8 +2955,21 @@ class McViewModel(
      */
     init {
         loadPlayerHistory()
+        viewModelScope.launch {
+            config.map { it.activeCoreName }.distinctUntilChanged().collect { loadPlayerHistory() }
+        }
+        viewModelScope.launch {
+            var wasRunning = false
+            serverState.collect { state ->
+                if (wasRunning && !state.isRunning) interruptPlayerSessions()
+                wasRunning = state.isRunning
+            }
+        }
         startServerResourceCollection()
         // 订阅 consoleFlow，使用环形缓冲 + 批量刷新，避免每行 O(n) 拷贝。
+        viewModelScope.launch(Dispatchers.Default) {
+            controller.startupFailures.collect { showStartupFailureReport(it) }
+        }
         viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->
                 synchronized(consoleBuffer) {

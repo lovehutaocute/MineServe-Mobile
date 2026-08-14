@@ -7,6 +7,7 @@ import com.mineserve.mobile.data.InstalledCore
 import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.MultiThreadDownloader
 import com.mineserve.mobile.data.ServerCore
+import com.mineserve.mobile.data.MinecraftVersionNormalizer
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.StepStatus
 import com.mineserve.mobile.runtime.TermuxRuntime
@@ -14,6 +15,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -37,6 +40,9 @@ class McServerController(
     private val termux: TermuxRuntime,
     private val repo: ServerRepository
 ) {
+    data class StartupFailure(val code: Int, val reportPath: String?, val detail: String)
+    private val _startupFailures = MutableSharedFlow<StartupFailure>(extraBufferCapacity = 8)
+    val startupFailures = _startupFailures.asSharedFlow()
 
     private val powerNukkitXRepos = listOf(
         "PowerNukkitX/PowerNukkitX",
@@ -86,6 +92,8 @@ class McServerController(
     private val maxRestartAttempts = 3
     @Volatile
     private var restartAttempts = 0
+    @Volatile
+    private var startupDeadlineMs = 0L
 
     /**
      * 一键安装依赖
@@ -183,55 +191,61 @@ class McServerController(
      * @param onProgress 回调参数：(已下载字节, 总字节, 速度 bytes/s)，总字节为 -1 表示未知
      */
     suspend fun downloadCore(config: McConfig, customName: String, onProgress: (Long, Long, Long) -> Unit) = withContext(Dispatchers.IO) {
-        if (config.selectedCore.needsInstaller && !termux.isJavaInstalled(config.selectedJavaVersion)) {
-            throw RuntimeException("${config.selectedJavaVersion.displayName} is not installed. Install and verify it before running ${config.selectedCore.displayName} installer.")
+        val normalizedConfig = config.copy(
+            mcVersion = MinecraftVersionNormalizer.forCore(config.selectedCore, config.mcVersion)
+        )
+        if (normalizedConfig.mcVersion != config.mcVersion) {
+            termux.emitLog("[version] Minecraft target normalized from ${config.mcVersion} to ${normalizedConfig.mcVersion}")
+        }
+        if (normalizedConfig.selectedCore.needsInstaller && !termux.isJavaInstalled(normalizedConfig.selectedJavaVersion)) {
+            throw RuntimeException("${normalizedConfig.selectedJavaVersion.displayName} is not installed. Install and verify it before running ${normalizedConfig.selectedCore.displayName} installer.")
         }
         val dirName = sanitizeDirName(customName)
         val jarPath = termux.serverJarFileFor(dirName).absolutePath
-        downloadCoreTo(jarPath, config, dirName, onProgress)
+        downloadCoreTo(jarPath, normalizedConfig, dirName, onProgress)
         // 在新核心目录下创建 eula.txt 和 plugins/ 目录
         val serverDir = termux.serverDirFor(dirName)
-        if (config.selectedCore == ServerCore.PowerNukkitX) {
+        if (normalizedConfig.selectedCore == ServerCore.PowerNukkitX) {
             val properties = File(serverDir, "server.properties")
             val current = if (properties.exists()) properties.readText() else ""
-            val portLine = "server-port=${config.localPort}"
+            val portLine = "server-port=${normalizedConfig.localPort}"
             val updated = if (Regex("(?m)^server-port=.*$").containsMatchIn(current)) {
                 current.replace(Regex("(?m)^server-port=.*$"), portLine)
             } else "$current${if (current.isNotEmpty() && !current.endsWith("\n")) "\n" else ""}$portLine\n"
             properties.writeText(updated)
-            PowerNukkitXConfigManager(termux).updatePort(dirName, config.localPort)
+            PowerNukkitXConfigManager(termux).updatePort(dirName, normalizedConfig.localPort)
         }
         // NeoForge/Quilt：下载的是 installer.jar，执行安装命令生成启动环境（首次需下载依赖）
-        if (config.selectedCore.needsInstaller) {
+        if (normalizedConfig.selectedCore.needsInstaller) {
             termux.emitLog("[install] 正在执行 ${config.selectedCore.displayName} installer，首次安装需下载依赖，请耐心等待...")
             val installerTempDir = File(termux.installer.rootDir, "tmp").apply { mkdirs() }
-            when (config.selectedCore) {
+            when (normalizedConfig.selectedCore) {
                 ServerCore.Forge -> {
                     val code = runInstallerWithRetry(
-                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir,
-                        config.selectedJavaVersion
+                        jarPath, serverDir, normalizedConfig.selectedCore.displayName, installerTempDir,
+                        normalizedConfig.selectedJavaVersion
                     )
                     if (code != 0) throw RuntimeException("Forge installer 执行失败 (exit=$code)")
                 }
                 ServerCore.NeoForge -> {
                     val code = runInstallerWithRetry(
-                        jarPath, serverDir, config.selectedCore.displayName, installerTempDir,
-                        config.selectedJavaVersion
+                        jarPath, serverDir, normalizedConfig.selectedCore.displayName, installerTempDir,
+                        normalizedConfig.selectedJavaVersion
                     )
                     if (code != 0) throw RuntimeException("NeoForge installer 执行失败 (exit=$code)")
                 }
                 ServerCore.Quilt -> {
-                    val code = if (config.selectedJavaVersion == JavaVersion.Java8) {
+                    val code = if (normalizedConfig.selectedJavaVersion == JavaVersion.Java8) {
                         val guestJar = "/srv/mineserve/${File(jarPath).relativeTo(serverDir).invariantSeparatorsPath}"
                         termux.runJava8Command(
                             serverDir,
                             "export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-arm64; cd /srv/mineserve && " +
                                 "exec /usr/bin/java -Djava.io.tmpdir=/tmp -jar '$guestJar' " +
-                                "install server '${config.mcVersion}' --install-dir=/srv/mineserve --download-server"
+                                "install server '${normalizedConfig.mcVersion}' --install-dir=/srv/mineserve --download-server"
                         )
                     } else {
                         termux.execOnce(
-                            "java", "-jar", jarPath, "install", "server", config.mcVersion,
+                            "java", "-jar", jarPath, "install", "server", normalizedConfig.mcVersion,
                             "--install-dir=${serverDir.absolutePath}", "--download-server"
                         )
                     }
@@ -239,8 +253,8 @@ class McServerController(
                 }
                 else -> {}
             }
-            requireInstallerLaunchArtifacts(config.selectedCore, serverDir)
-            termux.emitLog("[install] ${config.selectedCore.displayName} 安装完成")
+            requireInstallerLaunchArtifacts(normalizedConfig.selectedCore, serverDir)
+            termux.emitLog("[install] ${normalizedConfig.selectedCore.displayName} 安装完成")
         }
         val eula = File(serverDir, "eula.txt")
         if (!eula.exists()) eula.writeText("eula=true\n")
@@ -248,8 +262,8 @@ class McServerController(
         // 添加到已安装列表
         val newCore = InstalledCore(
             name = customName,
-            core = config.selectedCore,
-            version = config.mcVersion,
+            core = normalizedConfig.selectedCore,
+            version = normalizedConfig.mcVersion,
             dirName = dirName
         )
         val updated = config.installedCores.filter { it.dirName != dirName } + newCore
@@ -286,6 +300,16 @@ class McServerController(
 
     private fun resolveDownloadUrls(core: ServerCore, version: String): List<String> {
         val official = resolveDownloadUrl(core, version)
+        val mirrors = when (core) {
+            ServerCore.Vanilla -> listOf("https://bmclapi2.bangbang93.com/version/$version/server")
+            ServerCore.Forge -> {
+                val coordinate = official.substringAfter("/forge/").substringBefore("/")
+                val forgeVersion = coordinate.removePrefix("$version-")
+                listOf("https://bmclapi2.bangbang93.com/forge/download?mcversion=$version&version=$forgeVersion&category=installer&format=jar")
+            }
+            ServerCore.Fabric -> listOf(official.replace("https://meta.fabricmc.net/", "https://bmclapi2.bangbang93.com/fabric-meta/"))
+            else -> emptyList()
+        }
         return if (core == ServerCore.PowerNukkitX) {
             // ponytail: three fixed channels cover mainland acceleration and the official fallback.
             listOf(
@@ -296,7 +320,7 @@ class McServerController(
                 "https://github.moeyy.xyz/$official",
                 official
             ).distinct()
-        } else listOf(official)
+        } else (mirrors + official).distinct()
     }
 
     // ── PaperMC v3 API（fill.papermc.io）：动态获取最新 STABLE build 号 ───
@@ -707,8 +731,8 @@ class McServerController(
         outFile.parentFile?.mkdirs()
 
         var lastError: Exception? = null
-        // 普通核心保持 3 次重试；PowerNukkitX 依次尝试加速通道和官方源。
-        val maxAttempts = if (config.selectedCore == ServerCore.PowerNukkitX) urls.size else 3
+        // Every candidate source is tried once before retrying the first source.
+        val maxAttempts = maxOf(3, urls.size)
         repeat(maxAttempts) { attempt ->
             val url = urls[attempt % urls.size]
             try {
@@ -866,6 +890,7 @@ class McServerController(
             }
             else -> null
         }
+        startupDeadlineMs = System.currentTimeMillis() + 20_000L
         termux.startMc(
             jarPath = jarPath,
             maxHeapMb = config.maxHeapMb,
@@ -873,6 +898,7 @@ class McServerController(
             javaVersion = config.selectedJavaVersion,
             launchArgs = launchArgs,
             onExit = { code ->
+                val failedDuringStartup = System.currentTimeMillis() <= startupDeadlineMs
                 repo.updateServerState { it.copy(isRunning = false) }
                 Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
                 // 捕获崩溃报告（非正常退出时收集最近日志 + MC 原生崩溃报告）
@@ -886,6 +912,7 @@ class McServerController(
                     } catch (e: Exception) {
                         Log.e(TAG, "捕获崩溃报告失败: ${e.message}", e)
                     }
+                    if (failedDuringStartup) _startupFailures.tryEmit(StartupFailure(code, null, "服务端启动后立即退出"))
                 }
                 // 崩溃自动重启（exit code 非 0 且用户开启）
                 if (config.autoRestartOnCrash && code != 0) {
