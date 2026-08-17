@@ -21,6 +21,8 @@ import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -28,6 +30,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -89,7 +92,64 @@ fun TerminalScreen(vm: McViewModel) {
         }
     }
 
-    Column(Modifier.fillMaxSize().background(Color(0xFF121419))) {
+    val sendInput = {
+        if (input.isNotBlank()) {
+            if (active.type == TerminalSessionType.Termux) vm.executeTerminalCommand(active.id, input) else vm.sendCommand(input)
+            input = ""
+        }
+    }
+    Scaffold(
+        containerColor = Color(0xFF121419),
+        contentWindowInsets = WindowInsets(0.dp),
+        bottomBar = {
+            // Kept in this screen's bottom slot so the app navigation bar and
+            // IME cannot overlay the command field or its send action.
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF121419))
+                    .imePadding()
+                    .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (active.type == TerminalSessionType.Minecraft) ">" else "$",
+                    color = Color(0xFF57E357),
+                    fontFamily = FontFamily.Monospace
+                )
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    singleLine = true,
+                    enabled = !active.busy,
+                    modifier = Modifier.weight(1f),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedTextColor = Color.White,
+                        unfocusedTextColor = Color.White,
+                        focusedBorderColor = Color(0xFF3996FF),
+                        unfocusedBorderColor = Color(0xFF596273),
+                        cursorColor = Color(0xFF57E357)
+                    )
+                )
+                IconButton(
+                    onClick = sendInput,
+                    enabled = !active.busy && input.isNotBlank(),
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color(0xFF3996FF), RoundedCornerShape(8.dp))
+                ) {
+                    Icon(Icons.Outlined.Send, "发送", tint = Color.White)
+                }
+            }
+        }
+    ) { terminalPadding ->
+    Column(
+        Modifier
+            .fillMaxSize()
+            .background(Color(0xFF121419))
+            .padding(terminalPadding)
+    ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             Text("终端", color = Color(0xFFE8E8E8), fontSize = 22.sp, fontFamily = FontFamily.Monospace)
             Row {
@@ -128,16 +188,7 @@ fun TerminalScreen(vm: McViewModel) {
                 }
             }
         }
-        Row(Modifier.fillMaxWidth().imePadding().padding(8.dp, 8.dp, 16.dp, 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(if (active.type == TerminalSessionType.Minecraft) ">" else "$", color = Color(0xFF57E357), fontFamily = FontFamily.Monospace, modifier = Modifier.padding(top = 14.dp))
-            OutlinedTextField(value = input, onValueChange = { input = it }, singleLine = true, modifier = Modifier.weight(1f), enabled = !active.busy)
-            IconButton(onClick = {
-                if (input.isNotBlank()) {
-                    if (active.type == TerminalSessionType.Termux) vm.executeTerminalCommand(active.id, input) else vm.sendCommand(input)
-                    input = ""
-                }
-            }, enabled = !active.busy) { Icon(Icons.Outlined.Send, "发送", tint = Color.White) }
-        }
+    }
     }
     if (showSettings) AlertDialog(
         onDismissRequest = { showSettings = false },
