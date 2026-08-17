@@ -168,6 +168,8 @@ fun PluginsScreen(vm: McViewModel) {
     val pluginModrinthResults by vm.pluginModrinthResults.collectAsState()
     val pluginModrinthLoaders by vm.pluginModrinthLoaders.collectAsState()
     val selectedPluginVersion by vm.selectedPluginVersion.collectAsState()
+    val isLoadingMoreMods by vm.isLoadingMoreMods.collectAsState()
+    val isLoadingMorePlugins by vm.isLoadingMorePlugins.collectAsState()
     val downloadProgress by vm.pluginDownloadProgress.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -273,7 +275,7 @@ fun PluginsScreen(vm: McViewModel) {
         ) {
             if (isPowerNukkitX) {
                 Text(
-                    "PowerNukkitX 可管理 plugins/ 中的 PNX 插件；Java Edition 模组功能暂不适用。",
+                    stringResource(R.string.pl_pnx_mods_hint),
                     color = Coral,
                     fontSize = 11.sp,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp)
@@ -438,6 +440,7 @@ fun PluginsScreen(vm: McViewModel) {
             when (activeTab) {
                 PluginTab.Installed -> InstalledTab(
                     installed = installedPlugins,
+                    conflicts = vm.detectPluginConflicts(installedPlugins),
                     activeCoreExists = activeCore != null,
                     onToggle = { vm.togglePluginEnabled(it.fileName) },
                     onDelete = { pendingDelete = it },
@@ -471,7 +474,9 @@ fun PluginsScreen(vm: McViewModel) {
                     onSearchModrinth = { query, loaders, sort, version ->
                         vm.searchModrinthMods(query, loaders, sort, version)
                     },
-                    onInstallModrinth = { hit, version -> vm.installModrinthMod(hit, version) }
+                    onInstallModrinth = { hit, version -> vm.installModrinthMod(hit, version) },
+                    onLoadMoreModrinth = { vm.loadMoreModrinthMods() },
+                    isLoadingMore = isLoadingMoreMods
                 )
             }
 
@@ -487,7 +492,9 @@ fun PluginsScreen(vm: McViewModel) {
                     onSearch = { query, loaders, sort, version ->
                         vm.searchModrinthPlugin(query, loaders, sort, version)
                     },
-                    onInstall = { hit, version -> vm.installModrinthPlugin(hit, version) }
+                    onInstall = { hit, version -> vm.installModrinthPlugin(hit, version) },
+                    onLoadMore = { vm.loadMoreModrinthPlugin() },
+                    isLoadingMore = isLoadingMorePlugins
                 )
             }
 
@@ -632,6 +639,7 @@ fun PluginsScreen(vm: McViewModel) {
 @Composable
 private fun InstalledTab(
     installed: List<PluginManager.InstalledPlugin>,
+    conflicts: List<String>,
     activeCoreExists: Boolean,
     onToggle: (PluginManager.InstalledPlugin) -> Unit,
     onDelete: (PluginManager.InstalledPlugin) -> Unit,
@@ -648,6 +656,26 @@ private fun InstalledTab(
         if (installed.isEmpty()) {
             EmptyHint(icon = Icons.Outlined.Extension, text = stringResource(R.string.s771))
             return@McCard
+        }
+
+        // 插件冲突警告
+        if (conflicts.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Coral.copy(alpha = 0.12f))
+                    .border(1.dp, Coral, RoundedCornerShape(10.dp))
+                    .padding(10.dp)
+            ) {
+                Column {
+                    Text(stringResource(R.string.pl_conflict_title), color = Coral, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    conflicts.forEach { c ->
+                        Text("• $c", color = Coral, fontSize = 10.sp, lineHeight = 14.sp)
+                    }
+                }
+            }
         }
 
         // 搜索框
@@ -779,7 +807,7 @@ private fun InstalledPluginRow(
                 append(plugin.lastModifiedText)
                 append("  ·  ")
                 append(plugin.sourceTag)
-                if (!plugin.isEnabled) append("  ·  已禁用")
+                if (!plugin.isEnabled) append(stringResource(R.string.pl_disabled_suffix))
             }
             Text(
                 metaLine,
@@ -868,7 +896,7 @@ private fun CuratedTab(
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
-                if (coreType.supportsPlugins) "✓ 本核心支持插件" else "✗ 本核心不支持插件",
+                if (coreType.supportsPlugins) stringResource(R.string.pl_core_supports) else stringResource(R.string.pl_core_unsupported),
                 color = if (coreType.supportsPlugins) Mint else Coral,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
@@ -1048,7 +1076,7 @@ private fun CuratedPluginRow(
         // 下载进度条
         if (progress != null) {
             LinearProgressIndicator(
-                progress = progress.percent / 100f,
+                progress = { progress.percent / 100f },
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp)
@@ -1215,7 +1243,7 @@ private fun UploadTab(
         if (customUrlProgress != null) {
             Spacer(Modifier.height(8.dp))
             LinearProgressIndicator(
-                progress = customUrlProgress.percent / 100f,
+                progress = { customUrlProgress.percent / 100f },
                 modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
                 color = Mint,
                 trackColor = IndigoSoft
@@ -1423,7 +1451,9 @@ private fun ModsTab(
     onUpload: (Uri) -> Unit,
     onInstallCurated: (PluginManager.CuratedMod) -> Unit,
     onSearchModrinth: (String, List<String>, String, String) -> Unit,
-    onInstallModrinth: (PluginManager.ModrinthHit, String) -> Unit
+    onInstallModrinth: (PluginManager.ModrinthHit, String) -> Unit,
+    onLoadMoreModrinth: () -> Unit,
+    isLoadingMore: Boolean
 ) {
     var detailHit by remember { mutableStateOf<PluginManager.ModrinthHit?>(null) }
     var modrinthQuery by remember { mutableStateOf("") }
@@ -1653,6 +1683,13 @@ fontWeight = FontWeight.SemiBold
                     }
                 }
             }
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = onLoadMoreModrinth,
+                enabled = !isLoadingMore,
+                modifier = Modifier.fillMaxWidth().height(36.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) { Text(if (isLoadingMore) "加载中..." else stringResource(R.string.pl_load_more), color = Indigo, fontSize = 11.sp) }
         }
     }
 
@@ -1671,7 +1708,9 @@ private fun PluginModrinthCard(
     currentServerVersion: String,
     onSetVersion: (String) -> Unit,
     onSearch: (String, List<String>, String, String) -> Unit,
-    onInstall: (PluginManager.ModrinthHit, String) -> Unit
+    onInstall: (PluginManager.ModrinthHit, String) -> Unit,
+    onLoadMore: () -> Unit,
+    isLoadingMore: Boolean
 ) {
     var query by remember { mutableStateOf("") }
     var selectedLoaders by remember { mutableStateOf(setOf<String>()) }
@@ -1828,6 +1867,13 @@ private fun PluginModrinthCard(
                     }
                 }
             }
+            Spacer(Modifier.height(4.dp))
+            TextButton(
+                onClick = onLoadMore,
+                enabled = !isLoadingMore,
+                modifier = Modifier.fillMaxWidth().height(36.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+            ) { Text(if (isLoadingMore) "加载中..." else stringResource(R.string.pl_load_more), color = Indigo, fontSize = 11.sp) }
         }
     }
 

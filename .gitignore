@@ -21,3 +21,12 @@ local.properties
 
 cloudflare/.wrangler/
 .git-backup.log
+
+# 工作区测试产物（若被复制进仓库）
+666/
+666.zip
+*.log
+phone-*.png
+crash_error.log
+crash_log.txt
+.reasonix/

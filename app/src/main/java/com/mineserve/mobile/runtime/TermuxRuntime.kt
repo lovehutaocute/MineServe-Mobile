@@ -245,6 +245,8 @@ class TermuxRuntime(context: Context) {
             emitLog("[java] ${version.displayName} 安装失败：Termux 软件源或包索引不可用")
             return@withContext false
         }
+        // 安装前再次校验 apt 可执行（防 dpkg 操作后权限被改）
+        ensureAptWorking()
         val code = execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", version.packageName)
         if (code == 0) fixJavaSymlinks(version)
         val installed = code == 0 && isJavaInstalled(version)
@@ -802,8 +804,88 @@ class TermuxRuntime(context: Context) {
         if (fixed > 0) emitLog("[bootstrap] 修复 $fixed 个 proot-distro 路径")
     }
 
-    fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int =
-        executor.execOnce(*command, env = env)
+    /**
+     * 绕过脚本自身 exec 位/标签限制，直接用其 shebang 解释器执行（如 perl apt-get）。
+     * 适用于脚本 exec 被拒（Permission denied）但解释器可正常执行的环境。
+     */
+    /**
+     * 直接 exec 探测，捕获精确的 IOException 信息（含 errno），用于区分
+     * Permission denied(13) / No such file(2) / Exec format(8) 等不同拒绝原因。
+     */
+    /**
+     * 决定性测试：把系统原生二进制复制到 app 数据目录再 exec。
+     *  - 复制副本可执行 → app_data 执行未被设备禁止，问题在 bootstrap ELF（页大小/加载器）；
+     *  - 复制副本同样 EACCES → 设备禁止执行 app 数据目录原生程序（SELinux/策略层面，需换机制或 targetSdk）。
+     */
+    fun probeSystemCopyExec(): String {
+        val src = File("/system/bin/toybox")
+        if (!src.isFile) return "系统二进制 /system/bin/toybox 不存在"
+        val copy = File(installer.rootDir, "tmp/system-toybox-copy")
+        return try {
+            copy.parentFile?.mkdirs()
+            src.copyTo(copy, overwrite = true)
+            copy.setExecutable(true, false)
+            val pb = ProcessBuilder(copy.absolutePath, "--help").redirectErrorStream(true).start()
+            val out = pb.inputStream.bufferedReader().use { it.readText() }.take(120)
+            val done = pb.waitFor(3, TimeUnit.SECONDS)
+            if (!done) pb.destroyForcibly()
+            val tag = if (done && pb.exitValue() == 0) "可执行" else "启动异常(exit=${if (done) pb.exitValue() else "timeout"})"
+            "系统二进制副本 $tag | $out"
+        } catch (e: Exception) {
+            "系统二进制副本 exec 失败: ${e.javaClass.simpleName}: ${e.message}"
+        } finally {
+            runCatching { copy.delete() }
+        }
+    }
+
+    /** 设备内存页大小（16KB 页设备无法执行 4KB 页对齐的旧 ELF） */
+    fun pageSize(): String = try {
+        val pb = ProcessBuilder("/system/bin/getconf", "PAGE_SIZE").redirectErrorStream(true).start()
+        val out = pb.inputStream.bufferedReader().use { it.readText() }.trim()
+        if (pb.waitFor(2, TimeUnit.SECONDS)) out else "未知"
+    } catch (_: Exception) { "未知" }
+
+    fun probeExecErrno(path: String): String {
+        return try {
+            val pb = ProcessBuilder(path, "--version").redirectErrorStream(true).start()
+            val out = pb.inputStream.bufferedReader().use { it.readText() }.take(200)
+            val code = pb.waitFor(3, TimeUnit.SECONDS)
+            if (!code) pb.destroyForcibly()
+            "exec 成功 (exit=${if (code) pb.exitValue() else "timeout"}) ${out.trim()}"
+        } catch (e: Exception) {
+            "exec 失败: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    fun execScriptViaInterpreter(script: File, vararg args: String): Int {
+        val head = try { script.bufferedReader().use { it.readLine() } } catch (_: Exception) { null } ?: return 1
+        if (!head.startsWith("#!")) return 1
+        val interpLine = head.removePrefix("#!").trim()
+        val interpPath = interpLine.split(Regex("\\s+")).firstOrNull() ?: return 1
+        val prefix = installer.rootDir.absolutePath
+        val interp = when {
+            interpPath.startsWith(prefix) -> File(interpPath)
+            interpPath.startsWith("/") -> File(prefix, interpPath.removePrefix("/"))
+            else -> File(prefix, "usr/bin/$interpPath")
+        }
+        if (interp.exists() && !interp.canExecute()) runCatching { interp.setExecutable(true, false) }
+        if (interp.exists()) {
+            emitLog("[apt] 改用解释器 ${interp.name} 直接执行 apt-get（绕过脚本 exec 限制）")
+            return execOnce(interp.absolutePath, script.absolutePath, *args)
+        }
+        emitLog("[apt] 解释器 ${interpPath} 不存在，无法绕过执行")
+        return 1
+    }
+
+    fun execOnce(vararg command: String, env: Map<String, String> = emptyMap()): Int {
+        // Some older installations reached apt through a direct internal path
+        // that did not carry -y. Keep the shared apt config non-interactive so
+        // a closed stdin cannot turn a valid install into "Abort".
+        if (command.firstOrNull()?.let { File(it).name } in setOf("apt", "apt-get", "pkg")) {
+            ensureAptConfigs()
+        }
+        return executor.execOnce(*command, env = env)
+    }
 
     fun execOnceWithTimeout(
         timeoutMs: Long,
@@ -811,16 +893,149 @@ class TermuxRuntime(context: Context) {
         env: Map<String, String> = emptyMap()
     ): Int = executor.execOnceWithTimeout(timeoutMs, *command, env = env)
 
+
+    /**
+     * apt-get 执行前强制自愈 + 校验（幂等，毫秒级）。
+     *
+     * 背景：安装 Java 等依赖时偶发 `/system/bin/sh: .../bin/apt-get: Permission denied`（退出码 126）。
+     * 多为 bin/apt-get 链接目标丢失 exec 位、链接失效，或 shebang 解释器（apt 为 perl 脚本）
+     * 缺失/无 exec 位；旧版本环境还可能是 shebang 仍指向 /data/data/com.termux 被系统拒绝。
+     *
+     * 修复：强制重跑 归位+exec位+shebang 改写 → 校验并重建 bin/apt-get 链接 →
+     * 校验解释器存在且可执行 → 仍失败时输出 diagnoseCommand("apt-get") 便于定位。
+     */
+    fun ensureAptWorking(): Boolean {
+        val prefix = installer.rootDir.absolutePath
+        // 1. 强制自愈（幂等；顺序：先归位再补权限与 shebang）
+        runCatching { fixUsrBin() }
+        ensureRootfsExecutable()
+        fixScriptsOnce()
+        // 2. 校验并重建 bin/apt-get 链接（目标缺失时从 usr/bin 重建）
+        val link = File(prefix, "bin/apt-get")
+        val real = File(prefix, "usr/bin/apt-get")
+        if (!link.exists() && real.isFile) {
+            runCatching {
+                java.nio.file.Files.createSymbolicLink(link.toPath(), java.nio.file.Paths.get("../usr/bin/apt-get"))
+                emitLog("[apt] 已重建 bin/apt-get 链接")
+            }
+        }
+        // 3. 确保 apt-get 本体与链接目标可执行
+        listOf(link, real).forEach { f ->
+            if (f.exists() && !f.canExecute()) runCatching { f.setExecutable(true, false) }
+        }
+        // 4. 校验 shebang 解释器（缺失时尝试从 compat 路径补全）
+        ensureScriptInterpreter(real)
+        // 5. 终检：跟随链接判定可执行
+        val ok = link.canExecute()
+        if (!ok) emitLog("[apt] apt-get 仍不可执行，诊断如下：\n" + diagnoseCommand("apt-get"))
+        return ok
+    }
+
+    /** 解析脚本 shebang 并确保解释器存在且可执行（缺失时尝试从 compat 路径补全到 usr/bin） */
+    private fun ensureScriptInterpreter(script: File) {
+        if (!script.exists() || !script.isFile) return
+        val head = try { script.bufferedReader().use { it.readLine() } } catch (_: Exception) { null } ?: return
+        if (!head.startsWith("#!")) return
+        val interp = head.removePrefix("#!").trim().split(Regex("\\s+")).firstOrNull() ?: return
+        val prefix = installer.rootDir.absolutePath
+        val name = File(interp).name
+        val candidates = listOfNotNull(
+            if (interp.startsWith(prefix)) File(interp) else null,
+            if (!interp.startsWith(prefix)) File(prefix, interp.removePrefix("/")) else null,
+            File(prefix, "usr/bin/$name"),
+            File(prefix, "bin/$name"),
+            File(prefix, "data/data/com.termux/files/usr/bin/$name")
+        ).distinct()
+        val found = candidates.firstOrNull { it.exists() }
+        if (found != null) {
+            if (!found.canExecute()) runCatching { found.setExecutable(true, false) }
+            return
+        }
+        // 解释器缺失：从 compat 补全到 usr/bin（保留 exec 位）
+        val compat = File(prefix, "data/data/com.termux/files/usr/bin/$name")
+        val dest = File(prefix, "usr/bin/$name")
+        if (compat.isFile && !dest.exists()) {
+            runCatching { compat.copyTo(dest); dest.setExecutable(true, false) }
+        }
+        if (!File(prefix, "usr/bin/$name").exists()) {
+            emitLog("[apt] shebang 解释器 $interp 缺失（usr/bin/$name 不存在），apt-get 可能仍无法执行")
+        }
+    }
+
     /** Refresh the package index and verify every requested package before apt install. */
     fun prepareAptPackages(vararg packages: String): Boolean {
         if (!isReady()) return false
         repairInstalledCommands()
-        val update = execOnce(
+        // apt-get 偶发 Permission denied（126）：先强制自愈并校验 bin/usr/bin 下的可执行位与 shebang 解释器
+        if (!ensureAptWorking()) return false
+        var update = execOnce(
             "apt-get", "-o", "DPkg::Lock::Timeout=60", "update",
             "--allow-insecure-repositories", "-y"
         )
         if (update != 0) {
+            // 自愈后重试（dpkg/软件源操作可能刚改动了命令权限）
+            emitLog("[apt] 软件源更新失败，正在自愈后重试...")
+            ensureRootfsExecutable()
+            fixScriptsOnce()
+            update = execOnce(
+                "apt-get", "-o", "DPkg::Lock::Timeout=60", "update",
+                "--allow-insecure-repositories", "-y"
+            )
+            if (update != 0) {
+                // 兜底：绕过 bin/ 链接，直接用 usr/bin 真实路径执行（bin 链接异常时可恢复）
+                emitLog("[apt] 仍失败，改用 usr/bin/apt-get 真实路径重试...")
+                val real = java.io.File(installer.rootDir, "usr/bin/apt-get")
+                if (real.isFile || real.canExecute()) {
+                    update = execOnce(
+                        real.absolutePath, "-o", "DPkg::Lock::Timeout=60", "update",
+                        "--allow-insecure-repositories", "-y"
+                    )
+                }
+            }
+            if (update != 0) {
+                // 兜底2：直接用 shebang 解释器（perl/bash 等）执行，绕过脚本 exec 位/SELinux 限制
+                val real2 = java.io.File(installer.rootDir, "usr/bin/apt-get")
+                if (real2.isFile) {
+                    update = execScriptViaInterpreter(
+                        real2, "-o", "DPkg::Lock::Timeout=60", "update",
+                        "--allow-insecure-repositories", "-y"
+                    )
+                }
+            }
+            if (update != 0) {
+                // 兜底3：精确探测 exec 失败原因（errno）
+                emitLog("[apt] 探测: " + probeExecErrno(java.io.File(installer.rootDir, "bin/apt-get").absolutePath))
+                // 兜底4：复制到全新 inode（新 SELinux 标签/去掉可能损坏的元数据）后执行
+                val copy = java.io.File(installer.rootDir, "tmp/apt-get-copy")
+                runCatching {
+                    java.io.File(installer.rootDir, "usr/bin/apt-get").copyTo(copy, overwrite = true)
+                    copy.setExecutable(true, false)
+                }
+                if (copy.isFile && copy.canExecute()) {
+                    emitLog("[apt] 尝试复制副本执行...")
+                    update = execOnce(
+                        copy.absolutePath, "-o", "DPkg::Lock::Timeout=60", "update",
+                        "--allow-insecure-repositories", "-y"
+                    )
+                }
+            }
+            if (update != 0) {
+                // 兜底5：尝试 apt 原生二进制（apt-get 的兄弟命令）
+                emitLog("[apt] 尝试 apt 命令...")
+                update = execOnce(
+                    "apt", "-o", "DPkg::Lock::Timeout=60", "update",
+                    "--allow-insecure-repositories", "-y"
+                )
+            }
+            if (update != 0) {
+                // 决定性诊断：页大小 + 系统二进制副本测试（区分设备策略 vs bootstrap ELF 问题）
+                emitLog("[apt] 内存页大小: " + pageSize() + " (16KB 页设备无法执行 4KB 对齐的旧版 Termux ELF)")
+                emitLog("[apt] 系统二进制副本测试: " + probeSystemCopyExec())
+            }
+        }
+        if (update != 0) {
             emitLog("[apt] 软件源更新失败，未继续安装；请切换软件源或检查网络后重试")
+            emitLog(diagnoseCommand("apt-get"))
             return false
         }
         val missing = packages.filter {
@@ -1288,10 +1503,21 @@ class TermuxRuntime(context: Context) {
                     appendLine("Acquire::https::Verify-Peer \"false\";")
                     appendLine("Acquire::https::Verify-Host \"false\";")
                     appendLine("APT::Get::AllowUnauthenticated \"true\";")
+                    appendLine("APT::Get::Assume-Yes \"true\";")
                     appendLine("APT::Sandbox::User \"root\";")
                     appendLine("APT::Sandbox::Seccomp \"false\";")
                 })
                 fixed++
+            }
+            // Existing app versions may already have an apt.conf without the
+            // non-interactive default. Add only the missing directive and
+            // preserve all user/source settings.
+            if (aptConf.isFile) {
+                val content = aptConf.readText()
+                if (!Regex("(?m)^\\s*APT::Get::Assume-Yes\\s+").containsMatchIn(content)) {
+                    aptConf.appendText("\nAPT::Get::Assume-Yes \"true\";\n")
+                    fixed++
+                }
             }
             val sources = File(prefix, "etc/apt/sources.list")
             if (!sources.exists() || sources.length() == 0L) {
@@ -1375,6 +1601,7 @@ class TermuxRuntime(context: Context) {
         val prefix = installer.rootDir.absolutePath
         val sb = StringBuilder()
         sb.append("[诊断] 环境就绪: ${installer.isReady()}")
+        sb.append("\n  内存页大小: " + pageSize())
         val first = cmd.trim().split(Regex("\\s+")).firstOrNull { it.isNotEmpty() }
         if (first != null) {
             sb.append("\n  bin/$first: ${fileInfo(File(prefix, "bin/$first"))}")
@@ -1397,6 +1624,15 @@ class TermuxRuntime(context: Context) {
         val compatCount = compatUsrBin.listFiles()?.size ?: -1
         sb.append("\n  compat usr/bin 文件数: ${if (compatCount < 0) "不存在" else compatCount}")
         sb.append("\n  /data/data/com.termux: ${if (File("/data/data/com.termux").exists()) "存在" else "不存在"}")
+        // SELinux 上下文探测（部分 ROM 对 app_data 执行限制/标签异常 → chmod 后仍 Permission denied）
+        try {
+            val lsZ = ProcessBuilder("/system/bin/ls", "-Z", File(prefix, "bin/apt-get").absolutePath, File(prefix, "usr/bin/apt-get").absolutePath)
+                .redirectErrorStream(true).start()
+            val zout = lsZ.inputStream.bufferedReader().use { it.readText() }.trim()
+            if (lsZ.waitFor(3, TimeUnit.SECONDS) && zout.isNotBlank()) {
+                sb.append("\n  SELinux: " + zout.replace("\n", "\n  SELinux: "))
+            } else lsZ.destroyForcibly()
+        } catch (_: Exception) {}
         return sb.toString()
     }
 
@@ -1408,9 +1644,10 @@ class TermuxRuntime(context: Context) {
         } else ""
         val exec = if (f.canExecute()) "可执行" else "无exec位"
         var shebang = ""
-        if (f.isFile && !isLink) {
+        // 跟随符号链接读取目标脚本首行（链接目标也是脚本时同样展示 shebang，便于定位解释器问题）
+        if (f.isFile) {
             try {
-                val head = f.bufferedReader().use { it.readLine() }?.take(100) ?: ""
+                val head = f.bufferedReader().use { it.readLine() }?.take(120) ?: ""
                 if (head.startsWith("#!")) shebang = " | shebang: $head"
             } catch (_: Exception) {}
         }
@@ -1622,7 +1859,8 @@ class TermuxRuntime(context: Context) {
         serverDir: File,
         onExit: (Int) -> Unit,
         launchArgs: String?,
-        logFile: File
+        logFile: File,
+        appendNogui: Boolean
     ): Process {
         if (!java8UbuntuReady()) {
             emitLog("[startMc] Java 8 Ubuntu ARM64 运行环境未安装或不完整")
@@ -1660,7 +1898,7 @@ class TermuxRuntime(context: Context) {
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
-            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments nogui"
+            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments" + if (appendNogui) " nogui" else ""
         val rootfs = java8Rootfs
         // PRoot creates glue files outside the guest rootfs. Keep this path in
         // the app-owned prefix; Termux's compatibility /usr/tmp may be absent
@@ -1752,7 +1990,15 @@ class TermuxRuntime(context: Context) {
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
      * onExit 回调在 MC 进程退出时触发。
      */
-    fun startMc(jarPath: String, maxHeapMb: Int, dirName: String, javaVersion: JavaVersion = JavaVersion.Java17, onExit: (Int) -> Unit, launchArgs: String? = null): Process {
+    fun startMc(
+        jarPath: String,
+        maxHeapMb: Int,
+        dirName: String,
+        javaVersion: JavaVersion = JavaVersion.Java17,
+        onExit: (Int) -> Unit,
+        launchArgs: String? = null,
+        appendNogui: Boolean = true
+    ): Process {
         Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m dirName=$dirName")
 
         // 如果已有进程在运行，先停止
@@ -1769,7 +2015,7 @@ class TermuxRuntime(context: Context) {
         killOrphanMcProcess(serverDir)
 
         if (javaVersion == JavaVersion.Java8) {
-            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile)
+            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile, appendNogui)
         }
 
         // Java 17/25 continue to use the existing Termux-hosted launch path.
@@ -1808,7 +2054,7 @@ class TermuxRuntime(context: Context) {
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
-            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + " nogui"
+            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + if (appendNogui) " nogui" else ""
 
         Log.i(TAG, "startMc command: $javaCmd")
 

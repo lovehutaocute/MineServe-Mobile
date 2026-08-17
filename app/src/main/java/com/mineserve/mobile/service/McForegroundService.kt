@@ -153,8 +153,12 @@ class McForegroundService : Service() {
      */
     private fun maybeAutoBackup(config: com.mineserve.mobile.data.McConfig) {
         val active = config.installedCores.find { it.name == config.activeCoreName } ?: return
-        val intervalMs = config.autoBackupIntervalMin * 60_000L
-        if (intervalMs <= 0 || autoBackupRunning) return
+        val baseIntervalMs = config.autoBackupIntervalMin * 60_000L
+        if (baseIntervalMs <= 0 || autoBackupRunning) return
+        // 多服务器自动备份错峰：每个服务器在基础间隔上叠加 0–10 分钟的唯一偏移，
+        // 避免多个服务器在同一时刻同时打包造成 IO 高峰
+        val staggerOffset = (active.dirName.hashCode() and 0x7fffffff) % 600_000L
+        val intervalMs = baseIntervalMs + staggerOffset
         if (!ExternalBackupStore.hasPermission(this)) {
             termux.emitLog("[backup] 自动备份跳过：未授予外部存储访问权限")
             return

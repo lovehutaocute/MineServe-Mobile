@@ -206,15 +206,15 @@ fun DashboardScreen(
                 )
             }
 
-            McCard(title = "运行诊断", compact = true) {
+            McCard(title = stringResource(R.string.dash_diag_title), compact = true) {
                 val issues = diagnosticReport.issueCount
                 Text(
                     when {
-                        isRepairingRuntime -> "正在执行安全修复，完成后会自动复检"
-                        isDiagnosing -> "正在检查当前服务端和运行环境"
-                        diagnosticReport.generatedAtMs == 0L -> "尚未执行诊断"
-                        issues == 0 -> "当前运行环境检查通过"
-                        else -> "发现 $issues 项需要注意的问题"
+                        isRepairingRuntime -> stringResource(R.string.dash_diag_repairing)
+                        isDiagnosing -> stringResource(R.string.dash_diag_running)
+                        diagnosticReport.generatedAtMs == 0L -> stringResource(R.string.dash_diag_not_run)
+                        issues == 0 -> stringResource(R.string.dash_diag_pass)
+                        else -> stringResource(R.string.dash_diag_issues, issues)
                     },
                     color = when { isRepairingRuntime || isDiagnosing -> Indigo; issues == 0 && diagnosticReport.generatedAtMs > 0 -> Mint; else -> Coral },
                     fontSize = 12.sp, fontWeight = FontWeight.SemiBold
@@ -222,40 +222,40 @@ fun DashboardScreen(
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onShowDiagnostics, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) {
-                        Text("查看详情", color = Indigo, fontSize = 12.sp)
+                        Text(stringResource(R.string.dash_diag_detail), color = Indigo, fontSize = 12.sp)
                     }
                     Button(
                         onClick = { vm.safeRepairRuntime() },
                         enabled = !isDiagnosing && !isRepairingRuntime && isBootstrapped,
                         modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo)
-                    ) { Text(if (isRepairingRuntime) "修复中" else "一键安全修复", color = Color.White, fontSize = 12.sp) }
+                    ) { Text(if (isRepairingRuntime) stringResource(R.string.dash_diag_repairing_btn) else stringResource(R.string.dash_diag_repair_btn), color = Color.White, fontSize = 12.sp) }
                 }
             }
 
-            McCard(title = "服务端资源", compact = true) {
+            McCard(title = stringResource(R.string.dash_res_title), compact = true) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     DeviceStatCell(
-                        label = "进程内存",
-                        value = resources.processMemoryMb?.let { "${it} MB / ${config.maxHeapMb} MB" } ?: "未运行",
+                        label = stringResource(R.string.dash_res_mem),
+                        value = resources.processMemoryMb?.let { "${it} MB / ${config.maxHeapMb} MB" } ?: stringResource(R.string.dash_res_not_running),
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
-                        label = "目录可用空间",
-                        value = resources.availableBytes?.let(::formatServerBytes) ?: "暂不可用",
+                        label = stringResource(R.string.dash_res_space),
+                        value = resources.availableBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na),
                         modifier = Modifier.weight(1f)
                     )
                     DeviceStatCell(
                         label = "Java",
-                        value = if (resources.javaAvailable) "${config.selectedJavaVersion.displayName} 已就绪" else "${config.selectedJavaVersion.displayName} 不可用",
+                        value = if (resources.javaAvailable) stringResource(R.string.dash_res_java_ready, config.selectedJavaVersion.displayName) else stringResource(R.string.dash_res_java_unavail, config.selectedJavaVersion.displayName),
                         modifier = Modifier.weight(1f)
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                Text("服务端目录占用：${resources.directoryBytes?.let(::formatServerBytes) ?: "暂不可用"}", color = Muted, fontSize = 11.sp)
+                Text(stringResource(R.string.dash_res_dir_usage, resources.directoryBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na)), color = Muted, fontSize = 11.sp)
             }
 
             // ── MC 终端入口（设备状态卡片下方） ──
@@ -312,7 +312,7 @@ fun DashboardScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         LinearProgressIndicator(
-                            progress = state.currentProgress / 100f,
+                            progress = { state.currentProgress / 100f },
                             modifier = Modifier.fillMaxWidth(),
                             color = Indigo,
                             trackColor = IndigoSoft
@@ -530,7 +530,7 @@ fun DashboardScreen(
                                                 fontSize = 11.sp
                                             )
                                             if (core.core.isBedrock) {
-                                                Text("基岩版 · UDP", color = Coral, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                Text(stringResource(R.string.dash_bedrock_udp), color = Coral, fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                             }
                                         }
                                     },
@@ -634,7 +634,7 @@ fun DashboardScreen(
                     (config.selectedJavaVersion == JavaVersion.Java8 || config.selectedJavaVersion == JavaVersion.Java17)) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        "注意：PowerNukkitX 更推荐使用 Java 25；当前 Java 版本可能不兼容，实际要求以核心文档和启动日志为准。",
+                        stringResource(R.string.dash_pnx_java_note),
                         color = Coral,
                         fontSize = 11.sp
                     )
@@ -865,10 +865,10 @@ private fun JavaManagementCard(
     atBottom: Boolean,
     allInstalled: Boolean
 ) {
-    McCard(title = "Java 运行环境", compact = true) {
-        Text("仅提供 Java 8、Java 17、Java 25", color = Muted, fontSize = 11.sp)
+    McCard(title = stringResource(R.string.dash_java_title), compact = true) {
+        Text(stringResource(R.string.dash_java_versions_hint), color = Muted, fontSize = 11.sp)
         Text(
-            "注意：Java 8 使用 Ubuntu ARM64 glibc 原生运行库，非 Termux 官方源；需要 Ubuntu 容器。",
+            stringResource(R.string.dash_java8_note),
             color = Coral,
             fontSize = 11.sp,
             fontWeight = FontWeight.SemiBold
@@ -889,13 +889,13 @@ private fun JavaManagementCard(
             ) {
                 Text(version.displayName, modifier = Modifier.weight(1f), fontSize = 13.sp)
                 Text(
-                    if (version in installed) "已安装" else "未安装",
+                    if (version in installed) stringResource(R.string.dash_java_installed) else stringResource(R.string.dash_java_not_installed),
                     color = if (version in installed) Mint else Muted,
                     fontSize = 11.sp
                 )
                 if (version !in installed) {
                     TextButton(onClick = { vm.installJava(version) }, enabled = !busy) {
-                        Text("安装", color = Indigo)
+                        Text(stringResource(R.string.dash_java_install_btn), color = Indigo)
                     }
                 }
             }
@@ -906,11 +906,11 @@ private fun JavaManagementCard(
                 enabled = !busy,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp)
-            ) { Text("清除并重装 Java", color = Coral, fontSize = 12.sp) }
+            ) { Text(stringResource(R.string.dash_java_reinstall), color = Coral, fontSize = 12.sp) }
         }
         Spacer(Modifier.height(6.dp))
         if (allInstalled) {
-            Text("三个 Java 版本均已安装，卡片已自动置于页面底部", color = Muted, fontSize = 11.sp)
+            Text(stringResource(R.string.dash_java_all_installed), color = Muted, fontSize = 11.sp)
         } else {
             OutlinedButton(
                 onClick = { vm.setJavaCardAtBottom(!atBottom) },
@@ -919,7 +919,7 @@ private fun JavaManagementCard(
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
-                    if (atBottom) "恢复默认位置" else "将卡片移至页面底部",
+                    if (atBottom) stringResource(R.string.dash_java_reset_pos) else stringResource(R.string.dash_java_move_bottom),
                     color = Indigo,
                     fontSize = 12.sp
                 )

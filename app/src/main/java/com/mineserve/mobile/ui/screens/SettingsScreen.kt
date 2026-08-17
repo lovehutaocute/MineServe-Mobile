@@ -92,7 +92,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
         // 下载源设置（Termux bootstrap rootfs 下载源）
         McCard(title = stringResource(R.string.s1007)) {
             Text(
-                "Termux 运行环境下载源（约 50MB），影响初始化速度",
+                stringResource(R.string.st_mirror_hint),
                 color = Muted,
                 fontSize = 11.sp
             )
@@ -150,7 +150,7 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 listOf(2, 4, 8).forEach { count ->
                     SegPill(
-                        text = "${count} 线程",
+                        text = stringResource(R.string.st_threads_count, count),
                         selected = threadState.value == count && enabledState.value,
                         onClick = {
                             threadState.value = count
@@ -237,11 +237,12 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
                 fontSize = 11.sp
             )
             Spacer(Modifier.height(8.dp))
+            val feedbackSubject = stringResource(R.string.st_feedback_subject)
             Button(
                 onClick = {
                     try {
                         val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:167245484@qq.com"))
-                        intent.putExtra(Intent.EXTRA_SUBJECT, "MineServeMobile 意见反馈")
+                        intent.putExtra(Intent.EXTRA_SUBJECT, feedbackSubject)
                         context.startActivity(intent)
                     } catch (e: Exception) {
                         // 设备无邮件客户端时静默

@@ -29,6 +29,21 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.jar.JarFile
+import java.util.Locale
+
+internal fun selectNeoForgeVersion(minecraftVersion: String, versions: List<String>): String? {
+    val prefix = minecraftVersion.trim().removePrefix("1.") + "."
+    return versions.asSequence()
+        .filter { it.startsWith(prefix) }
+        .maxWithOrNull(Comparator { left, right ->
+            val leftParts = Regex("\\d+").findAll(left).map { it.value.toInt() }.toList()
+            val rightParts = Regex("\\d+").findAll(right).map { it.value.toInt() }.toList()
+            leftParts.zip(rightParts).firstOrNull { it.first != it.second }
+                ?.let { (a, b) -> a.compareTo(b) }
+                ?: leftParts.size.compareTo(rightParts.size).takeIf { it != 0 }
+                ?: left.compareTo(right)
+        })
+}
 
 /**
  * MC 服务控制器（生产化）：
@@ -49,9 +64,17 @@ class McServerController(
         "PowerNukkitX/PowerNukkitX-Legacy"
     )
 
+    @Volatile
+    private var powerNukkitXVersionCache: Map<String, CoreVersionOption> = emptyMap()
+
     data class CoreVersionOption(
         val version: String,
-        val supportedGameVersion: String? = null
+        val supportedGameVersion: String? = null,
+        val sourceRepository: String? = null,
+        val releaseTag: String? = null,
+        val assetUrl: String? = null,
+        val assetDigest: String? = null,
+        val publishedAt: String = ""
     )
 
     private suspend fun runInstallerWithRetry(
@@ -63,25 +86,15 @@ class McServerController(
     ): Int {
         var lastCode = 1
         repeat(3) { attempt ->
+            // Installer runs before start(), so repair the selected JDK wrapper here as well.
+            if (javaVersion != JavaVersion.Java8) termux.autoRepairRuntime(javaVersion, needsFonts = false)
             lastCode = if (javaVersion == JavaVersion.Java8) {
                 termux.runJava8Installer(jarPath, serverDir)
             } else {
-                // 确保 java wrapper 脚本就绪，避免 "java: inaccessible or not found"
-                // apt post-install 偶尔未正确创建 $PREFIX/bin/java wrapper，
-                // 此处主动修复，用绝对路径执行 installer 而非依赖 PATH 查找。
-                val javaPath = termux.ensureJavaReady()
-                if (javaPath != null) {
-                    termux.execOnce(
-                        javaPath, "-Djava.io.tmpdir=${tempDir.absolutePath}",
-                        "-jar", jarPath, "--installServer", serverDir.absolutePath
-                    )
-                } else {
-                    termux.emitLog("[install] 错误: java 未就绪，尝试用 PATH 中的 java")
-                    termux.execOnce(
-                        "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
-                        "-jar", jarPath, "--installServer", serverDir.absolutePath
-                    )
-                }
+                termux.execOnce(
+                    "java", "-Djava.io.tmpdir=${tempDir.absolutePath}",
+                    "-jar", jarPath, "--installServer", serverDir.absolutePath
+                )
             }
             if (lastCode == 0) return 0
             if (attempt < 2) {
@@ -220,11 +233,7 @@ class McServerController(
         if (normalizedConfig.selectedCore == ServerCore.PowerNukkitX) {
             val properties = File(serverDir, "server.properties")
             val current = if (properties.exists()) properties.readText() else ""
-            val portLine = "server-port=${normalizedConfig.localPort}"
-            val updated = if (Regex("(?m)^server-port=.*$").containsMatchIn(current)) {
-                current.replace(Regex("(?m)^server-port=.*$"), portLine)
-            } else "$current${if (current.isNotEmpty() && !current.endsWith("\n")) "\n" else ""}$portLine\n"
-            properties.writeText(updated)
+            properties.writeText(updatePowerNukkitXProperties(current, normalizedConfig.localPort))
             PowerNukkitXConfigManager(termux).updatePort(dirName, normalizedConfig.localPort)
         }
         // NeoForge/Quilt：下载的是 installer.jar，执行安装命令生成启动环境（首次需下载依赖）
@@ -323,15 +332,22 @@ class McServerController(
             else -> emptyList()
         }
         return if (core == ServerCore.PowerNukkitX) {
-            // ponytail: three fixed channels cover mainland acceleration and the official fallback.
-            listOf(
-                "https://ghfast.top/$official",
-                "https://gh-proxy.com/$official",
-                "https://mirror.ghproxy.com/$official",
-                "https://ghproxy.net/$official",
-                "https://github.moeyy.xyz/$official",
-                official
-            ).distinct()
+            if (official.contains("maven.org") || official.contains("maven.aliyun.com") || official.contains("huaweicloud.com")) {
+                listOf(
+                    official,
+                    official.replace("https://repo1.maven.org/maven2", "https://maven.aliyun.com/repository/central"),
+                    official.replace("https://repo1.maven.org/maven2", "https://repo.huaweicloud.com/repository/maven")
+                ).distinct()
+            } else {
+                listOf(
+                    "https://ghfast.top/$official",
+                    "https://gh-proxy.com/$official",
+                    "https://mirror.ghproxy.com/$official",
+                    "https://ghproxy.net/$official",
+                    "https://github.moeyy.xyz/$official",
+                    official
+                ).distinct()
+            }
         } else (mirrors + official).distinct()
     }
 
@@ -482,6 +498,14 @@ class McServerController(
     }
 
     private fun resolvePowerNukkitXUrl(version: String): String {
+        powerNukkitXVersionCache[version.trim().removePrefix("v").removePrefix("V").lowercase(Locale.ROOT)]
+            ?.assetUrl
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+        val normalized = version.trim().removePrefix("v").removePrefix("V")
+        if (normalized.contains("-r") || normalized.endsWith("-PNX", ignoreCase = true)) {
+            return "https://repo1.maven.org/maven2/cn/powernukkitx/powernukkitx/$normalized/powernukkitx-$normalized-shaded.jar"
+        }
         val release = findPowerNukkitXRelease(version)
         return powerNukkitXAsset(release)
             ?.get("browser_download_url")?.jsonPrimitive?.content
@@ -492,27 +516,21 @@ class McServerController(
 
     private fun resolveNeoForgeUrl(version: String): String {
         val xml = fetchText("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml")
-        // NeoForge 版本号与 MC 版本对应（MC 1.20.4 → NeoForge 20.4.x）。
-        // 修复：保留末尾点号作为段边界，避免 "211" 误匹配 21.11.x（MC 1.21.11）。
-        //   旧逻辑去掉所有点号后 startsWith("211") 同时命中 21.1.x 和 21.11.x，
-        //   maxOrNull 字符串比较又选出 21.11.x，导致 1.21.1 变成 1.21.11。
-        //   新逻辑 startsWith("21.1.") 只匹配 21.1.x，再用数字段比较取最新 build。
-        val mcPrefix = version.removePrefix("1.") + "." // "1.20.4" → "20.4."
         val versions = Regex("<version>([^<]+)</version>").findAll(xml).map { it.groupValues[1] }.toList()
-        val matched = versions.filter { it.startsWith(mcPrefix) }
-        val ver = matched.maxWithOrNull(Comparator { a, b ->
-            val pa = a.split(".").mapNotNull { it.substringBefore("-").toIntOrNull() }
-            val pb = b.split(".").mapNotNull { it.substringBefore("-").toIntOrNull() }
-            for (i in 0 until maxOf(pa.size, pb.size)) {
-                val va = pa.getOrElse(i) { 0 }
-                val vb = pb.getOrElse(i) { 0 }
-                if (va != vb) return@Comparator va.compareTo(vb)
-            }
-            0
-        })
+        val ver = selectNeoForgeVersion(version, versions)
             ?: Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
             ?: throw RuntimeException("NeoForge: no version for MC $version")
         return "https://maven.neoforged.net/releases/net/neoforged/neoforge/$ver/neoforge-$ver-installer.jar"
+    }
+
+    private fun updatePowerNukkitXProperties(current: String, port: Int): String {
+        fun setProperty(text: String, key: String, value: String): String {
+            val line = "$key=$value"
+            val pattern = Regex("(?m)^${Regex.escape(key)}=.*$")
+            return if (pattern.containsMatchIn(text)) pattern.replace(text, line)
+            else "$text${if (text.isNotEmpty() && !text.endsWith("\n")) "\n" else ""}$line\n"
+        }
+        return setProperty(setProperty(current, "server-port", port.toString()), "allow-shaded", "true")
     }
 
     // ── Quilt：meta API 取 installer 版本（quilt-installer 独立版本号，与 loader 不同） ──
@@ -593,34 +611,90 @@ class McServerController(
     private fun fetchPowerNukkitXVersionOptions(): List<CoreVersionOption> {
         val releaseObjects = powerNukkitXRepos.flatMap { repoName ->
             runCatching {
-                fetchGithubJsonElement("https://api.github.com/repos/$repoName/releases?per_page=30")
+                fetchGithubJsonElement("https://api.github.com/repos/$repoName/releases?per_page=100")
                     .jsonArray.map { it.jsonObject }
-            }.getOrDefault(emptyList())
+            }.getOrElse { e ->
+                termux.emitLog("[download] PowerNukkitX 版本源失败: $repoName (${e.message ?: "unknown"})")
+                emptyList()
+            }
         }
-        val options = releaseObjects
+        val releaseOptions = releaseObjects
             .filter {
                 !(it["draft"]?.jsonPrimitive?.boolean ?: false) &&
                     !(it["prerelease"]?.jsonPrimitive?.boolean ?: false)
             }
             .mapNotNull { release ->
-                val tag = release["tag_name"]?.jsonPrimitive?.content ?: return@mapNotNull null
-                CoreVersionOption(tag, parsePowerNukkitXGameVersion(release["body"]?.jsonPrimitive?.content.orEmpty()))
+                val rawTag = release["tag_name"]?.jsonPrimitive?.content?.trim() ?: return@mapNotNull null
+                val tag = rawTag.removePrefix("v").removePrefix("V").trim()
+                val assets = release["assets"]?.jsonArray.orEmpty().map { it.jsonObject }
+                val asset = assets.firstOrNull { it["name"]?.jsonPrimitive?.content.equals("powernukkitx.jar", true) }
+                    ?: assets.firstOrNull { it["name"]?.jsonPrimitive?.content?.endsWith(".jar", true) == true }
+                val body = release["body"]?.jsonPrimitive?.content.orEmpty()
+                val name = release["name"]?.jsonPrimitive?.content.orEmpty()
+                val assetNames = assets.mapNotNull { it["name"]?.jsonPrimitive?.content }
+                CoreVersionOption(
+                    tag,
+                    parsePowerNukkitXGameVersion("$name\n$body", assetNames),
+                    sourceRepository = release["html_url"]?.jsonPrimitive?.content
+                        ?.removePrefix("https://github.com/")?.substringBefore("/releases"),
+                    releaseTag = rawTag,
+                    assetUrl = asset?.get("browser_download_url")?.jsonPrimitive?.content,
+                    assetDigest = asset?.get("digest")?.jsonPrimitive?.content?.removePrefix("sha256:"),
+                    publishedAt = release["published_at"]?.jsonPrimitive?.content.orEmpty()
+                )
             }
-            .distinctBy { it.version }
-        if (options.isNotEmpty()) return options
+        // PowerNukkitX-Legacy has no GitHub Releases; its historical cores are published to Maven Central.
+        val legacyMavenOptions = fetchPowerNukkitXLegacyMavenOptions()
+        val options = (releaseOptions + legacyMavenOptions)
+            .distinctBy { it.version.lowercase(Locale.ROOT) }
+            .sortedWith(compareByDescending<CoreVersionOption> { it.publishedAt }.thenBy { it.version })
+        if (options.isNotEmpty()) {
+            powerNukkitXVersionCache = options.associateBy { it.version.lowercase(Locale.ROOT) }
+            return options
+        }
+        powerNukkitXVersionCache = emptyMap()
         termux.emitLog("[download] PowerNukkitX 核心版本信息获取失败，使用 latest 兜底")
         return listOf(CoreVersionOption("latest", "官方未标注"))
     }
 
-    private fun parsePowerNukkitXGameVersion(body: String): String? {
+    private fun fetchPowerNukkitXLegacyMavenOptions(): List<CoreVersionOption> {
+        val metadataUrls = listOf(
+            "https://repo1.maven.org/maven2/cn/powernukkitx/powernukkitx/maven-metadata.xml",
+            "https://maven.aliyun.com/repository/central/cn/powernukkitx/powernukkitx/maven-metadata.xml",
+            "https://repo.huaweicloud.com/repository/maven/cn/powernukkitx/powernukkitx/maven-metadata.xml"
+        )
+        val xml = metadataUrls.asSequence().mapNotNull { url -> runCatching { fetchText(url) }.getOrNull() }.firstOrNull()
+            ?: return emptyList()
+        return Regex("<version>\\s*([^<]+?)\\s*</version>")
+            .findAll(xml)
+            .map { it.groupValues[1].trim() }
+            .filter { it.isNotBlank() }
+            .map { version ->
+                CoreVersionOption(
+                    version = version,
+                    supportedGameVersion = Regex("^([0-9]+(?:\\.[0-9]+){1,3})(?:-r\\d+|-PNX)?$").find(version)?.groupValues?.get(1),
+                    sourceRepository = "PowerNukkitX/PowerNukkitX-Legacy",
+                    releaseTag = version,
+                    assetUrl = "https://repo1.maven.org/maven2/cn/powernukkitx/powernukkitx/$version/powernukkitx-$version-shaded.jar"
+                )
+            }
+            .toList()
+            .also { termux.emitLog("[download] PowerNukkitX-Legacy Maven 版本: ${it.size} 个") }
+    }
+
+    private fun parsePowerNukkitXGameVersion(body: String, assetNames: List<String> = emptyList()): String? {
         val patterns = listOf(
-            Regex("(?i)update\\s+to\\s+([0-9]+(?:\\.[0-9]+)+)"),
+            Regex("(?i)(?:support(?:s|ed)?|compatible with)\\s*(?:bedrock|minecraft)?\\s*(?:version|v)?\\s*[:：-]?\\s*([0-9]+(?:\\.[0-9]+)+)"),
+            Regex("(?i)update\\s+to\\s+(?:bedrock\\s+)?([0-9]+(?:\\.[0-9]+)+)"),
             Regex("(?i)(?:bedrock|minecraft)\\s*(?:version|v)?\\s*[|:：-]?\\s*([0-9]+(?:\\.[0-9]+)+)")
         )
-        return patterns.firstNotNullOfOrNull { pattern -> pattern.find(body)?.groupValues?.get(1) }
+        val text = if (assetNames.isEmpty()) body else body + "\n" + assetNames.joinToString("\n")
+        return patterns.firstNotNullOfOrNull { pattern -> pattern.find(text)?.groupValues?.get(1) }
     }
 
     private fun resolvePowerNukkitXDigest(version: String): String? {
+        val cached = powerNukkitXVersionCache[version.trim().removePrefix("v").removePrefix("V").lowercase(Locale.ROOT)]
+        if (cached != null) return cached.assetDigest?.takeIf { it.isNotBlank() }
         return powerNukkitXAsset(findPowerNukkitXRelease(version))
             ?.get("digest")?.jsonPrimitive?.content
             ?.removePrefix("sha256:")
@@ -630,14 +704,19 @@ class McServerController(
         var last: Exception? = null
         for (repoName in powerNukkitXRepos) {
             try {
-                val endpoint = if (version == "latest") {
+                val normalized = version.trim().removePrefix("v").removePrefix("V")
+                val endpoint = if (normalized == "latest") {
                     "https://api.github.com/repos/$repoName/releases/latest"
                 } else {
-                    val tag = java.net.URLEncoder.encode(version, "UTF-8")
+                    val tag = java.net.URLEncoder.encode(normalized, "UTF-8")
                     "https://api.github.com/repos/$repoName/releases/tags/$tag"
                 }
-                val release = fetchGithubJson(endpoint)
-                if (powerNukkitXAsset(release) != null) return release
+                val release = runCatching { fetchGithubJson(endpoint) }.getOrNull()
+                    ?: if (normalized == "latest") null else {
+                        val tag = java.net.URLEncoder.encode("v$normalized", "UTF-8")
+                        runCatching { fetchGithubJson("https://api.github.com/repos/$repoName/releases/tags/$tag") }.getOrNull()
+                    }
+                if (release != null && powerNukkitXAsset(release) != null) return release
             } catch (e: Exception) {
                 last = e
                 termux.emitLog("[download] PowerNukkitX 仓库回退: $repoName")
@@ -801,7 +880,7 @@ class McServerController(
                 outFile.delete()
                 if (attempt < 2) {
                     termux.emitLog("[download] 等待 ${1500L * (attempt + 1)}ms 后重试...")
-                    try { Thread.sleep(1500L * (attempt + 1)) } catch (_: InterruptedException) {}
+                    delay(1500L * (attempt + 1))
                 }
             }
         }
@@ -869,6 +948,9 @@ class McServerController(
         if (!jarFile.exists()) {
             throw RuntimeException("核心 ${activeCore.name} 的 server.jar 不存在，请重新下载")
         }
+        if (activeCore.core == ServerCore.PowerNukkitX && isLegacyPowerNukkitXVersion(activeCore.version)) {
+            validateLegacyPowerNukkitXJar(jarFile)
+        }
         // 启动时重置崩溃重试计数
         restartAttempts = 0
         launchMc(config, activeCore.dirName, jarFile.absolutePath)
@@ -877,6 +959,49 @@ class McServerController(
     /**
      * 实际启动 MC 进程（内部方法，供 start 和崩溃重启调用）
      */
+    /**
+     * 按 Minecraft 版本推荐最低 Java 版本（服务端启动用，不覆盖基岩版）。
+     *  - MC 26.1+ → Java 25（Paper 官方要求）
+     *  - MC 1.21+ → Java 21；MC 1.17–1.20.4 → Java 17；MC ≤ 1.16 → Java 8
+     * 解析失败返回 null（沿用用户选择）。
+     */
+    private fun recommendedJavaForMinecraft(mcVersion: String, core: ServerCore): JavaVersion? {
+        if (core == ServerCore.PowerNukkitX || core == ServerCore.Unknown) return null
+        val parts = mcVersion.trim().removePrefix("v").split('.').mapNotNull { it.toIntOrNull() }
+        if (parts.isEmpty()) return null
+        val major = parts[0]
+        val minor = parts.getOrNull(1)
+        return when {
+            major >= 26 -> JavaVersion.Java25
+            major == 1 && minor != null && minor >= 21 -> JavaVersion.Java21
+            major == 1 && minor != null && minor >= 17 -> JavaVersion.Java17
+            major == 1 && minor != null -> JavaVersion.Java8
+            else -> null
+        }
+    }
+
+    private fun isLegacyPowerNukkitXVersion(version: String): Boolean =
+        version.trim().removePrefix("v").removePrefix("V").contains("-r", ignoreCase = true) ||
+            version.trim().endsWith("-PNX", ignoreCase = true)
+
+    /** Legacy Maven also publishes an unbundled ~7 MB JAR; it cannot run alone. */
+    private fun validateLegacyPowerNukkitXJar(jarFile: File) {
+        try {
+            JarFile(jarFile).use { jar ->
+                val hasEntryPoint = jar.getEntry("cn/nukkit/JarStart.class") != null
+                val hasBundledDependency = jar.getEntry("io/netty/channel/Channel.class") != null ||
+                    jar.getEntry("com/google/gson/Gson.class") != null
+                check(hasEntryPoint && hasBundledDependency) {
+                    "PowerNukkitX Legacy 当前是未打包依赖的普通 JAR（约 7MB），请删除后重新下载；应用将下载 shaded 核心（约 83MB）"
+                }
+            }
+        } catch (e: RuntimeException) {
+            throw e
+        } catch (e: Exception) {
+            throw RuntimeException("无法校验 PowerNukkitX Legacy 核心：${e.message}", e)
+        }
+    }
+
     private suspend fun launchMc(config: McConfig, dirName: String, jarPath: String) {
         val serverDir = termux.serverDirFor(dirName)
         // 检查 server.jar 是否存在
@@ -889,8 +1014,21 @@ class McServerController(
         // 若用户在下载页选过 Quilt 后切到 Paper 启动，会误判启动方式导致失败。
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
         val coreType = activeCore?.core ?: config.selectedCore
+        if (coreType == ServerCore.PowerNukkitX) {
+            val properties = File(serverDir, "server.properties")
+            val current = if (properties.exists()) properties.readText() else ""
+            properties.writeText(updatePowerNukkitXProperties(current, config.localPort))
+        }
+        // 按 MC 版本自动匹配所需 Java（如 Paper 26.1+ 要求 Java 25）：当前选择不足时自动升级并安装
+        val mcVersion = activeCore?.version?.takeIf { it.isNotBlank() } ?: config.mcVersion
+        val recommended = recommendedJavaForMinecraft(mcVersion, coreType)
+        val launchJava = if (recommended != null && config.selectedJavaVersion.ordinal < recommended.ordinal) {
+            termux.emitLog("[startMc] $mcVersion 需要 Java ${recommended.displayName} 及以上（当前选择 ${config.selectedJavaVersion.displayName}），已自动切换")
+            runCatching { repo.saveConfig(config.copy(selectedJavaVersion = recommended)) }
+            recommended
+        } else config.selectedJavaVersion
         termux.autoRepairRuntime(
-            javaVersion = config.selectedJavaVersion,
+            javaVersion = launchJava,
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
         if (coreType == ServerCore.NeoForge && config.selectedJavaVersion != JavaVersion.Java8) {
@@ -913,6 +1051,8 @@ class McServerController(
                 if (launchJar.exists()) "-jar ${launchJar.absolutePath}"
                 else throw RuntimeException("Quilt 启动文件缺失，请重新下载安装核心")
             }
+            ServerCore.PowerNukkitX ->
+                "--add-opens=java.base/java.lang=ALL-UNNAMED -cp '${File(jarPath).absolutePath}:${File(serverDir, "libs").absolutePath}/*' cn.nukkit.Nukkit --language=chs"
             else -> null
         }
         startupDeadlineMs = System.currentTimeMillis() + 20_000L
@@ -920,8 +1060,9 @@ class McServerController(
             jarPath = jarPath,
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
-            javaVersion = config.selectedJavaVersion,
+            javaVersion = launchJava,
             launchArgs = launchArgs,
+            appendNogui = coreType != ServerCore.PowerNukkitX,
             onExit = { code ->
                 val failedDuringStartup = System.currentTimeMillis() <= startupDeadlineMs
                 repo.updateServerState { it.copy(isRunning = false) }

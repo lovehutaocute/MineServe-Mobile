@@ -38,7 +38,7 @@ import androidx.compose.material.icons.automirrored.outlined.ArrowBack
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
-import androidx.compose.material.icons.outlined.Send
+import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -254,7 +254,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                     input = ""
                 }
             }) {
-                Icon(Icons.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
+                Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
             }
         }
             }  // MC 终端面板结束
@@ -338,7 +338,7 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                         if (termuxBusy) {
                             CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = Indigo)
                         } else {
-                            Icon(Icons.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
+                            Icon(Icons.AutoMirrored.Outlined.Send, contentDescription = stringResource(R.string.s563), tint = Indigo)
                         }
                     }
                 }
@@ -384,6 +384,22 @@ private fun localizeLogLine(line: String): String {
         .replace("Saved the game", "世界已保存")
         .replace("Saved the world", "世界已保存")
         .replace(Regex("Done \\(([\\d.]+)s\\)!.*"), "服务器启动完成（$1s）")
+        .replace("You need to agree to the EULA", "未接受 EULA，无法启动")
+        .replace("Address already in use", "端口被占用")
+        .replace("BindException", "端口绑定失败")
+        .replace("Can't keep up", "服务器过载/卡顿")
+        .replace("OutOfMemoryError", "内存不足")
+        .replace("Java heap space", "堆内存不足")
+        .replace("You are not white-listed", "不在白名单")
+        .replace("Stopping the server", "正在停止服务端")
+        .replace("Stopping server", "正在停止服务端")
+        .replace("Autosaved", "已自动保存")
+        .replace("Saving chunks", "正在保存区块")
+        .replace("Saving players", "正在保存玩家数据")
+        .replace("Internal Exception", "内部异常")
+        .replace("Connection reset", "连接被重置")
+        .replace("Connection refused", "连接被拒绝")
+        .replace("Timed out", "连接超时")
 }
 
 /** 可折叠会话面板（标题栏：状态点 + 名称 + 展开/收起箭头） */

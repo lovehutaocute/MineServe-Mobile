@@ -1,5 +1,8 @@
 package com.mineserve.mobile.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mineserve.mobile.R
+
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -37,10 +40,10 @@ fun CrashReportsScreen(vm: McViewModel, onBack: () -> Unit) {
     LaunchedEffect(Unit) { vm.loadCrashReports() }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
-            Text("崩溃报告", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.crash_back)) }
+            Text(stringResource(R.string.crash_title), fontWeight = FontWeight.Bold, fontSize = 20.sp)
         }
-        if (reports.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("暂无崩溃报告", color = Muted) }
+        if (reports.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.crash_empty), color = Muted) }
         else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(reports, key = { it.path }) { report ->
                 val label = remember(report.preview) { CrashReportAnalyzer.analyze(report.preview).primaryLabel }
@@ -57,24 +60,25 @@ fun CrashReportDialog(content: String, analysis: CrashReportAnalyzer.Analysis, o
     var raw by remember { mutableStateOf(false) }
     val summary = buildString {
         appendLine(analysis.title)
-        analysis.exitCode?.let { appendLine("退出码: $it") }
+        analysis.exitCode?.let { appendLine(stringResource(R.string.startup_report_exitcode, it)) }
         analysis.causedBy.forEach { appendLine("Caused by: $it") }
-        analysis.findings.forEach { appendLine("${it.label}: ${it.detail}"); appendLine("建议: ${it.suggestion}") }
+        analysis.findings.forEach { appendLine(stringResource(R.string.crash_finding, it.label, it.detail)); appendLine(stringResource(R.string.crash_suggestion, it.suggestion)) }
     }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (raw) "原始崩溃报告" else "崩溃分析") }, text = {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (raw) stringResource(R.string.crash_raw_title) else stringResource(R.string.crash_analysis_title)) }, text = {
         Column(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !raw, onClick = { raw = false }, label = { Text("摘要") })
-                FilterChip(selected = raw, onClick = { raw = true }, label = { Text("原始报告") })
+                FilterChip(selected = !raw, onClick = { raw = false }, label = { Text(stringResource(R.string.crash_summary)) })
+                FilterChip(selected = raw, onClick = { raw = true }, label = { Text(stringResource(R.string.crash_raw)) })
             }
             Spacer(Modifier.height(8.dp))
             Text(if (raw) content else summary, fontFamily = if (raw) FontFamily.Monospace else FontFamily.Default, fontSize = 12.sp, modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()))
         }
     }, confirmButton = {
         Row {
-            IconButton(onClick = { copy(context, if (raw) content else summary) }) { Icon(Icons.Outlined.ContentCopy, "复制", tint = Indigo) }
-            IconButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, content) }, "导出崩溃报告")) }) { Icon(Icons.Outlined.IosShare, "导出", tint = Indigo) }
-            TextButton(onClick = onDismiss) { Text("关闭") }
+            IconButton(onClick = { copy(context, if (raw) content else summary) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.crash_copy), tint = Indigo) }
+            val shareTitle = stringResource(R.string.crash_share)
+            IconButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, content) }, shareTitle)) }) { Icon(Icons.Outlined.IosShare, stringResource(R.string.crash_export), tint = Indigo) }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
         }
     })
 }

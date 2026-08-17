@@ -239,6 +239,7 @@ private fun HeroStat(value: String, label: String) {
 }
 
 /** 运行时长格式化：秒/分钟/小时 */
+@Composable
 private fun formatUptime(ms: Long): String {
     val totalSec = (ms.coerceAtLeast(0L)) / 1000
     val h = totalSec / 3600
@@ -246,8 +247,8 @@ private fun formatUptime(ms: Long): String {
     return when {
         h >= 100 -> "${h}h"
         h > 0 -> "${h}h${m}m"
-        m > 0 -> "${m}分钟"
-        else -> "${totalSec}秒"
+        m > 0 -> stringResource(R.string.sc_minutes, m)
+        else -> stringResource(R.string.sc_seconds, totalSec)
     }
 }
 

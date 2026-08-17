@@ -203,7 +203,7 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
             // 说明
             McCard(title = stringResource(R.string.s554)) {
                 Text(
-                    "Android 系统对后台进程有严格限制，保活能力受系统版本与厂商策略影响。\n" +
+                    stringResource(R.string.ka_bg_hint) +
                         stringResource(R.string.s556),
                     color = Muted,
                     fontSize = 11.sp,

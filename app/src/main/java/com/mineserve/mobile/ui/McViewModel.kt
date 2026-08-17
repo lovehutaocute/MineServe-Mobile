@@ -37,6 +37,7 @@ import com.mineserve.mobile.server.PluginManager
 import com.mineserve.mobile.server.ServerPropertiesManager
 import com.mineserve.mobile.server.PowerNukkitXConfigManager
 import com.mineserve.mobile.server.PowerNukkitXLayout
+import com.mineserve.mobile.server.ServerImporter
 import com.mineserve.mobile.server.TunnelManager
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -153,7 +154,7 @@ class McViewModel(
     private val terminalMutex = Mutex()
     private val _terminalSessions = MutableStateFlow(
         listOf(
-            TerminalSession("minecraft", "MC 控制台", TerminalSessionType.Minecraft),
+            TerminalSession("minecraft", str(R.string.mc_console_label), TerminalSessionType.Minecraft),
             TerminalSession("termux-1", "Termux 1", TerminalSessionType.Termux)
         )
     )
@@ -193,17 +194,46 @@ class McViewModel(
                 updateTerminalSession(id) { it.copy(busy = true).append("$ $command") }
                 try {
                     withContext(Dispatchers.IO) { repo.termuxRuntime.refreshTermux() }
+                    val executableCommand = prepareTermuxCommand(command)
                     val exit = withContext(Dispatchers.IO) {
-                        repo.termuxRuntime.execTermux(command) { line -> updateTerminalSession(id) { it.append(line) } }
+                        repo.termuxRuntime.execTermux(executableCommand) { line -> updateTerminalSession(id) { it.append(line) } }
                     }
-                    if (exit != 0) updateTerminalSession(id) { it.append("(退出码 $exit)") }
+                    if (exit != 0) updateTerminalSession(id) { it.append(str(R.string.term_exit_code, exit)) }
                 } catch (e: Exception) {
-                    updateTerminalSession(id) { it.append("执行错误: ${e.message}") }
+                    updateTerminalSession(id) { it.append(str(R.string.term_exec_error, e.message)) }
                 } finally {
                     updateTerminalSession(id) { it.copy(busy = false) }
                 }
             }
         }
+    }
+
+    /**
+     * Termux 会话命令不是交互式 PTY；对常见安装命令显式确认，避免 stdin=/dev/null
+     * 导致遇到 [Y/n] 后立即退出。普通命令原样执行，避免替用户确认危险操作。
+     */
+    private fun prepareTermuxCommand(command: String): String {
+        val trimmed = command.trim()
+        if (Regex("^(pkg|apt|apt-get)\\s+(install|upgrade|dist-upgrade|remove|autoremove)(\\s|$)", RegexOption.IGNORE_CASE).matches(trimmed) &&
+            !Regex("(^|\\s)(-y|--assume-yes)(\\s|$)").containsMatchIn(trimmed)
+        ) {
+            return "$trimmed -y"
+        }
+        if (trimmed.startsWith("proot-distro install ", ignoreCase = true)) {
+            return "printf 'y\\n' | $trimmed"
+        }
+        return command
+    }
+
+    /** 清空指定终端会话的显示行（保留会话本身） */
+    fun clearTerminalSession(id: String) {
+        updateTerminalSession(id) { it.copy(lines = emptyList()) }
+    }
+
+    /** 清空 MC 控制台缓冲 */
+    fun clearConsole() {
+        _consoleLines.value = emptyList()
+        _consolePreviewLines.value = emptyList()
     }
 
     private fun updateTerminalSession(id: String, transform: (TerminalSession) -> TerminalSession) {
@@ -218,7 +248,7 @@ class McViewModel(
         if (command.isBlank() || _termuxBusy.value) return
         // 环境未初始化完成时禁止输入（bootstrap 下载/解压/装依赖中，命令必然失败）
         if (!isBootstrapped.value) {
-            appendTermux("⏳ Termux 环境尚未初始化完成，请等待安装完成后重试")
+            appendTermux(str(R.string.termux_not_ready))
             return
         }
         viewModelScope.launch {
@@ -230,22 +260,22 @@ class McViewModel(
                 }
                 appendTermux("$ " + command)
                 val exit = withContext(Dispatchers.IO) {
-                    repo.termuxRuntime.execTermux(command) { line ->
+                    repo.termuxRuntime.execTermux(prepareTermuxCommand(command)) { line ->
                         appendTermux(line)
                     }
                 }
                 if (exit != 0) {
                     val hint = when (exit) {
-                        126 -> "（命令找到但无法执行：权限不足或依赖缺失）"
-                        127 -> "（命令未找到：请检查命令是否存在）"
+                        126 -> str(R.string.termux_hint_126)
+                        127 -> str(R.string.termux_hint_127)
                         else -> ""
                     }
-                    appendTermux("(退出码 $exit)$hint")
+                    appendTermux(str(R.string.term_exit_code, exit) + hint)
                     // 失败时输出环境诊断，便于定位根因
                     appendTermux(repo.termuxRuntime.diagnoseCommand(command))
                 }
             } catch (e: Exception) {
-                appendTermux("执行错误: ${e.message}")
+                appendTermux(str(R.string.term_exec_error, e.message))
             } finally {
                 _termuxBusy.value = false
             }
@@ -284,7 +314,7 @@ class McViewModel(
             return
         }
         if (PowerNukkitXLayout.isPowerNukkitX(repo.termuxRuntime.serverDirFor(dirName))) {
-            _errorFlow.tryEmit("PowerNukkitX 暂不支持 Java Edition 的 server-icon.png，已保留入口但不会写入")
+            _errorFlow.tryEmit(str(R.string.err_pnx_icon_full))
             return
         }
         viewModelScope.launch {
@@ -292,9 +322,9 @@ class McViewModel(
                 withContext(Dispatchers.IO) {
                     val app = McApplication.get()
                     val input = app.contentResolver.openInputStream(uri)
-                        ?: throw RuntimeException("无法读取所选图片")
+                        ?: throw RuntimeException(str(R.string.err_read_image))
                     val src = input.use { android.graphics.BitmapFactory.decodeStream(it) }
-                        ?: throw RuntimeException("无法解析图片")
+                        ?: throw RuntimeException(str(R.string.err_parse_image))
                     // 居中裁剪为正方形后缩放到 64×64
                     val size = minOf(src.width, src.height)
                     val x = (src.width - size) / 2
@@ -328,7 +358,7 @@ class McViewModel(
             return
         }
         if (PowerNukkitXLayout.isPowerNukkitX(repo.termuxRuntime.serverDirFor(dirName))) {
-            _errorFlow.tryEmit("PowerNukkitX 暂不支持 Java Edition 的 server-icon.png")
+            _errorFlow.tryEmit(str(R.string.err_pnx_icon))
             return
         }
         viewModelScope.launch {
@@ -426,7 +456,7 @@ class McViewModel(
                     }
                 }
             } catch (e: Exception) {
-                    _updateState.value = UpdateUiState.Failed(e.message ?: "检查更新失败")
+                    _updateState.value = UpdateUiState.Failed(e.message ?: str(R.string.msg_update_check_failed))
                     _lastUpdateCheckResult.value =
                         "${app.getString(R.string.update_check_failed)} · ${nowTime()}"
                     if (manual) {
@@ -461,7 +491,7 @@ class McViewModel(
             ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             McApplication.get().startActivity(intent)
         } catch (e: Exception) {
-            _messageFlow.tryEmit("无法打开浏览器: ${e.message}")
+            _messageFlow.tryEmit(str(R.string.msg_open_browser_fail, e.message))
         }
     }
 
@@ -492,12 +522,12 @@ class McViewModel(
     fun installApk(context: Context, file: File) {
         try {
             if (!AppUpdateService.isApk(file)) {
-                throw IllegalStateException("更新 APK 已损坏或不是有效安装包，请重新下载")
+                throw IllegalStateException(str(R.string.err_apk_corrupt))
             }
             val archive = context.packageManager.getPackageArchiveInfo(file.absolutePath, 0)
-                ?: throw IllegalStateException("无法读取更新 APK 的包信息，请重新下载")
+                ?: throw IllegalStateException(str(R.string.err_apk_read_pkg))
             if (archive.packageName != context.packageName) {
-                throw IllegalStateException("更新 APK 包名不匹配，已拒绝安装")
+                throw IllegalStateException(str(R.string.err_apk_pkg_mismatch))
             }
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O &&
                 !context.packageManager.canRequestPackageInstalls()) {
@@ -507,7 +537,7 @@ class McViewModel(
                         Uri.parse("package:${context.packageName}")
                     ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 )
-                _messageFlow.tryEmit("请允许安装未知应用后，再点击安装更新")
+                _messageFlow.tryEmit(str(R.string.msg_allow_unknown_install))
                 return
             }
             val uri = FileProvider.getUriForFile(
@@ -523,7 +553,7 @@ class McViewModel(
                 android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
             )
             if (installers.isEmpty()) {
-                throw IllegalStateException("未找到系统安装器，请检查设备是否允许安装 APK")
+                throw IllegalStateException(str(R.string.err_no_installer))
             }
             installers.forEach { handler ->
                 context.grantUriPermission(
@@ -625,7 +655,7 @@ class McViewModel(
             } catch (e: Exception) {
                 _diagnosticReport.value = DiagnosticReport(
                     checks = listOf(DiagnosticCheck(
-                        "scan", "运行诊断", e.message ?: "无法完成诊断", DiagnosticStatus.Failed
+                        "scan", str(R.string.diag_check_scan), e.message ?: str(R.string.diag_check_scan_fail), DiagnosticStatus.Failed
                     )),
                     generatedAtMs = System.currentTimeMillis()
                 )
@@ -655,9 +685,9 @@ class McViewModel(
                 }
                 refreshJava()
                 refreshDependencies()
-                _messageFlow.tryEmit("运行环境安全修复已完成，正在复检")
+                _messageFlow.tryEmit(str(R.string.msg_repair_done))
             } catch (e: Exception) {
-                _errorFlow.tryEmit(e.message ?: "运行环境修复失败")
+                _errorFlow.tryEmit(e.message ?: str(R.string.msg_repair_fail))
             } finally {
                 _isRepairingRuntime.value = false
                 runDiagnostics()
@@ -672,19 +702,19 @@ class McViewModel(
         val checks = mutableListOf<DiagnosticCheck>()
         val runtimeReady = runtime.isReady()
         checks += DiagnosticCheck(
-            "runtime", "Termux 运行环境",
-            if (runtimeReady) "运行环境已就绪" else "运行环境未完成初始化",
+            "runtime", str(R.string.diag_check_runtime),
+            if (runtimeReady) str(R.string.diag_check_runtime_ok) else str(R.string.diag_check_runtime_bad),
             if (runtimeReady) DiagnosticStatus.Pass else DiagnosticStatus.Failed, !runtimeReady
         )
         val javaCheck = runtime.javaRuntimeDiagnostic(cfg.selectedJavaVersion)
         checks += DiagnosticCheck(
-            "java", "${cfg.selectedJavaVersion.displayName} 运行环境", javaCheck.second,
+            "java", str(R.string.diag_check_java, cfg.selectedJavaVersion.displayName), javaCheck.second,
             if (javaCheck.first) DiagnosticStatus.Pass else DiagnosticStatus.Failed, !javaCheck.first
         )
         if (active?.core == ServerCore.NeoForge && cfg.selectedJavaVersion != JavaVersion.Java8) {
             checks += DiagnosticCheck(
-                "native-jna", "NeoForge 原生库兼容性",
-                "Android/Termux 原生 Java 使用 bionic，不提供 glibc 的 libc.so.6；JNA/OSHI 系统信息警告无法通过补字体或一键修复解决。服务端实际崩溃请以 crash-reports 中的异常为准。",
+                "native-jna", str(R.string.diag_check_native),
+                str(R.string.diag_check_native_detail),
                 DiagnosticStatus.Warning
             )
         }
@@ -693,42 +723,42 @@ class McViewModel(
         val requiredCommandsReady = (!prootRequired || runtime.isCommandInstalled("proot")) &&
             (!downloaderRequired || runtime.isCommandInstalled("wget"))
         checks += DiagnosticCheck(
-            "commands", "关键运行命令",
+            "commands", str(R.string.diag_check_commands),
             when {
-                !prootRequired && !downloaderRequired -> "当前服务端无需额外运行命令检查"
-                requiredCommandsReady -> "${if (prootRequired) "proot" else "wget"} 命令已就绪"
-                else -> "缺少 ${listOfNotNull(if (prootRequired) "proot" else null, if (downloaderRequired) "wget" else null).joinToString(" / ")}，可安全补齐"
+                !prootRequired && !downloaderRequired -> str(R.string.diag_check_commands_none)
+                requiredCommandsReady -> str(R.string.diag_check_commands_ready, if (prootRequired) "proot" else "wget")
+                else -> str(R.string.diag_check_commands_missing2, listOfNotNull(if (prootRequired) "proot" else null, if (downloaderRequired) "wget" else null).joinToString(" / "))
             },
             if (!prootRequired && !downloaderRequired) DiagnosticStatus.NotApplicable else if (requiredCommandsReady) DiagnosticStatus.Pass else DiagnosticStatus.Warning,
             !requiredCommandsReady
         )
         if (active == null) {
             checks += DiagnosticCheck(
-                "core", "当前服务端", "未选择已安装的服务端核心", DiagnosticStatus.Warning
+                "core", str(R.string.diag_check_core), str(R.string.diag_check_core_none), DiagnosticStatus.Warning
             )
             checks += DiagnosticCheck(
-                "storage", "服务端目录空间", "未选择服务端，无法检查", DiagnosticStatus.NotApplicable
+                "storage", str(R.string.diag_check_storage), str(R.string.diag_check_storage_none), DiagnosticStatus.NotApplicable
             )
             checks += DiagnosticCheck(
-                "port", "本地端口", "未选择服务端，无法检查", DiagnosticStatus.NotApplicable
+                "port", str(R.string.diag_check_port), str(R.string.diag_check_port_none), DiagnosticStatus.NotApplicable
             )
         } else {
             val dir = File(runtime.installer.rootDir, "home/servers/${active.dirName}")
             val jar = File(dir, "server.jar")
             val dirReady = dir.isDirectory && dir.canRead() && dir.canWrite()
             checks += DiagnosticCheck(
-                "core", "当前服务端",
-                if (!dirReady) "服务端目录不存在或不可读写" else if (!jar.isFile) "server.jar 不存在，需要重新下载核心" else "${active.name} 启动目录和核心文件可用",
+                "core", str(R.string.diag_check_core),
+                if (!dirReady) str(R.string.diag_check_core_dir_bad) else if (!jar.isFile) str(R.string.diag_check_core_jar_missing) else str(R.string.diag_check_core_ok, active.name),
                 if (dirReady && jar.isFile) DiagnosticStatus.Pass else DiagnosticStatus.Failed
             )
             val fontNeeded = runtime.needsFontRuntime(active.core)
             val fontsReady = fontNeeded && runtime.fontRuntimeReady(cfg.selectedJavaVersion)
             checks += DiagnosticCheck(
-                "fonts", "字体运行库",
+                "fonts", str(R.string.diag_check_fonts),
                 when {
-                    !fontNeeded -> "当前核心不需要 installer 字体运行库"
-                    fontsReady -> "fontconfig 与 fc-cache 已就绪"
-                    else -> "Forge/NeoForge 需要字体运行库，启动前可安全补齐"
+                    !fontNeeded -> str(R.string.diag_check_fonts_not_needed)
+                    fontsReady -> str(R.string.diag_check_fonts_ready)
+                    else -> str(R.string.diag_check_fonts_need)
                 },
                 when {
                     !fontNeeded -> DiagnosticStatus.NotApplicable
@@ -738,8 +768,8 @@ class McViewModel(
             )
             val available = try { if (dir.exists()) android.os.StatFs(dir.path).availableBytes else null } catch (_: Exception) { null }
             checks += DiagnosticCheck(
-                "storage", "服务端目录空间",
-                available?.let { "可用 ${formatDiagnosticBytes(it)}" } ?: "无法读取当前服务端目录空间",
+                "storage", str(R.string.diag_check_storage),
+                available?.let { str(R.string.diag_check_storage_avail, formatDiagnosticBytes(it)) } ?: str(R.string.diag_check_storage_unreadable),
                 if (available != null) DiagnosticStatus.Pass else DiagnosticStatus.Warning
             )
             val running = runtime.isMcRunning()
@@ -751,15 +781,15 @@ class McViewModel(
             val starting = running && runningSince > 0L &&
                 android.os.SystemClock.elapsedRealtime() - runningSince < 15_000L
             checks += DiagnosticCheck(
-                "port", "本地${if (bedrock) "UDP" else "TCP"}端口 ${cfg.localPort}",
-                when { !running -> "服务端未运行，未检测端口"; portOk -> "127.0.0.1:${cfg.localPort} 可连接"; starting -> "服务端启动中，稍后复检"; else -> "服务端运行中，但本地端口暂未响应" },
+                "port", str(R.string.diag_check_port_title, if (bedrock) "UDP" else "TCP", cfg.localPort),
+                when { !running -> str(R.string.diag_check_port_not_running); portOk -> str(R.string.diag_check_port_ok, cfg.localPort); starting -> str(R.string.diag_check_port_starting); else -> str(R.string.diag_check_port_bad2) },
                 when { !running -> DiagnosticStatus.NotApplicable; portOk -> DiagnosticStatus.Pass; else -> DiagnosticStatus.Warning }
             )
             val crash = (crashReportManager.listCrashReports() + crashReportManager.listNativeCrashReports(active.dirName))
                 .maxByOrNull { it.createdTime }
             checks += DiagnosticCheck(
-                "crash", "最近崩溃报告",
-                crash?.let { "检测到 ${it.fileName}，请在日志页查看详情" } ?: "未检测到应用生成的崩溃报告",
+                "crash", str(R.string.diag_check_crash),
+                crash?.let { str(R.string.diag_check_crash_found, it.fileName) } ?: str(R.string.diag_check_crash_none),
                 if (crash == null) DiagnosticStatus.Pass else DiagnosticStatus.Warning
             )
         }
@@ -864,11 +894,11 @@ class McViewModel(
                     JavaVersion.Java8 -> 8; JavaVersion.Java17 -> 17; JavaVersion.Java21 -> 21; JavaVersion.Java25 -> 25
                 }
                 if (selected < requiredJava) {
-                    val core = config.value.installedCores.firstOrNull { it.name == config.value.activeCoreName }?.core?.displayName ?: "当前核心"
-                    val warning = "$core 当前选择 Java $selected，但日志要求至少 Java $requiredJava"
+                    val core = config.value.installedCores.firstOrNull { it.name == config.value.activeCoreName }?.core?.displayName ?: str(R.string.diag_core_unknown_name)
+                    val warning = str(R.string.msg_java_warning, core, selected, requiredJava)
                     if (warning != lastJavaCompatibilityWarning) {
                         lastJavaCompatibilityWarning = warning
-                        _errorFlow.tryEmit("Java 版本不支持：$warning")
+                        _errorFlow.tryEmit(str(R.string.err_java_unsupported, warning))
                     }
                 }
             }
@@ -922,7 +952,9 @@ class McViewModel(
                         }
                     }
                 }
-                line.contains("Done (") && line.contains("For help") -> {
+                (line.contains("Done (") && line.contains("For help")) ||
+                    (line.contains("启动完成") && line.contains("如需帮助")) ||
+                    line.contains("Server started", ignoreCase = true) -> {
                     repo.updateServerState {
                         it.copy(tps = 20.0, healthPercent = 100,
                             maxMemoryMb = config.value.maxHeapMb.toLong(),
@@ -974,7 +1006,7 @@ class McViewModel(
     fun installJava(version: JavaVersion) {
         if (!isBootstrapped.value || _isInstalling.value) return
         _isInstalling.value = true
-        _javaOperation.value = "正在安装 ${version.displayName}，首次下载可能需要数分钟"
+        _javaOperation.value = str(R.string.msg_java_op_installing, version.displayName)
         viewModelScope.launch {
             try {
                 if (repo.termuxRuntime.installJava(version)) {
@@ -982,9 +1014,9 @@ class McViewModel(
                         repo.saveConfig(config.value.copy(selectedJavaVersion = JavaVersion.Java8))
                     }
                     refreshJava()
-                    _messageFlow.tryEmit("${version.displayName} 安装完成")
-                } else _errorFlow.tryEmit("${version.displayName} 安装失败")
-            } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "Java 安装失败") }
+                    _messageFlow.tryEmit(str(R.string.msg_java_installed, version.displayName))
+                } else _errorFlow.tryEmit(str(R.string.err_java_install_fail, version.displayName))
+            } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: str(R.string.msg_java_install_fail2)) }
             finally {
                 _javaOperation.value = null
                 _isInstalling.value = false
@@ -995,18 +1027,18 @@ class McViewModel(
     fun clearAndReinstallJava() {
         if (!isBootstrapped.value || _isInstalling.value) return
         if (repo.termuxRuntime.isMcRunning()) {
-            _errorFlow.tryEmit("服务端运行中，请先停止服务端再重装 Java")
+            _errorFlow.tryEmit(str(R.string.err_java_running))
             return
         }
         _isInstalling.value = true
-        _javaOperation.value = "正在清除并重装已安装的 Java 版本"
+        _javaOperation.value = str(R.string.msg_java_op_reinstall)
         viewModelScope.launch {
             try {
                 if (repo.termuxRuntime.clearAndReinstallJava()) {
                     refreshJava()
-                    _messageFlow.tryEmit("Java 已清除并重装")
-                } else _errorFlow.tryEmit("Java 重装失败")
-            } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "Java 重装失败") }
+                    _messageFlow.tryEmit(str(R.string.msg_java_reinstalled))
+                } else _errorFlow.tryEmit(str(R.string.err_java_reinstall_fail))
+            } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: str(R.string.msg_java_reinstall_fail2)) }
             finally {
                 _javaOperation.value = null
                 _isInstalling.value = false
@@ -1025,7 +1057,7 @@ class McViewModel(
     fun setMcVersion(version: String) = updateConfig {
         val normalized = MinecraftVersionNormalizer.forCore(it.selectedCore, version)
         if (normalized != version.trim()) {
-            _messageFlow.tryEmit("已将 ${it.selectedCore.displayName} Minecraft 版本 ${version.trim()} 纠正为 $normalized")
+            _messageFlow.tryEmit(str(R.string.msg_version_corrected, it.selectedCore.displayName, version.trim(), normalized))
         }
         it.copy(mcVersion = normalized)
     }
@@ -1057,7 +1089,7 @@ class McViewModel(
     /** 切换多线程下载开关 */
     fun setMultiThreadDownloadEnabled(enabled: Boolean) {
         com.mineserve.mobile.data.DownloadPrefs.setEnabled(enabled)
-        _messageFlow.tryEmit(if (enabled) "已启用多线程下载" else "已关闭多线程下载（改用单流下载）")
+        _messageFlow.tryEmit(if (enabled) str(R.string.msg_mt_enabled) else str(R.string.msg_mt_disabled))
     }
 
     /** 设置下载线程数 */
@@ -1143,8 +1175,8 @@ class McViewModel(
                     TunnelStatus.Running -> {
                         val url = st.publicUrl
                         _messageFlow.tryEmit(
-                            if (url.isNotBlank()) "隧道已启动，公网地址: $url"
-                            else "隧道已启动"
+                            if (url.isNotBlank()) str(R.string.msg_tunnel_started_url, url)
+                            else str(R.string.msg_tunnel_started)
                         )
                     }
                     TunnelStatus.Starting -> _messageFlow.tryEmit(str(R.string.s203))
@@ -1327,7 +1359,7 @@ class McViewModel(
             try {
                 val url = withContext(Dispatchers.IO) {
                     pluginManager.resolveLatestAsset(mod.repo, mod.githubAssetPattern)
-                } ?: throw RuntimeException("无法解析最新版本下载地址")
+                } ?: throw RuntimeException(str(R.string.err_parse_latest_url))
                 withContext(Dispatchers.IO) { pluginManager.installModFromUrl(url, mod.targetFileName, dirName) }
                 _messageFlow.tryEmit(str(R.string.s221, mod.name))
                 refreshMods()
@@ -1395,8 +1427,21 @@ class McViewModel(
         _selectedModVersion.value = v
     }
 
+    /** Modrinth 搜索参数（用于分页加载更多） */
+    private data class ModrinthQueryArgs(
+        val query: String,
+        val loaders: List<String>,
+        val sort: String,
+        val mcVersion: String
+    )
+
+    private var lastModrinthModQuery: ModrinthQueryArgs? = null
+    private val _isLoadingMoreMods = MutableStateFlow(false)
+    val isLoadingMoreMods: StateFlow<Boolean> = _isLoadingMoreMods.asStateFlow()
+
     /** 搜索 Modrinth 模组（多加载器 + 版本筛选 + 排序） */
     fun searchModrinthMods(query: String, loaders: List<String>, sort: String, mcVersion: String) {
+        lastModrinthModQuery = ModrinthQueryArgs(query, loaders, sort, mcVersion)
         viewModelScope.launch {
             _modrinthResults.value = withContext(Dispatchers.IO) {
                 pluginManager.searchModrinth(query, loaders, sort, projectType = "mod", mcVersion = mcVersion)
@@ -1406,6 +1451,35 @@ class McViewModel(
             }
         }
     }
+
+    /** 分页加载更多 Modrinth 模组（追加到现有结果） */
+    fun loadMoreModrinthMods() {
+        val args = lastModrinthModQuery ?: run {
+            _messageFlow.tryEmit("请先执行搜索")
+            return
+        }
+        if (_isLoadingMoreMods.value) return
+        viewModelScope.launch {
+            _isLoadingMoreMods.value = true
+            try {
+                val offset = _modrinthResults.value.size
+                val more = withContext(Dispatchers.IO) {
+                    pluginManager.searchModrinth(args.query, args.loaders, args.sort, projectType = "mod", mcVersion = args.mcVersion, offset = offset)
+                }
+                if (more.isEmpty()) {
+                    _messageFlow.tryEmit("没有更多结果")
+                } else {
+                    _modrinthResults.value = (_modrinthResults.value + more).distinctBy { it.slug }
+                }
+            } finally {
+                _isLoadingMoreMods.value = false
+            }
+        }
+    }
+
+    /** 检测已安装插件冲突（同名 / 同主类） */
+    fun detectPluginConflicts(plugins: List<PluginManager.InstalledPlugin>): List<String> =
+        pluginManager.detectPluginConflicts(plugins)
 
     /** 一键安装 Modrinth 模组（解析指定版本 release 直链并下载到 mods/） */
     fun installModrinthMod(hit: PluginManager.ModrinthHit, mcVersion: String) {
@@ -1422,7 +1496,7 @@ class McViewModel(
             try {
                 val url = withContext(Dispatchers.IO) {
                     pluginManager.resolveModrinthDownload(hit.slug, mcVersion, loader)
-                } ?: throw RuntimeException("该模组不支持当前 MC 版本/加载器")
+                } ?: throw RuntimeException(str(R.string.err_mod_incompatible))
                 val fileName = "${hit.slug}.jar"
                 withContext(Dispatchers.IO) {
                     // 下载开始前先放占位进度，保证进度弹窗一定显示（下载瞬间完成也不会漏）
@@ -1477,14 +1551,44 @@ class McViewModel(
         _selectedPluginVersion.value = v
     }
 
+    private var lastModrinthPluginQuery: ModrinthQueryArgs? = null
+    private val _isLoadingMorePlugins = MutableStateFlow(false)
+    val isLoadingMorePlugins: StateFlow<Boolean> = _isLoadingMorePlugins.asStateFlow()
+
     /** 插件页搜索 Modrinth 插件（project_type=plugin，布局与模组页统一） */
     fun searchModrinthPlugin(query: String, loaders: List<String>, sort: String, mcVersion: String) {
+        lastModrinthPluginQuery = ModrinthQueryArgs(query, loaders, sort, mcVersion)
         viewModelScope.launch {
             _pluginModrinthResults.value = withContext(Dispatchers.IO) {
                 pluginManager.searchModrinth(query, loaders, sort, projectType = "plugin", mcVersion = mcVersion)
             }
             if (_pluginModrinthResults.value.isEmpty()) {
                 _messageFlow.tryEmit(str(R.string.s223))
+            }
+        }
+    }
+
+    /** 分页加载更多 Modrinth 插件（追加到现有结果） */
+    fun loadMoreModrinthPlugin() {
+        val args = lastModrinthPluginQuery ?: run {
+            _messageFlow.tryEmit("请先执行搜索")
+            return
+        }
+        if (_isLoadingMorePlugins.value) return
+        viewModelScope.launch {
+            _isLoadingMorePlugins.value = true
+            try {
+                val offset = _pluginModrinthResults.value.size
+                val more = withContext(Dispatchers.IO) {
+                    pluginManager.searchModrinth(args.query, args.loaders, args.sort, projectType = "plugin", mcVersion = args.mcVersion, offset = offset)
+                }
+                if (more.isEmpty()) {
+                    _messageFlow.tryEmit("没有更多结果")
+                } else {
+                    _pluginModrinthResults.value = (_pluginModrinthResults.value + more).distinctBy { it.slug }
+                }
+            } finally {
+                _isLoadingMorePlugins.value = false
             }
         }
     }
@@ -1504,7 +1608,7 @@ class McViewModel(
             try {
                 val url = withContext(Dispatchers.IO) {
                     pluginManager.resolveModrinthDownload(hit.slug, mcVersion, loader)
-                } ?: throw RuntimeException("该插件不支持所选 MC 版本/加载器")
+                } ?: throw RuntimeException(str(R.string.err_plugin_incompatible))
                 val fileName = "${hit.slug}.jar"
                 withContext(Dispatchers.IO) {
                     // 下载开始前先放占位进度，保证进度弹窗一定显示
@@ -1548,7 +1652,7 @@ class McViewModel(
                 val resolvedUrl = if (curated.githubAssetPattern != null) {
                     withContext(Dispatchers.IO) {
                         pluginManager.resolveLatestAsset(curated.repo, curated.githubAssetPattern)
-                    } ?: throw RuntimeException("无法解析 ${curated.name} 最新版本下载地址")
+                    } ?: throw RuntimeException(str(R.string.err_parse_curated_url, curated.name))
                 } else {
                     curated.downloadUrl
                 }
@@ -1609,7 +1713,7 @@ class McViewModel(
             try {
                 val ok = pluginManager.delete(fileName, dirName, alsoRemoveDataDir)
                 if (ok) {
-                    val msg = if (alsoRemoveDataDir) "$fileName 已删除（含数据目录）" else "$fileName 已删除"
+                    val msg = if (alsoRemoveDataDir) str(R.string.msg_deleted_with_data, fileName) else str(R.string.msg_deleted, fileName)
                     _messageFlow.tryEmit(msg)
                     refreshInstalledPlugins()
                 } else {
@@ -1631,7 +1735,7 @@ class McViewModel(
             try {
                 val newName = pluginManager.toggleEnabled(fileName, dirName)
                 if (newName != null) {
-                    val action = if (newName.startsWith("-")) "已禁用" else "已启用"
+                    val action = if (newName.startsWith("-")) str(R.string.msg_disabled) else str(R.string.msg_enabled)
                     _messageFlow.tryEmit("$action $fileName")
                     refreshInstalledPlugins()
                 } else {
@@ -1677,8 +1781,8 @@ class McViewModel(
                 _curatedUpdates.value = updates.associateBy { it.curated.id }
                 val updateCount = updates.count { it.hasUpdate }
                 _messageFlow.tryEmit(
-                    if (updateCount > 0) "检测完成：$updateCount 个插件有更新"
-                    else "检测完成：所有精选插件均为最新版本"
+                    if (updateCount > 0) str(R.string.msg_updates_found, updateCount)
+                    else str(R.string.msg_updates_all_latest)
                 )
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s243, e.message))
@@ -1779,7 +1883,7 @@ class McViewModel(
                     _messageFlow.tryEmit(str(R.string.update_backup_empty))
                 }
             } catch (e: Exception) {
-                _messageFlow.tryEmit("备份失败: ${e.message}")
+                _messageFlow.tryEmit(str(R.string.err_backup_fail, e.message))
             }
         }
     }
@@ -1793,12 +1897,12 @@ class McViewModel(
                     backupManager.backupWorldToExternal(dirName, BackupManager.BackupOrigin.Manual)
                 }
                 if (path != null) {
-                    _messageFlow.tryEmit("世界备份完成: ${java.io.File(path).name}")
+                    _messageFlow.tryEmit(str(R.string.msg_world_backup_done, java.io.File(path).name))
                 } else {
-                    _errorFlow.tryEmit("世界备份失败（无世界存档或外部目录不可写）")
+                    _errorFlow.tryEmit(str(R.string.err_world_backup_empty))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("世界备份失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.err_world_backup_fail, e.message))
             }
         }
     }
@@ -1816,12 +1920,12 @@ class McViewModel(
                     backupManager.backupServerToExternal(dirName, coreTag, BackupManager.BackupOrigin.Manual)
                 }
                 if (path != null) {
-                    _messageFlow.tryEmit("服务器备份完成: ${java.io.File(path).name}")
+                    _messageFlow.tryEmit(str(R.string.msg_server_backup_done, java.io.File(path).name))
                 } else {
-                    _errorFlow.tryEmit("服务器备份失败（外部目录不可写）")
+                    _errorFlow.tryEmit(str(R.string.err_server_backup_fail))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("服务器备份失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.err_server_backup_fail_msg, e.message))
             }
         }
     }
@@ -1847,10 +1951,10 @@ class McViewModel(
                 val ok = withContext(Dispatchers.IO) {
                     backupManager.deleteExternalBackup(name)
                 }
-                if (ok) _messageFlow.tryEmit("已删除备份: $name")
-                else _errorFlow.tryEmit("删除失败: $name")
+                if (ok) _messageFlow.tryEmit(str(R.string.msg_backup_deleted, name))
+                else _errorFlow.tryEmit(str(R.string.err_backup_delete_fail, name))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("删除失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.err_backup_delete_fail, e.message))
             }
         }
     }
@@ -1859,7 +1963,7 @@ class McViewModel(
     fun importBackupToExternal(uri: android.net.Uri) {        viewModelScope.launch {
             try {
                 if (!com.mineserve.mobile.server.ExternalBackupStore.ensure()) {
-                    _errorFlow.tryEmit("外部备份目录不可用")
+                    _errorFlow.tryEmit(str(R.string.err_ext_dir_unavailable))
                     return@launch
                 }
                 val app = McApplication.get()
@@ -1877,9 +1981,35 @@ class McViewModel(
                         target.outputStream().use { output -> input.copyTo(output) }
                     }
                 }
-                _messageFlow.tryEmit("已导入备份: $safeName")
+                _messageFlow.tryEmit(str(R.string.msg_backup_imported, safeName))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("导入失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.err_backup_import_fail, e.message))
+            }
+        }
+    }
+
+    /** 重命名外部备份文件 */
+    fun renameExternalBackup(oldName: String, newName: String) {
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { backupManager.renameExternalBackup(oldName, newName) }
+                if (ok) _messageFlow.tryEmit(str(R.string.bk_rename_done, newName))
+                else _errorFlow.tryEmit(str(R.string.bk_rename_fail))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.bk_rename_fail))
+            }
+        }
+    }
+
+    /** 校验外部备份 zip 完整性 */
+    fun validateExternalBackup(name: String) {
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { backupManager.validateZip(name) }
+                if (ok) _messageFlow.tryEmit(str(R.string.bk_validate_done, name))
+                else _errorFlow.tryEmit(str(R.string.bk_validate_fail, name))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.bk_validate_fail, name))
             }
         }
     }
@@ -1891,10 +2021,10 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 val ok = withContext(Dispatchers.IO) { backupManager.restoreWorldFromExternal(file, dirName) }
-                if (ok) _messageFlow.tryEmit("世界已还原: $zipName")
-                else _errorFlow.tryEmit("世界还原失败")
+                if (ok) _messageFlow.tryEmit(str(R.string.msg_world_restored, zipName))
+                else _errorFlow.tryEmit(str(R.string.err_world_restore_fail))
             } catch (e: Exception) {
-                _errorFlow.tryEmit("世界还原失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.err_world_restore_fail_msg, e.message))
             }
         }
     }
@@ -1931,12 +2061,12 @@ class McViewModel(
                 if (ok) {
                     // 注册到已安装核心列表并设为当前选中（否则概览/核心列表不显示）
                     registerRestoredCore(dirName, coreTag)
-                    _messageFlow.tryEmit("服务器已还原: $zipName")
+                    _messageFlow.tryEmit(str(R.string.msg_server_restored, zipName))
                 } else {
-                    _errorFlow.tryEmit("服务器还原失败")
+                    _errorFlow.tryEmit(str(R.string.err_server_restore_fail))
                 }
             } catch (e: Exception) {
-                _errorFlow.tryEmit("服务器还原失败: ${e.message}")
+                _errorFlow.tryEmit(str(R.string.err_server_restore_fail_msg, e.message))
             }
         }
     }
@@ -1963,13 +2093,134 @@ class McViewModel(
                 installedCores = it.installedCores + com.mineserve.mobile.data.InstalledCore(
                     name = dirName,
                     core = core,
-                    version = "还原",
+                    version = str(R.string.ver_restored),
                     dirName = dirName
                 ),
                 activeCoreName = dirName
             )
         }
     }
+
+    // ── 导入服务器（文件夹 / 压缩包 / JAR） ────────────────────────
+
+    private val serverImporter = ServerImporter(McApplication.get(), repo.termuxRuntime)
+
+    private val _isImportingServer = MutableStateFlow(false)
+    val isImportingServer: StateFlow<Boolean> = _isImportingServer.asStateFlow()
+
+    private val _importProgress = MutableStateFlow<Float?>(null)
+    val importProgress: StateFlow<Float?> = _importProgress.asStateFlow()
+
+    /** 从外部存储文件夹（SAF tree）导入为新的服务器；displayName 为空时自动解析文件夹名 */
+    fun importServerFromFolder(uri: android.net.Uri, displayName: String? = null) {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        viewModelScope.launch {
+            _isImportingServer.value = true
+            _importProgress.value = null
+            try {
+                val imported = withContext(Dispatchers.IO) {
+                    serverImporter.importFromFolder(uri, displayName) { done, total ->
+                        _importProgress.value = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null
+                    }
+                }
+                registerImportedServer(imported)
+                _messageFlow.tryEmit(importServerMessage(imported))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.import_server_failed, e.message))
+            } finally {
+                _isImportingServer.value = false
+                _importProgress.value = null
+            }
+        }
+    }
+
+    /** 从外部存储压缩包（zip/tar/tar.gz/tar.xz/tar.bz2/7z）导入为新的服务器；displayName 为空时自动解析 */
+    fun importServerFromArchive(uri: android.net.Uri, displayName: String? = null) {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        viewModelScope.launch {
+            _isImportingServer.value = true
+            _importProgress.value = null
+            try {
+                val imported = withContext(Dispatchers.IO) {
+                    serverImporter.importFromArchive(uri, displayName) { done, total ->
+                        _importProgress.value = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null
+                    }
+                }
+                registerImportedServer(imported)
+                _messageFlow.tryEmit(importServerMessage(imported))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.import_server_failed, e.message))
+            } finally {
+                _isImportingServer.value = false
+                _importProgress.value = null
+            }
+        }
+    }
+
+    /** 从单个服务端 JAR 创建标准服务器目录后导入。 */
+    fun importServerFromJar(uri: android.net.Uri, displayName: String? = null) {
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        viewModelScope.launch {
+            _isImportingServer.value = true
+            _importProgress.value = null
+            try {
+                val imported = withContext(Dispatchers.IO) {
+                    serverImporter.importFromJar(uri, displayName) { done, total ->
+                        _importProgress.value = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null
+                    }
+                }
+                registerImportedServer(imported)
+                _messageFlow.tryEmit(importServerMessage(imported))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.import_server_failed, e.message))
+            } finally {
+                _isImportingServer.value = false
+                _importProgress.value = null
+            }
+        }
+    }
+
+    /** 为导入确认对话框预填名称：kind 为 folder / archive / jar */
+    suspend fun proposeImportName(kind: String, uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            when (kind) {
+                "folder" -> serverImporter.proposeFolderName(uri)
+                "jar" -> serverImporter.proposeJarName(uri)
+                else -> serverImporter.proposeArchiveName(uri)
+            }
+        }.getOrNull()
+    }
+
+    /** 把导入的服务器注册进已安装核心列表并设为当前选中（核心/版本为自动识别结果） */
+    private fun registerImportedServer(imported: ServerImporter.ImportedServer) {
+        updateConfig {
+            val core = imported.core ?: com.mineserve.mobile.data.ServerCore.Unknown
+            it.copy(
+                installedCores = it.installedCores.filter { c -> c.dirName != imported.dirName } +
+                    com.mineserve.mobile.data.InstalledCore(
+                        name = imported.displayName,
+                        core = core,
+                        version = imported.version ?: str(R.string.ver_imported),
+                        dirName = imported.dirName
+                    ),
+                activeCoreName = imported.displayName
+            )
+        }
+    }
+
+    /** 导入完成提示（含自动识别的核心与版本） */
+    private fun importServerMessage(imported: ServerImporter.ImportedServer): String {
+        val coreLabel = if (imported.core != null && imported.core != com.mineserve.mobile.data.ServerCore.Unknown) {
+            listOf(imported.core.displayName, imported.version).filter { !it.isNullOrBlank() }.joinToString(" ")
+        } else null
+        val suffix = if (coreLabel != null) {
+            str(R.string.import_server_core, coreLabel)
+        } else {
+            str(R.string.import_server_core_unknown)
+        }
+        return str(R.string.import_server_done, imported.displayName) + "（" + suffix + "）"
+    }
+
 
     // ── 备份恢复管理 ────────────────────────────────────────────────
 
@@ -2055,7 +2306,7 @@ class McViewModel(
             try {
                 withContext(Dispatchers.IO) {
                     val output = McApplication.get().contentResolver.openOutputStream(uri)
-                        ?: throw RuntimeException("无法打开导出目标")
+                        ?: throw RuntimeException(str(R.string.err_open_export))
                     output.use { os -> src.inputStream().use { it.copyTo(os) } }
                 }
                 _messageFlow.tryEmit(str(R.string.s256, snapshotName))
@@ -2285,10 +2536,10 @@ class McViewModel(
                         val duration = if (row.sessionStart != null && row.sessionEnd != null && !row.interrupted) ((row.sessionEnd - row.sessionStart) / 1000).toString() else ""
                         out.appendLine(listOf(csv(row.player), csv(row.event), csv(row.time), row.sessionStart ?: "", row.sessionEnd ?: "", duration, row.interrupted).joinToString(","))
                     }
-                } ?: error("无法创建导出文件")
+                } ?: error(str(R.string.err_open_export))
             }
-            _messageFlow.tryEmit("玩家活动已导出")
-        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "导出失败") }
+            _messageFlow.tryEmit(str(R.string.msg_history_exported))
+        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: str(R.string.err_export_fail)) }
     }
 
     private fun timeNow(): String =
@@ -2314,16 +2565,16 @@ class McViewModel(
         try {
             val content = withContext(Dispatchers.IO) { SafeTextFile.read(fileManagerRoot, file) }
             _textEditorFile.value = TextEditorFile(content.file.absolutePath, content.file.name, content.text)
-        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "无法打开文本文件") }
+        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: str(R.string.err_open_text)) }
     }
     fun closeTextFile() { _textEditorFile.value = null }
     fun saveTextFile(path: String, text: String) = viewModelScope.launch {
         try {
             withContext(Dispatchers.IO) { SafeTextFile.write(fileManagerRoot, java.io.File(path), text) }
             _textEditorFile.value = TextEditorFile(path, java.io.File(path).name, text)
-            _messageFlow.tryEmit("文件已保存")
+            _messageFlow.tryEmit(str(R.string.msg_file_saved))
             refreshFiles()
-        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: "保存失败") }
+        } catch (e: Exception) { _errorFlow.tryEmit(e.message ?: str(R.string.err_save_text)) }
     }
     fun canEditTextFile(file: java.io.File) = file.isFile && SafeTextFile.isSupported(file)
 
@@ -2399,19 +2650,19 @@ class McViewModel(
     fun deopPlayer(name: String) {
         if (name.isBlank()) return
         val sent = playerManager.deopPlayer(name)
-        afterCmd(sent, "已取消 $name 的 OP")
+        afterCmd(sent, str(R.string.msg_op_cancelled, name))
     }
 
     fun whitelistAdd(name: String) {
         if (name.isBlank()) return
         val sent = playerManager.whitelistAdd(name)
-        afterCmd(sent, "已将 $name 加入白名单")
+        afterCmd(sent, str(R.string.msg_whitelist_added, name))
     }
 
     fun whitelistRemove(name: String) {
         if (name.isBlank()) return
         val sent = playerManager.whitelistRemove(name)
-        afterCmd(sent, "已将 $name 移出白名单")
+        afterCmd(sent, str(R.string.msg_whitelist_removed, name))
     }
 
     /** 切换白名单开关 */
@@ -2419,7 +2670,7 @@ class McViewModel(
         val sent = if (enabled) playerManager.whitelistOn() else playerManager.whitelistOff()
         if (sent) {
             _whitelistEnabled.value = enabled
-            _messageFlow.tryEmit(if (enabled) "白名单已开启" else "白名单已关闭")
+            _messageFlow.tryEmit(if (enabled) str(R.string.msg_whitelist_toggled_on) else str(R.string.msg_whitelist_toggled_off))
         } else {
             _errorFlow.tryEmit(str(R.string.s274))
         }
@@ -2428,26 +2679,26 @@ class McViewModel(
     fun kickPlayer(name: String, reason: String = "") {
         if (name.isBlank()) return
         val sent = playerManager.kickPlayer(name, reason)
-        afterCmd(sent, "已踢出 $name", refresh = false)
+        afterCmd(sent, str(R.string.msg_kicked, name), refresh = false)
     }
 
     fun banPlayer(name: String, reason: String = "Banned by admin") {
         if (name.isBlank()) return
         val sent = playerManager.banPlayer(name, reason)
-        afterCmd(sent, "已永久封禁 $name")
+        afterCmd(sent, str(R.string.msg_banned, name))
     }
 
     /** 限时封禁 */
     fun tempBanPlayer(name: String, duration: String, reason: String = "") {
         if (name.isBlank() || duration.isBlank()) return
         val sent = playerManager.tempBanPlayer(name, duration, reason)
-        afterCmd(sent, "已限时封禁 $name（$duration）")
+        afterCmd(sent, str(R.string.msg_banned_temp, name, duration))
     }
 
     fun pardonPlayer(name: String) {
         if (name.isBlank()) return
         val sent = playerManager.pardonPlayer(name)
-        afterCmd(sent, "已解除 $name 的封禁")
+        afterCmd(sent, str(R.string.msg_pardoned, name))
     }
 
     /** 请求在线玩家列表（发送 list 命令） */
@@ -2474,7 +2725,7 @@ class McViewModel(
     fun giveXp(name: String, amount: Int) {
         if (name.isBlank() || amount <= 0) return
         val sent = playerManager.giveXp(name, amount)
-        afterCmd(sent, "已给予 $name $amount 经验", refresh = false)
+        afterCmd(sent, str(R.string.msg_xp_given, name, amount), refresh = false)
     }
 
     // ── 崩溃报告 ────────────────────────────────────────────────────
@@ -2508,9 +2759,9 @@ class McViewModel(
     /** Shows a structured report when validation fails before a process can create its own crash file. */
     private fun showStartupFailureReport(error: Throwable) {
         val text = buildString {
-            appendLine("MineServeMobile 启动失败报告")
-            appendLine("时间: ${timeNow()}")
-            appendLine("异常: ${error::class.java.name}: ${error.message ?: "未提供详情"}")
+            appendLine(str(R.string.startup_report_title))
+            appendLine(str(R.string.startup_report_time, timeNow()))
+            appendLine(str(R.string.startup_report_exception, error::class.java.name, error.message ?: str(R.string.startup_report_no_detail)))
             appendLine()
             append(error.stackTraceToString())
         }
@@ -2522,11 +2773,11 @@ class McViewModel(
         viewModelScope.launch(Dispatchers.IO) {
             val report = failure.reportPath?.let { runCatching { File(it).readText() }.getOrNull() }
             val text = report ?: buildString {
-                appendLine("MineServeMobile 启动失败报告")
-                appendLine("时间: ${timeNow()}")
-                appendLine("退出码: ${failure.code}")
-                appendLine("原因: ${failure.detail}")
-                appendLine("\n请查看当前服务端 latest.log 和 crash-reports 目录。")
+                appendLine(str(R.string.startup_report_title))
+                appendLine(str(R.string.startup_report_time, timeNow()))
+                appendLine(str(R.string.startup_report_exitcode, failure.code))
+                appendLine(str(R.string.startup_report_reason, failure.detail))
+                appendLine(str(R.string.startup_report_hint))
             }
             withContext(kotlinx.coroutines.Dispatchers.Main) {
                 _currentCrashContent.value = text
@@ -2570,6 +2821,32 @@ class McViewModel(
     }
 
     /** 清空所有崩溃报告 */
+    /** 读取应用自身崩溃日志（全局 uncaught handler 写入），无则返回 null */
+    fun appCrashLog(): String? {
+        val dir = java.io.File(McApplication.get().filesDir, "home")
+        val candidates = listOf(
+            java.io.File(dir, "crash_log.txt"),
+            java.io.File(dir, "crash_log_read.txt")
+        )
+        val file = candidates.firstOrNull { it.exists() && it.length() > 0 } ?: return null
+        return try {
+            val text = file.readText()
+            if (text.length > 4000) text.takeLast(4000) else text
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** 清空应用崩溃日志文件 */
+    fun clearAppCrashLog() {
+        try {
+            val dir = java.io.File(McApplication.get().filesDir, "home")
+            java.io.File(dir, "crash_log.txt").delete()
+            java.io.File(dir, "crash_log_read.txt").delete()
+        } catch (_: Exception) {
+        }
+    }
+
     fun clearCrashReports() {
         viewModelScope.launch {
             try {
@@ -2714,11 +2991,53 @@ class McViewModel(
     }
 
     /** 删除一个已安装的核心（按名称） */
+    /**
+     * 校验已安装核心的 server.jar；缺失或损坏时自动重新下载修复（保留目录与配置）。
+     */
+    fun verifyOrRepairCore(dirName: String) {
+        val cfg = config.value
+        val core = cfg.installedCores.firstOrNull { it.dirName == dirName } ?: return
+        if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
+        viewModelScope.launch {
+            try {
+                val jar = java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName/server.jar")
+                val valid = withContext(Dispatchers.IO) {
+                    jar.isFile && runCatching {
+                        java.util.jar.JarFile(jar).use { jf -> jf.manifest != null }
+                    }.getOrDefault(false)
+                }
+                if (valid) {
+                    _messageFlow.tryEmit(str(R.string.msg_core_verify_ok, core.name, formatCoreSize(jar.length())))
+                    return@launch
+                }
+                _messageFlow.tryEmit(str(R.string.msg_core_repairing, core.name))
+                _isDownloadingCore.value = true
+                try {
+                    val downloadConfig = cfg.copy(selectedCore = core.core, mcVersion = core.version)
+                    withContext(Dispatchers.IO) {
+                        controller.downloadCoreTo(jar.absolutePath, downloadConfig, dirName) { _, _, _ -> }
+                    }
+                    _messageFlow.tryEmit(str(R.string.msg_core_repaired, core.name))
+                } finally {
+                    _isDownloadingCore.value = false
+                }
+            } catch (e: Exception) {
+                _isDownloadingCore.value = false
+                _errorFlow.tryEmit(str(R.string.err_core_repair_fail, e.message))
+            }
+        }
+    }
+
+    private fun formatCoreSize(bytes: Long): String =
+        if (bytes >= 1024 * 1024) "%.1f MB".format(bytes / 1024.0 / 1024.0)
+        else if (bytes >= 1024) "%.1f KB".format(bytes / 1024.0)
+        else "$bytes B"
+
     fun deleteCore(name: String) {
         viewModelScope.launch {
             try {
                 val core = config.value.installedCores.find { it.name == name }
-                    ?: throw RuntimeException("核心 $name 不存在")
+                    ?: throw RuntimeException(str(R.string.msg_core_not_found, name))
                 // 删除整个文件夹
                 val dir = repo.termuxRuntime.serverDirFor(core.dirName)
                 val deleted = withContext(Dispatchers.IO) { dir.deleteRecursively() }
@@ -2855,7 +3174,7 @@ class McViewModel(
                 withContext(Dispatchers.IO) {
                     val app = McApplication.get()
                     val input = app.contentResolver.openInputStream(uri)
-                        ?: throw RuntimeException("无法打开文件")
+                        ?: throw RuntimeException(str(R.string.err_open_file))
                     val fileName = queryFileName(uri) ?: "uploaded_${System.currentTimeMillis()}"
                     val targetFile = java.io.File(targetDir, fileName)
                     input.use { ins ->
@@ -2879,7 +3198,7 @@ class McViewModel(
                 withContext(Dispatchers.IO) {
                     val app = McApplication.get()
                     val output = app.contentResolver.openOutputStream(uri)
-                        ?: throw RuntimeException("无法打开导出目标")
+                        ?: throw RuntimeException(str(R.string.err_open_export))
                     output.use { os ->
                         if (source.isDirectory) {
                             // 文件夹打包为 zip
@@ -2983,12 +3302,8 @@ class McViewModel(
         // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
-                // 无任何 UI 订阅时（后台/无页面）长睡，有订阅时以帧友好的频率刷新。
-                // 同时检查 consoleLines 和 consolePreviewLines，确保下载页（仅订阅
-                // preview）也能实时获取日志，不再需要先进入终端页。
-                val hasSubscribers = _consoleLines.subscriptionCount.value > 0 ||
-                    _consolePreviewLines.subscriptionCount.value > 0
-                if (!hasSubscribers) {
+                // 无 UI 订阅时（后台/无页面）长睡，控制台可见时以帧友好的频率刷新。
+                if (_consoleLines.subscriptionCount.value <= 0 && _consolePreviewLines.subscriptionCount.value <= 0) {
                     delay(2000)
                     continue
                 }

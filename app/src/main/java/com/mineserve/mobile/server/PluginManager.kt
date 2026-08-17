@@ -101,6 +101,27 @@ class PluginManager(
     )
 
     /**
+     * 检测插件冲突：plugin.yml 同名或同主类的插件（可能导致加载失败或互相覆盖）。
+     * @return 人类可读的冲突描述列表，无冲突时为空
+     */
+    fun detectPluginConflicts(plugins: List<InstalledPlugin>): List<String> {
+        val withMeta = plugins.filter { it.meta != null }
+        val conflicts = mutableListOf<String>()
+        withMeta.groupBy { it.meta!!.name.lowercase() }
+            .filter { it.value.size > 1 }
+            .forEach { (_, group) ->
+                conflicts += "插件名称重复「${group.first().meta!!.name}」: ${group.joinToString("、") { it.fileName }}"
+            }
+        withMeta.filter { it.meta!!.mainClass.isNotBlank() }
+            .groupBy { it.meta!!.mainClass }
+            .filter { it.value.size > 1 }
+            .forEach { (mainClass, group) ->
+                conflicts += "主类重复「$mainClass」: ${group.joinToString("、") { it.fileName }}"
+            }
+        return conflicts
+    }
+
+    /**
      * 精选插件的更新检测结果
      */
     data class CuratedUpdateInfo(
@@ -747,7 +768,8 @@ class PluginManager(
         loaders: List<String>,
         sort: String,
         projectType: String = "mod",
-        mcVersion: String = ""
+        mcVersion: String = "",
+        offset: Int = 0
     ): List<ModrinthHit> {
         if (query.isBlank()) return emptyList()
         return try {
@@ -769,7 +791,7 @@ class PluginManager(
             }
             val urlStr = "https://api.modrinth.com/v2/search?query=${java.net.URLEncoder.encode(query, "UTF-8")}" +
                 "&facets=${java.net.URLEncoder.encode(facets, "UTF-8")}" +
-                "&index=${java.net.URLEncoder.encode(sort, "UTF-8")}&limit=20"
+                "&index=${java.net.URLEncoder.encode(sort, "UTF-8")}&limit=20&offset=$offset"
             val body = fetchModrinthText(urlStr)
             modrinthJson.decodeFromString<ModrinthSearchResponse>(body).hits
         } catch (e: Exception) {

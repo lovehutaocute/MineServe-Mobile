@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.ui.res.stringResource
+import com.mineserve.mobile.R
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -122,8 +123,8 @@ fun McApp() {
                 NavigationBarItem(
                     selected = subPage in setOf(SubPage.More, SubPage.Network, SubPage.Backup, SubPage.Diagnostics, SubPage.KeepAlive, SubPage.DownloadHelp, SubPage.MtGuide, SubPage.OpLevelGuide),
                     onClick = { subPage = SubPage.More; showLogs = false },
-                    icon = { Icon(Icons.Outlined.MoreVert, contentDescription = "更多") },
-                    label = { Text("更多", fontSize = 10.sp) },
+                    icon = { Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(R.string.mcapp_more)) },
+                    label = { Text(stringResource(R.string.mcapp_more), fontSize = 10.sp) },
                     colors = NavigationBarItemDefaults.colors(selectedIconColor = Indigo, selectedTextColor = Indigo, indicatorColor = IndigoSoft, unselectedIconColor = Muted, unselectedTextColor = Muted)
                 )
             }

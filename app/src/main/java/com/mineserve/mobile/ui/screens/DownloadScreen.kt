@@ -2,6 +2,9 @@ package com.mineserve.mobile.ui.screens
 
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import com.mineserve.mobile.R
 
 import androidx.compose.foundation.BorderStroke
@@ -27,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -35,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,6 +69,8 @@ import com.mineserve.mobile.ui.theme.Muted
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
+private data class DownloadImport(val kind: String, val uri: Uri)
+
 /**
  * 下载页：选择服务端核心 + 选择游戏版本 + 下载服务端 JAR
  * 核心类型和版本均从官方 API 动态获取，确保下载源正确
@@ -80,6 +87,8 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val isDownloadingCore by vm.isDownloadingCore.collectAsState()
     val downloadProgress by vm.downloadProgress.collectAsState()
     val consoleLines by vm.consolePreviewLines.collectAsState()
+    val importingServer by vm.isImportingServer.collectAsState()
+    val importProgress by vm.importProgress.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val usesCoreVersion = config.selectedCore == ServerCore.PowerNukkitX
@@ -88,7 +97,31 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     var customVersion by remember { mutableStateOf("") }
     // 自定义核心名称
     var customCoreName by remember { mutableStateOf("") }
-
+    var showImportDialog by remember { mutableStateOf(false) }
+    var pendingImport by remember { mutableStateOf<DownloadImport?>(null) }
+    var importName by remember { mutableStateOf("") }
+    var importObservedRunning by remember { mutableStateOf(false) }
+    val folderImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { pendingImport = DownloadImport("folder", it); showImportDialog = true }
+    }
+    val archiveImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { pendingImport = DownloadImport("archive", it); showImportDialog = true }
+    }
+    val jarImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { pendingImport = DownloadImport("jar", it); showImportDialog = true }
+    }
+    LaunchedEffect(pendingImport) {
+        pendingImport?.let { importName = vm.proposeImportName(it.kind, it.uri).orEmpty() }
+    }
+    LaunchedEffect(importingServer) {
+        if (importingServer) {
+            importObservedRunning = true
+        } else if (importObservedRunning) {
+            showImportDialog = false
+            pendingImport = null
+            importObservedRunning = false
+        }
+    }
     // 切换核心时自动加载版本列表
     LaunchedEffect(config.selectedCore) {
         vm.loadVersions(config.selectedCore)
@@ -116,7 +149,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_download), title = stringResource(R.string.s450))
 
             // 当前下载状态
-            McCard(title = stringResource(R.string.s451)) {
+            McCard(title = stringResource(R.string.s451), compact = true) {
                 val installed = config.installedCores
                 if (installed.isEmpty()) {
                     Text(
@@ -128,8 +161,8 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     installed.forEach { core ->
                         val versionText = "${core.core.displayName} ${core.version}" +
                             (if (core.core == ServerCore.PowerNukkitX) {
-                                " · 支持游戏：${versionHints[core.version] ?: "官方未标注"}"
-                            } else "") + "  ·  文件夹: ${core.dirName}"
+                                stringResource(R.string.dl_supported_game, versionHints[core.version] ?: stringResource(R.string.dl_official_unknown))
+                            } else "") + stringResource(R.string.dl_folder, core.dirName)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -171,6 +204,13 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             ) { Text(stringResource(R.string.s455), color = Indigo, fontSize = 11.sp) }
                             Spacer(Modifier.size(6.dp))
                             OutlinedButton(
+                                onClick = { vm.verifyOrRepairCore(core.dirName) },
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, Mint),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) { Text(stringResource(R.string.dl_core_verify), color = Mint, fontSize = 11.sp) }
+                            Spacer(Modifier.size(6.dp))
+                            OutlinedButton(
                                 onClick = { vm.deleteCore(core.name) },
                                 shape = RoundedCornerShape(12.dp),
                                 border = BorderStroke(1.dp, Coral),
@@ -188,7 +228,20 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
             }
 
             // 选择核心类型
-            McCard(title = stringResource(R.string.s457)) {
+            McCard(
+                title = stringResource(R.string.s457),
+                compact = true,
+                trailing = {
+                    Text(
+                        "支持导入服务器",
+                        color = Muted,
+                        fontSize = 9.sp,
+                        modifier = Modifier
+                            .clickable { showImportDialog = true }
+                            .padding(horizontal = 8.dp, vertical = 14.dp)
+                    )
+                }
+            ) {
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     ServerCore.values().forEach { core ->
                         SegPill(
@@ -204,17 +257,17 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     when (config.selectedCore) {
-                        ServerCore.Paper -> "PaperMC：高性能优化核心，兼容大部分插件，推荐用于生产环境"
-                        ServerCore.Purpur -> "Purpur：Paper 分支，额外提供更多原版特性开关，插件兼容"
-                        ServerCore.Fabric -> "Fabric：轻量级模组加载器，支持最新版本快速更新"
-                        ServerCore.Forge -> "Forge：老牌模组加载器，生态丰富，适合大型整合包"
-                        ServerCore.NeoForge -> "NeoForge：Forge 继任者，模组生态活跃（下载后自动执行 installer）"
-                        ServerCore.Quilt -> "Quilt：Fabric 分支模组加载器，注重社区驱动（下载后自动执行 installer）"
-                        ServerCore.Vanilla -> "Vanilla：Minecraft 官方原版服务端"
-                        ServerCore.Velocity -> "Velocity：高性能代理端，可连接多个后端服务器（不支持插件/模组）"
-                        ServerCore.BungeeCord -> "BungeeCord：经典代理端，支持子服务器间切换（不支持插件/模组）"
-                        ServerCore.PowerNukkitX -> "PowerNukkitX：基岩版 Bedrock 服务端；选择的是核心 Release 版本，默认 UDP 端口 19132，推荐使用 Java 25（不强制）"
-                        ServerCore.Unknown -> "未知核心：核心类型无法自动识别（通常来自还原备份），可在设置中修改"
+                        ServerCore.Paper -> stringResource(R.string.dl_desc_paper)
+                        ServerCore.Purpur -> stringResource(R.string.dl_desc_purpur)
+                        ServerCore.Fabric -> stringResource(R.string.dl_desc_fabric)
+                        ServerCore.Forge -> stringResource(R.string.dl_desc_forge)
+                        ServerCore.NeoForge -> stringResource(R.string.dl_desc_neoforge)
+                        ServerCore.Quilt -> stringResource(R.string.dl_desc_quilt)
+                        ServerCore.Vanilla -> stringResource(R.string.dl_desc_vanilla)
+                        ServerCore.Velocity -> stringResource(R.string.dl_desc_velocity)
+                        ServerCore.BungeeCord -> stringResource(R.string.dl_desc_bungeecord)
+                        ServerCore.PowerNukkitX -> stringResource(R.string.dl_desc_pnx)
+                        ServerCore.Unknown -> stringResource(R.string.dl_desc_unknown)
                     },
                     color = Muted,
                     fontSize = 11.sp
@@ -223,21 +276,27 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 Spacer(Modifier.height(8.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     Text(
-                        if (config.selectedCore.supportsPlugins) "✓ 支持插件" else "✗ 不支持插件",
+                        if (config.selectedCore.supportsPlugins) stringResource(R.string.dl_supports_plugins) else stringResource(R.string.dl_no_plugins),
                         color = if (config.selectedCore.supportsPlugins) Mint else Coral,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                     Text(
-                        if (config.selectedCore.supportsMods) "✓ 支持模组" else "✗ 不支持模组",
+                        if (config.selectedCore.supportsMods) stringResource(R.string.dl_supports_mods) else stringResource(R.string.dl_no_mods),
                         color = if (config.selectedCore.supportsMods) Mint else Coral,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { showImportDialog = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(10.dp)
+                ) { Text("导入服务器", color = Indigo, fontSize = 12.sp) }
             }
 
-            McCard(title = if (usesCoreVersion) "选择核心版本" else stringResource(R.string.s471)) {
+            McCard(title = if (usesCoreVersion) stringResource(R.string.dl_select_version) else stringResource(R.string.s471), compact = true) {
                 if (isLoadingVersions) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -254,7 +313,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     Text(stringResource(R.string.s473), color = Muted, fontSize = 12.sp)
                 } else {
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        availableVersions.take(20).forEach { ver ->
+                        (if (usesCoreVersion) availableVersions else availableVersions.take(20)).forEach { ver ->
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 SegPill(
                                     text = ver,
@@ -263,7 +322,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                 )
                                 if (usesCoreVersion) {
                                     Text(
-                                        "支持游戏：${versionHints[ver] ?: "官方未标注（以核心官方说明为准）"}",
+                                        stringResource(R.string.dl_supported_game_colon, versionHints[ver] ?: stringResource(R.string.dl_unknown_official)),
                                         color = if (versionHints[ver] == null) Muted else Coral,
                                         fontSize = 9.sp
                                     )
@@ -274,7 +333,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
 
                 Spacer(Modifier.height(12.dp))
-                Text(if (usesCoreVersion) "手动输入核心版本" else stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                Text(if (usesCoreVersion) stringResource(R.string.dl_manual_version) else stringResource(R.string.s474), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 Spacer(Modifier.height(6.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -284,7 +343,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     OutlinedTextField(
                         value = customVersion,
                         onValueChange = { customVersion = it },
-                        placeholder = { Text(if (usesCoreVersion) "例如 3.0.2" else stringResource(R.string.s475), fontSize = 12.sp) },
+                        placeholder = { Text(if (usesCoreVersion) stringResource(R.string.dl_version_example) else stringResource(R.string.s475), fontSize = 12.sp) },
                         modifier = Modifier.weight(1f),
                         singleLine = true
                     )
@@ -306,14 +365,14 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    if (usesCoreVersion) "当前核心版本：${config.mcVersion}" else stringResource(R.string.s478, config.mcVersion),
+                    if (usesCoreVersion) stringResource(R.string.dl_current_version, config.mcVersion) else stringResource(R.string.s478, config.mcVersion),
                     color = Indigo,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold
                 )
                 if (usesCoreVersion) {
                     Text(
-                        "支持游戏：${versionHints[config.mcVersion] ?: "官方未标注（以核心官方说明为准）"}",
+                        stringResource(R.string.dl_supported_game_colon, versionHints[config.mcVersion] ?: stringResource(R.string.dl_unknown_official)),
                         color = if (versionHints[config.mcVersion] == null) Muted else Coral,
                         fontSize = 10.sp
                     )
@@ -325,14 +384,14 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 if (usesCoreVersion) {
                     Spacer(Modifier.height(10.dp))
                     Text(
-                        "客户端必须与所选 PowerNukkitX Release 支持的 Bedrock 协议匹配；出现“需更新客户端”时，请更新客户端或选择支持该客户端版本的核心。",
+                        stringResource(R.string.dl_pnx_protocol_hint),
                         color = Coral, fontSize = 11.sp
                     )
                 }
             }
 
             // 下载服务端
-            McCard(title = stringResource(R.string.s479)) {
+            McCard(title = stringResource(R.string.s479), compact = true) {
                 // 下载提示行（卡片内顶部，含实时速度）
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -382,21 +441,21 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
 
                 if (!isBootstrapped) {
                     Text(
-                        "Termux 环境初始化中，请等待完成后再下载...",
+                        stringResource(R.string.dl_env_init),
                         color = Coral,
                         fontSize = 12.sp
                     )
                 } else {
                     Text(
                         if (usesCoreVersion) {
-                            "准备下载 ${config.selectedCore.displayName} 核心版本 ${config.mcVersion}"
+                            stringResource(R.string.dl_preparing, config.selectedCore.displayName, config.mcVersion)
                         } else stringResource(R.string.s482, config.selectedCore.displayName, config.mcVersion),
                         color = Muted,
                     fontSize = 11.sp
                 )
                 if (config.selectedCore == ServerCore.PowerNukkitX) {
                     Text(
-                        "基岩版服务端 · UDP 19132 · 推荐 Java 25（不强制） · 游戏版本以官方 Release 标注为准",
+                        stringResource(R.string.dl_pnx_udp_hint),
                         color = Coral,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold
@@ -451,6 +510,46 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     }
                 }
             }
+            if (showImportDialog) {
+                AlertDialog(
+                    onDismissRequest = { if (!importingServer) { showImportDialog = false; pendingImport = null } },
+                    title = { Text("导入服务器") },
+                    text = {
+                        Column {
+                            Text("压缩包解压后需包含核心文件与 plugins/、worlds/ 等必要目录；文件夹需包含完整服务端目录结构；JAR 会自动创建 plugins/、worlds/、logs/ 等标准目录和默认配置。", color = Muted, fontSize = 12.sp)
+                            Spacer(Modifier.height(8.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(onClick = { folderImportLauncher.launch(null) }, enabled = !importingServer, modifier = Modifier.weight(1f)) { Text("文件夹", fontSize = 11.sp) }
+                                OutlinedButton(onClick = { archiveImportLauncher.launch(arrayOf("application/zip", "application/gzip", "application/x-tar", "application/octet-stream")) }, enabled = !importingServer, modifier = Modifier.weight(1f)) { Text("压缩包", fontSize = 11.sp) }
+                                OutlinedButton(onClick = { jarImportLauncher.launch(arrayOf("application/java-archive", "application/octet-stream")) }, enabled = !importingServer, modifier = Modifier.weight(1f)) { Text("JAR", fontSize = 11.sp) }
+                            }
+                            if (pendingImport != null) {
+                                Spacer(Modifier.height(8.dp))
+                                OutlinedTextField(value = importName, onValueChange = { importName = it }, label = { Text("服务器名称") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                            }
+                            if (importingServer) {
+                                Spacer(Modifier.height(10.dp))
+                                LinearProgressIndicator(progress = { importProgress ?: 0f }, modifier = Modifier.fillMaxWidth())
+                                Text("正在导入 ${((importProgress ?: 0f) * 100).toInt()}%", color = Muted, fontSize = 11.sp)
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            enabled = pendingImport != null && importName.isNotBlank() && !importingServer,
+                            onClick = {
+                                val selected = pendingImport ?: return@TextButton
+                                when (selected.kind) {
+                                    "folder" -> vm.importServerFromFolder(selected.uri, importName.trim())
+                                    "jar" -> vm.importServerFromJar(selected.uri, importName.trim())
+                                    else -> vm.importServerFromArchive(selected.uri, importName.trim())
+                                }
+                            }
+                        ) { Text("开始导入", color = Indigo) }
+                    },
+                    dismissButton = { TextButton(enabled = !importingServer, onClick = { showImportDialog = false; pendingImport = null }) { Text("取消", color = Muted) } }
+                )
+            }
             Spacer(Modifier.height(16.dp))
         }
     }
@@ -494,11 +593,11 @@ private fun InstallerJavaNotice(core: ServerCore, minecraftVersion: String) {
     Spacer(Modifier.height(10.dp))
     Text(
         if (requirement.exactLegacyForgeRequirement) {
-            "Forge 1.12.2 建议使用 Java 8 安装和启动。"
+            stringResource(R.string.dl_forge_java8_hint)
         } else if (requirement.recommendedJava != null) {
-            "${core.displayName} $minecraftVersion 建议准备 ${requirement.recommendedJava.displayName} 运行环境。"
+            stringResource(R.string.dl_java_rec, core.displayName, minecraftVersion, requirement.recommendedJava.displayName)
         } else {
-            "${core.displayName} 安装需要兼容的 Java 运行环境。"
+            stringResource(R.string.dl_java_need, core.displayName)
         },
         color = Coral,
         fontSize = 12.sp,
@@ -506,16 +605,14 @@ private fun InstallerJavaNotice(core: ServerCore, minecraftVersion: String) {
     )
     Spacer(Modifier.height(3.dp))
     Text(
-        "首次安装会下载并配置依赖，耗时可能较长，请耐心等待。",
+        stringResource(R.string.dl_first_install_hint),
         color = Coral,
         fontSize = 11.sp
     )
     Spacer(Modifier.height(3.dp))
     Text(
-        "注意：此处提示的 Java 版本有可能不对，请以服务器核心官方文档和安装器提示为准。",
+        stringResource(R.string.dl_java_disclaimer),
         color = Coral,
         fontSize = 11.sp
     )
 }
-
-

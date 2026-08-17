@@ -1,5 +1,8 @@
 package com.mineserve.mobile.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mineserve.mobile.R
+
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -22,13 +25,13 @@ fun TextFileEditorScreen(vm: McViewModel, file: McViewModel.TextEditorFile, onBa
     val context = LocalContext.current
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().padding(8.dp)) {
-            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "返回") }
+            IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.s404)) }
             Column(Modifier.weight(1f)) { Text(file.name); Text(file.path, style = MaterialTheme.typography.labelSmall, maxLines = 1) }
-            IconButton(onClick = { vm.openTextFile(java.io.File(file.path)) }) { Icon(Icons.Outlined.Refresh, "刷新") }
-            IconButton(onClick = { (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText(file.name, text)) }) { Icon(Icons.Outlined.ContentCopy, "复制") }
-            IconButton(onClick = { if (state.isRunning) confirmRunningSave = true else vm.saveTextFile(file.path, text) }) { Icon(Icons.Outlined.Save, "保存") }
+            IconButton(onClick = { vm.openTextFile(java.io.File(file.path)) }) { Icon(Icons.Outlined.Refresh, stringResource(R.string.tfe_refresh)) }
+            IconButton(onClick = { (context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager).setPrimaryClip(android.content.ClipData.newPlainText(file.name, text)) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.crash_copy)) }
+            IconButton(onClick = { if (state.isRunning) confirmRunningSave = true else vm.saveTextFile(file.path, text) }) { Icon(Icons.Outlined.Save, stringResource(R.string.tfe_save)) }
         }
         OutlinedTextField(value = text, onValueChange = { text = it }, modifier = Modifier.fillMaxSize().padding(12.dp), textStyle = LocalTextStyle.current.copy(fontFamily = FontFamily.Monospace), minLines = 20)
     }
-    if (confirmRunningSave) AlertDialog(onDismissRequest = { confirmRunningSave = false }, title = { Text("服务端正在运行") }, text = { Text("保存配置或日志可能影响服务端运行。仍要保存吗？") }, confirmButton = { TextButton(onClick = { confirmRunningSave = false; vm.saveTextFile(file.path, text) }) { Text("保存") } }, dismissButton = { TextButton(onClick = { confirmRunningSave = false }) { Text("取消") } })
+    if (confirmRunningSave) AlertDialog(onDismissRequest = { confirmRunningSave = false }, title = { Text(stringResource(R.string.sm_running)) }, text = { Text(stringResource(R.string.tfe_save_running)) }, confirmButton = { TextButton(onClick = { confirmRunningSave = false; vm.saveTextFile(file.path, text) }) { Text(stringResource(R.string.tfe_save)) } }, dismissButton = { TextButton(onClick = { confirmRunningSave = false }) { Text(stringResource(R.string.props_cancel)) } })
 }

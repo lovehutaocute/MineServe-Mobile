@@ -17,8 +17,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mineserve.mobile.R
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.McViewModel.UpdateUiState
 import com.mineserve.mobile.ui.theme.Indigo
@@ -31,24 +33,24 @@ fun UpdateDialog(vm: McViewModel) {
     when (val current = state) {
         UpdateUiState.Checking -> AlertDialog(
             onDismissRequest = vm::dismissUpdateDialog,
-            title = { Text("正在检查更新") },
+            title = { Text(stringResource(R.string.upd_checking)) },
             text = { CircularProgressIndicator() },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = vm::dismissUpdateDialog) { Text("取消") } }
+            dismissButton = { TextButton(onClick = vm::dismissUpdateDialog) { Text(stringResource(R.string.upd_cancel)) } }
         )
         is UpdateUiState.Available -> AlertDialog(
             onDismissRequest = vm::skipCurrentUpdate,
-            title = { Text("发现新版本 ${current.release.tag}") },
+            title = { Text(stringResource(R.string.upd_found, current.release.tag)) },
             text = {
                 Column(Modifier.fillMaxWidth()) {
-                    Text("本次更新内容", fontSize = 13.sp)
+                    Text(stringResource(R.string.upd_notes_title), fontSize = 13.sp)
                     Text(
-                        current.release.notes.ifBlank { "暂无更新说明" },
+                        current.release.notes.ifBlank { stringResource(R.string.upd_notes_empty) },
                         fontSize = 13.sp,
                         modifier = Modifier.padding(top = 6.dp).heightIn(max = 180.dp).verticalScroll(rememberScrollState())
                     )
                     Text(
-                        "重要提醒：更新应用可能导致服务器核心和世界数据丢失，请先自行备份后再更新。",
+                        stringResource(R.string.upd_warn),
                         color = Color(0xFFD32F2F),
                         fontSize = 12.sp,
                         modifier = Modifier.padding(top = 12.dp)
@@ -57,15 +59,15 @@ fun UpdateDialog(vm: McViewModel) {
             },
             confirmButton = {
                 Row {
-                    TextButton(onClick = vm::openGithubUpdate) { Text("打开 GitHub") }
-                    TextButton(onClick = vm::downloadUpdate) { Text("下载更新", color = Indigo) }
+                    TextButton(onClick = vm::openGithubUpdate) { Text(stringResource(R.string.upd_github)) }
+                    TextButton(onClick = vm::downloadUpdate) { Text(stringResource(R.string.upd_download), color = Indigo) }
                 }
             },
-            dismissButton = { TextButton(onClick = vm::skipCurrentUpdate) { Text("本次不更新") } }
+            dismissButton = { TextButton(onClick = vm::skipCurrentUpdate) { Text(stringResource(R.string.upd_skip)) } }
         )
         is UpdateUiState.Downloading -> AlertDialog(
             onDismissRequest = {},
-            title = { Text("正在下载更新") },
+            title = { Text(stringResource(R.string.upd_downloading)) },
             text = {
                 Column(Modifier.fillMaxWidth()) {
                     LinearProgressIndicator({ current.progress.coerceIn(0f, 1f) }, Modifier.fillMaxWidth())
@@ -76,21 +78,21 @@ fun UpdateDialog(vm: McViewModel) {
         )
         is UpdateUiState.Downloaded -> AlertDialog(
             onDismissRequest = vm::dismissUpdateDialog,
-            title = { Text("下载完成") },
-            text = { Text("安装前请确认已备份服务器核心和世界数据。") },
-            confirmButton = { TextButton(onClick = { vm.installDownloadedUpdate(current.apkPath) }) { Text("安装更新", color = Indigo) } },
-            dismissButton = { TextButton(onClick = vm::dismissUpdateDialog) { Text("稍后安装") } }
+            title = { Text(stringResource(R.string.upd_downloaded)) },
+            text = { Text(stringResource(R.string.upd_install_hint)) },
+            confirmButton = { TextButton(onClick = { vm.installDownloadedUpdate(current.apkPath) }) { Text(stringResource(R.string.upd_install), color = Indigo) } },
+            dismissButton = { TextButton(onClick = vm::dismissUpdateDialog) { Text(stringResource(R.string.upd_install_later)) } }
         )
         is UpdateUiState.Failed -> AlertDialog(
             onDismissRequest = vm::dismissUpdateDialog,
-            title = { Text("更新失败") },
+            title = { Text(stringResource(R.string.upd_failed)) },
             text = { Text(current.message, fontSize = 13.sp) },
             confirmButton = {
                 TextButton(onClick = {
                     if (current.release == null) vm.checkForUpdate(manual = true) else vm.downloadUpdate()
-                }) { Text(if (current.release == null) "重新检查" else "重新下载", color = Indigo) }
+                }) { Text(if (current.release == null) stringResource(R.string.upd_retry_check) else stringResource(R.string.upd_retry_download), color = Indigo) }
             },
-            dismissButton = { TextButton(onClick = vm::dismissUpdateDialog) { Text("关闭") } }
+            dismissButton = { TextButton(onClick = vm::dismissUpdateDialog) { Text(stringResource(R.string.upd_close)) } }
         )
         UpdateUiState.Idle -> Unit
     }

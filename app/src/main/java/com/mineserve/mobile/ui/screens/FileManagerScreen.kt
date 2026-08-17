@@ -489,7 +489,7 @@ private fun FileItemRow(
         }
 
         if (canEdit) IconButton(onClick = onEdit) {
-            Icon(Icons.Outlined.Edit, contentDescription = "编辑文本", tint = Indigo, modifier = Modifier.size(18.dp))
+            Icon(Icons.Outlined.Edit, contentDescription = stringResource(R.string.fm_edit_text), tint = Indigo, modifier = Modifier.size(18.dp))
         }
 
         // 删除按钮

@@ -27,7 +27,7 @@ import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.Logout
+import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Search
@@ -347,8 +347,8 @@ private fun PlayerHistoryDialog(
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
                 ) {
-                    Text("${summaries.size} 名玩家，累计在线 ${formatActivitySeconds(summaries.sumOf { it.totalSeconds })}", color = Muted, fontSize = 11.sp)
-                    OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, label = { Text("搜索玩家") })
+                    Text(stringResource(R.string.player_history_summary, summaries.size, formatActivitySeconds(summaries.sumOf { it.totalSeconds })), color = Muted, fontSize = 11.sp)
+                    OutlinedTextField(value = search, onValueChange = { search = it }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), singleLine = true, label = { Text(stringResource(R.string.player_search)) })
                     filtered.forEach { h ->
                         Row(
                             modifier = Modifier
@@ -388,19 +388,20 @@ private fun PlayerHistoryDialog(
         },
         confirmButton = {
             Row {
-                TextButton(onClick = onExport) { Text("导出 CSV") }
-                TextButton(onClick = { clearConfirm = true }) { Text("清空", color = Coral) }
+                TextButton(onClick = onExport) { Text(stringResource(R.string.player_export_csv)) }
+                TextButton(onClick = { clearConfirm = true }) { Text(stringResource(R.string.player_clear), color = Coral) }
                 TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
             }
         }
     )
-    if (clearConfirm) AlertDialog(onDismissRequest = { clearConfirm = false }, title = { Text("清空活动记录") }, text = { Text("仅清空当前服务器的玩家活动记录，无法恢复。") }, confirmButton = { TextButton(onClick = { onClear(); clearConfirm = false }) { Text("清空", color = Coral) } }, dismissButton = { TextButton(onClick = { clearConfirm = false }) { Text("取消") } })
+    if (clearConfirm) AlertDialog(onDismissRequest = { clearConfirm = false }, title = { Text(stringResource(R.string.player_clear_title)) }, text = { Text(stringResource(R.string.player_clear_hint)) }, confirmButton = { TextButton(onClick = { onClear(); clearConfirm = false }) { Text(stringResource(R.string.player_clear), color = Coral) } }, dismissButton = { TextButton(onClick = { clearConfirm = false }) { Text(stringResource(R.string.props_cancel)) } })
 }
 
+@Composable
 private fun formatActivitySeconds(seconds: Long): String = when {
-    seconds >= 3600 -> "${seconds / 3600} 小时 ${(seconds % 3600) / 60} 分"
-    seconds >= 60 -> "${seconds / 60} 分"
-    else -> "${seconds} 秒"
+    seconds >= 3600 -> stringResource(R.string.fmt_hours_min, seconds / 3600, (seconds % 3600) / 60)
+    seconds >= 60 -> stringResource(R.string.fmt_minutes, seconds / 60)
+    else -> stringResource(R.string.fmt_seconds, seconds)
 }
 
 // ── 服务器状态横幅 ──────────────────────────────────────────────────
@@ -540,7 +541,7 @@ private fun OnlinePlayerRow(
         }
         // 踢出玩家
         IconButton(onClick = onKick, modifier = Modifier.size(32.dp)) {
-            Icon(Icons.Outlined.Logout, contentDescription = stringResource(R.string.s688), tint = Coral, modifier = Modifier.size(16.dp))
+            Icon(Icons.AutoMirrored.Outlined.Logout, contentDescription = stringResource(R.string.s688), tint = Coral, modifier = Modifier.size(16.dp))
         }
         // 切换游戏模式
         Box {

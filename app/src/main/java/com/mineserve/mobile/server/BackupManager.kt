@@ -323,6 +323,45 @@ class BackupManager(private val termux: TermuxRuntime) {
         return f.exists() && f.isFile && f.delete()
     }
 
+    /** 重命名外部备份文件（仅改名，须保留 .zip 后缀；目标重名时返回 false） */
+    fun renameExternalBackup(oldName: String, newName: String): Boolean {
+        val trimmed = newName.trim()
+        if (trimmed.isBlank() || !trimmed.endsWith(".zip", ignoreCase = true)) return false
+        val safeNew = safeSegment(trimmed)
+        val src = File(ExternalBackupStore.rootDir, oldName)
+        val dst = File(ExternalBackupStore.rootDir, safeNew)
+        if (!src.exists() || !src.isFile || dst.exists()) return false
+        return src.renameTo(dst)
+    }
+
+    /** 校验 zip 完整性：遍历全部条目并读取数据（触发 CRC 校验），损坏返回 false */
+    fun validateZip(name: String): Boolean {
+        val file = File(ExternalBackupStore.rootDir, name)
+        if (!file.exists() || !file.isFile) return false
+        return try {
+            java.util.zip.ZipFile(file).use { zip ->
+                val entries = zip.entries()
+                var count = 0
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (!entry.isDirectory) {
+                        zip.getInputStream(entry).use { input ->
+                            val buf = ByteArray(64 * 1024)
+                            while (input.read(buf) >= 0) {
+                                // 读取以触发 CRC 校验
+                            }
+                        }
+                    }
+                    count++
+                    if (count > 200_000) break // 防御性上限
+                }
+                true
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /**
      * 恢复快照：
      * 1. 若 MC 在运行，发送 stop 命令并轮询等待退出（最多 10s），超时则强制停止

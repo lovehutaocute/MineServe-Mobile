@@ -1,5 +1,8 @@
 package com.mineserve.mobile.ui.screens
 
+import androidx.compose.ui.res.stringResource
+import com.mineserve.mobile.R
+
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -40,14 +43,14 @@ fun ServerIconScreen(vm: McViewModel, onBack: () -> Unit) {
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let(vm::setServerIcon) }
     Column(Modifier.fillMaxSize()) {
-        BackBar("服务器图标", onBack)
+        BackBar(stringResource(R.string.ui_server_icon), onBack)
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Java Edition 服务器图标", fontSize = 18.sp)
-            Text("图片会裁剪并缩放为 64x64 PNG，重启服务器后生效。", color = Muted, fontSize = 12.sp)
+            Text(stringResource(R.string.si_java_title), fontSize = 18.sp)
+            Text(stringResource(R.string.si_hint), color = Muted, fontSize = 12.sp)
             bitmap?.let { Image(it.asImageBitmap(), null, Modifier.size(96.dp), contentScale = ContentScale.Crop) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = { launcher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("更换图标") }
-                OutlinedButton(onClick = vm::removeServerIcon, modifier = Modifier.weight(1f)) { Text("恢复默认", color = Coral) }
+                Button(onClick = { launcher.launch("image/*") }, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.ui_server_icon_change)) }
+                OutlinedButton(onClick = vm::removeServerIcon, modifier = Modifier.weight(1f)) { Text(stringResource(R.string.ui_server_icon_reset), color = Coral) }
             }
         }
     }
