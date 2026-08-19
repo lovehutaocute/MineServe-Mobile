@@ -1,5 +1,7 @@
 # Git 提交节点计划（本次会话全部改动）
 
+> 历史提交计划，仅用于对应当时的工作区快照；不描述当前项目结构或功能。当前变更请查看 [CHANGELOG](../CHANGELOG.md)。
+
 本机未安装 git 二进制，无法直接执行提交；以下按版本节点给出精确命令。
 任意装有 git 的机器（或安装 git / 使用 Android Studio 内置 git）运行 `commit-nodes.ps1`（Windows）
 或 `commit-nodes.sh`（Linux/macOS/CI）即可自动按序创建全部提交节点。

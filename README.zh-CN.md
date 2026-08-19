@@ -4,187 +4,124 @@
 
 # ✅ 可以正常使用
 
-**在安卓手机上直接运行 Minecraft Java 版服务端——无需 root。**
+**在安卓手机上直接运行 Minecraft 服务端，无需 root。**
 
-[English](./README.md) · [架构文档](./ARCHITECTURE.md)
+[English](./README.md) · [架构文档](./ARCHITECTURE.md) · [更新日志](./CHANGELOG.md)
 
 </div>
 
-MineServe Mobile 是一款 Android 原生应用，可在手机上直接运行 Minecraft Java 版服务端，支持 **9 类服务端核心**、多核心切换管理、插件与模组管理、Modrinth 对接、内置内网穿透、自动备份、崩溃报告、后台保活，以及免 Root 数据桥接（MT 管理器）。
+MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraft Java 版服务端，也支持 PowerNukkitX 基岩版核心。它提供多核心管理、插件与模组管理、Modrinth 对接、内网穿透、自动备份、崩溃报告、后台保活，以及免 Root 数据访问。
 
 ## ✨ 特性
 
-- **无需 root**：内置 Termux bootstrap rootfs + JDK 25，全部在应用内运行
-- **9 类服务端核心**：Paper、Purpur、Fabric、Forge、NeoForge、Quilt、Vanilla、Velocity、BungeeCord（NeoForge/Quilt 自动执行 installer）
-- **多核心管理**：多个核心并存于隔离目录，概览页一键切换激活核心，各核心独立配置/世界/插件/模组
-- **插件管理**：扫描 plugins/，`-` 前缀启停、删除（可选清理数据目录）、SAF 上传、URL 安装（失败自动回滚）
-- **模组管理**：扫描 mods/（Fabric/Forge），`.jar.disabled` 启停、删除、上传、URL 安装
-- **Modrinth 对接**：搜索模组（多加载器筛选 + 下载量/相关性/最新排序）、模组图标、一键安装（自动匹配 MC 版本 + 加载器，不兼容核心给出警告）
-- **玩家管理**：在线玩家列表（踢出/切换模式/OP/给予经验）、进服离服历史（精确到秒，持久化 500 条上限）、OP/白名单/封禁列表（限时封禁、OP 等级、搜索与详情）
-- **内网穿透**：frp（粘贴完整 `frpc.toml`，autoTLS 自动过滤，多镜像并行下载）+ bore（纯 Kotlin，无需下载二进制）
-- **备份还原**：主世界/地狱/末地三维度快照，创建/列表/还原/删除/SAF 导出，zip-slip 防护，按数量自动清理
-- **崩溃报告**：自建崩溃日志（`latest.log` 最后 200 行）+ MC 原生 `crash-reports/`，列表/查看/删除/清空
-- **免 Root 访问 data 目录**：内置 `MTDataFilesProvider`（完整 CRUD DocumentsProvider），MT 管理器可直接读写应用私有数据（含图文教程 + 教学视频）
-- **后台保活**：前台服务（START_STICKY + special-use 类型 + 唤醒/WiFi 锁）+ 开机自启 + WorkManager 15 分钟周期保活 + onTaskRemoved 闹钟重启
-- **设备与网络监控**：内存/存储/电池（含充电状态）+ 实时网络流量与速度，3 秒轮询
-- **完整 server.properties 编辑**：75 个参数，基础/高级分组，数据驱动渲染，未收录参数兜底编辑
-- **概览地址卡片**：局域网 + 公网穿透地址带复制按钮，一键打开 MC 终端
-- **彩色 MC 终端**：日志分级着色（ERROR/WARN/隧道/崩溃/启动），智能自动滚动，快捷指令，一键复制，抽象命名空间 Socket 多客户端广播
-- **Material 3 UI**：Jetpack Compose 构建，沉浸式全屏，9-tab 底部导航，输入防抖
+- **无需 root**：内置 Termux bootstrap 运行时；Java 17/21/25 直接运行，旧版 Java 8 服务端使用 ARM64 Ubuntu PRoot。
+- **10 类核心**：Paper、Purpur、Fabric、Forge、NeoForge、Quilt、Vanilla、Velocity、BungeeCord、PowerNukkitX。
+- **多核心管理**：多个服务器隔离存放，一键切换；世界、配置、插件和模组互不干扰。
+- **导入服务器**：文件夹、压缩包、单个 JAR 与 Modrinth `.mrpack` 独立导入入口，自动识别核心和版本。
+- **插件与模组**：扫描、启停、SAF 上传、URL 安装和 Modrinth 搜索下载。
+- **内网穿透**：frp 与 bore；概览页展示局域网和公网地址。
+- **备份与崩溃报告**：世界/整服备份、SAF 导出；异常退出保存最近日志与原生报告，并汇总已安装服务器的原生崩溃报告。
+- **后台保活**：前台服务、唤醒锁、开机自启、周期检查和可选状态悬浮条。
+- **Material 3 UI**：Jetpack Compose 构建，紧凑核心选择和版本列表。
 
 ## 📋 系统要求
 
-- Android 8.0 (API 26) 及以上
-- arm64-v8a 架构（正式版仅构建 arm64）
-- 建议至少 4GB RAM（运行 MC 服务端）
-- 需要网络连接（首次初始化下载 Termux 环境和 JDK 25）
+- Android 8.0（API 26）及以上。
+- `arm64-v8a` 架构。
+- 建议至少 4 GB RAM，并为运行时、世界和备份预留空间。
+- 首次初始化、下载核心和整合包导入需要网络。
 
 ## 📥 下载安装
 
 ### 方式一：直接下载 APK
 
-从 [Releases 页面](../../releases) 下载：
-
-- `app-arm64-v8a-release.apk` — 绝大多数手机
-
+从 [Releases 页面](../../releases) 下载适用于手机的 `arm64-v8a` APK。
 
 ### 方式二：自行编译
 
-```bash
-git clone <repo-url>
-cd MineServeMobile
-./gradlew.bat assembleRelease
+```powershell
+git clone https://github.com/lovehutaocute/MineServe-Mobile.git
+cd MineServe-Mobile
+.\gradlew.bat :app:assembleDebug
 ```
 
-生成的 APK 在 `app/build/outputs/apk/release/`。
+APK 位于 `app/build/outputs/apk/debug/`。
 
 ## 🚀 快速开始
 
-1. **初始化环境**：首次打开应用，点击「初始化」，自动下载 Termux rootfs + JDK 25
-2. **下载核心**：切到「下载」Tab，选择核心类型（推荐 Paper）与版本
-3. **启动服务器**：首次启动需下载运行文件，请耐心等待
-4. **加入游戏**：通过概览页局域网地址连接，或使用内置内网穿透公网访问
+1. **初始化环境**：首次打开应用，完成运行时初始化并安装所需 Java。
+2. **下载或导入**：在“下载”页选择核心与版本，或打开“导入服务器”。
+3. **接受 EULA**：阅读并接受服务端生成的 `eula.txt`。
+4. **启动并连接**：在概览页启动；局域网玩家使用显示的手机 IP 与端口连接。
+
+公网访问请配置 frp/bore 或自行完成路由器端口映射。
 
 ## 🧩 支持的核心
 
 | 核心 | 插件 | 模组 | 说明 |
 |---|---|---|---|
-| Paper | ✅ | ❌ | 高性能优化核心，生产推荐 |
+| Paper | ✅ | ❌ | 高性能 Java 插件服 |
 | Purpur | ✅ | ❌ | Paper 分支，更多特性开关 |
 | Fabric | ❌ | ✅ | 轻量级模组加载器 |
-| Forge | ❌ | ✅ | 老牌模组加载器 |
-| NeoForge | ❌ | ✅ | Forge 继任者（installer 流程） |
-| Quilt | ❌ | ✅ | Fabric 分支（installer 流程） |
+| Forge | ❌ | ✅ | 传统模组加载器 |
+| NeoForge | ❌ | ✅ | Forge 继任者，installer 流程 |
+| Quilt | ❌ | ✅ | Fabric 分支，installer 流程 |
 | Vanilla | ❌ | ❌ | 官方原版 |
-| Velocity | ❌ | ❌ | 代理端 |
-| BungeeCord | ❌ | ❌ | 代理端 |
+| Velocity | ❌ | ❌ | Java 代理端 |
+| BungeeCord | ❌ | ❌ | Java 代理端 |
+| PowerNukkitX | ✅ | ❌ | 基岩版 Nukkit 核心，使用 UDP |
 
 ## 📖 功能详解
 
-### 🧩 服务端核心（9 类）
-- **Paper**：高性能、插件兼容，生产推荐
-- **Purpur**：Paper 分支，更多原版特性开关
-- **Fabric / Forge**：经典模组加载器，自动检测最新版本
-- **NeoForge / Quilt**：自动执行 installer（`--installServer` / `quilt install server --download-server`），再用生成的启动文件启动
-- **Vanilla**：Mojang 官方服务端（来自版本清单）
-- **Velocity / BungeeCord**：代理端（PaperMC v3 API / Jenkins）
-- 版本列表自动从官方 API 拉取（PaperMC、Purpur、Mojang、Fabric meta、Forge promotions、NeoForge maven、Quilt meta）；支持自定义版本字符串
-- HTTP 请求 3 次重试、超时递增；下载进度/速度每 500ms 回报
+### 🧩 服务端核心与下载
 
-### 🎮 服务器控制
-- 一键启停，启动状态（运行时长 + TPS/在线/内存统计）
-- 崩溃自动重启（可配置，最多 3 次重试，间隔 3 秒，默认关闭）
-- 异常退出时自动捕获崩溃报告
-- MC 终端，含快捷指令与彩色日志
-- 启动设置弹窗（控制卡片齿轮图标）——JVM 堆内存、自动重启开关、核心选择
-- 实时 TPS 解析（Paper）+ 真实 RSS 内存监控（遍历 `/proc`）
+- 版本列表从各核心的官方 API 获取；支持自定义版本字符串。
+- 下载页默认显示最近 8 个版本，可展开完整列表。
+- 切换核心会立即清空旧版本，并忽略晚到的旧请求结果。
+- Forge、NeoForge、Quilt 会在下载后执行对应 installer。
 
-### 🖥️ MC 终端（日志）
-- **彩色日志**：`ERROR`/`FATAL` 红 / `WARN` 黄 / `[tunnel]` 蓝 / `[crash]` 橙 / `[bootstrap]` 绿
-- **智能自动滚动**：仅在位于底部附近时跟随新日志，上翻阅读不被打断
-- **快捷指令**：一键 `/list` `/tps` `/say` `/kick` `/help`，支持一键复制全部日志（提示行数）
-- 1000 行环形缓冲，100ms 批量刷新 UI 以减少重组
-- **ConsoleSocketServer**：抽象命名空间 `LocalServerSocket("mc-console")` 与 MC 进程共享，多客户端广播，自动清理死连接
-- 概览页「打开 MC 终端」按钮直达日志页
+### 📥 导入服务器与整合包
 
-### 📊 概览地址卡片
-- 局域网地址（`127.0.0.1:port` / `192.168.x.x:port`）与内网穿透公网地址，各带复制按钮
-- 服务器核心/插件/玩家状态一览
-- 一键「打开 MC 终端」
-- 设备状态卡片：内存/存储/电池（含充电状态）/总上传下载/实时上下行速度，3 秒轮询
+- **文件夹 / JAR**：导入已有服务端并自动识别核心与版本。
+- **压缩包**：支持 ZIP、TAR、TAR.GZ/TGZ、TAR.XZ/TXZ、TAR.BZ2/TBZ2、TAR.ZST/TZST、TAR.LZ4、7z；自动剥离单层包装目录并防止路径穿越。
+- **Modrinth `.mrpack`**：下载服务端所需文件、校验 SHA-1、跳过不适用于服务端的文件，并应用 `overrides/` 与 `server-overrides/`。
 
-### 👥 玩家管理
-- **在线玩家列表**：实时来自 `list` 指令 + 日志解析，支持复制 / 踢出 / 切换游戏模式 / OP / 给予经验
-- **进服离服历史**：精确到秒，持久化至 `player_history.json`（500 条上限，互斥锁写入，启动时去重合并）
-- OP / 白名单 / 封禁列表（含限时封禁 7 档：永久/30分/1时/6时/1天/7天/30天，OP 等级 1–4，分页搜索与详情弹窗）
-- 游戏模式双语法派发（兼容新旧版 MC）
+> CurseForge 整合包依赖外部元数据/API，当前暂不支持直接导入。
 
-### 🔌 插件管理
-- 已安装插件列表（并行扫描 + `plugin.yml` / `paper-plugin.yml` 元数据，按 lastModified 缓存），`-` 前缀启停、删除（可选清理数据目录）
-- 本地 SAF 上传 & URL 安装（备份 → 下载 → 失败回滚，≥1024 字节校验）
-- 资源站目录（SpigotMC / Hangar / Modrinth / BuiltByBit / CurseForge）
-- 热重载按钮，搜索 + 4 筛选标签（全部/启用/禁用/本地）
-- 核心兼容性指示
+### 🎮 服务器控制与终端
 
-### 🧪 模组管理
-- `mods/` 目录扫描（Fabric/Forge），`.jar.disabled` 启停、删除、上传、URL 安装（含回滚）
-- **Modrinth 对接**：搜索（多加载器筛选、下载量/相关性/最新排序）、图标展示、一键安装（自动匹配 MC 版本 + 加载器，不兼容核心给出警告，下载量格式化展示）
+- 一键启停、JVM 堆内存设置、可选崩溃自动重启。
+- 彩色 MC 终端、快捷指令、日志复制和智能自动滚动。
+- 实时展示运行时长、在线玩家、TPS 与内存等服务状态。
 
-### 📁 文件管理（免 Root）
-- 浏览服务器目录、SAF 上传、新建文件夹、删除（递归，带确认）
-- **向上 / 刷新**按钮快速导航
-- **导出**：单文件 / 文件夹 zip / 整服 zip，SAF 存储到任意本地路径
-- **MT 管理器集成**：内置 `MTDataFilesProvider`（完整 CRUD `DocumentsProvider`，含 MT 专属 `mt:setLastModified` / `mt:setPermissions` / `mt:createSymlink` 调用），在 MT 管理器中「添加本地存储 → 选择本应用」即可读写 `data` 目录；应用内提供下载链接 + 5 步图文教程 + 教学视频（进入 `data → files → home → home → servers` 查看服务器文件）
-- 常见服务器文件/文件夹自动标注说明（19+ 条：`server.jar`、`server.properties`、`ops.json`、`whitelist.json`、`banned-players.json`、`eula.txt`、`bukkit.yml`、`spigot.yml`、`paper.yml`、`world`、`world_nether`、`world_the_end`、`logs`、`plugins` 等）
+### 🔌 插件、模组与文件
 
-### 🌐 内网穿透
-- **frp**：粘贴完整 `frpc.toml` 配置文本（服务端地址、token、代理规则一次配好）；自动过滤 `autoTLS` 字段以兼容旧版 frpc；frpc 缺失时自动下载（固定 v0.61.2，**5 个镜像并行尝试**——直连 / gh-proxy.com / mirror.ghproxy.com / ghproxy.net / ghfast.top——首个成功即用，apt 兜底）；针对性 `diagnoseFailure` 提示（未知字段 / 连接拒绝 / token / 端口占用 / 超时）
-- **bore**：纯 Kotlin 客户端，直接实现 ekzang/bore 协议，无需下载二进制，默认控制端口 7835，连接任意 `bore server` VPS 即可
-- 公网地址同步显示在概览卡片与网络页，均带复制按钮
-- 免费 FRP 平台目录（OpenFrp / ChmlFrp / StarryFrp / SakuraFrp）一键跳转
+- 插件和模组扫描、启停、删除、SAF 上传、URL 安装。
+- Modrinth 搜索与按 Minecraft 版本、加载器匹配下载。
+- 浏览服务端文件、创建目录、编辑文本、导入导出与整服压缩备份。
+- 通过内置 DocumentsProvider，兼容的文件管理器可在免 Root 条件下访问应用数据。
 
-### 💾 备份与还原
-- 主世界/地狱/末地三维度快照（zip），保留目录层级
-- 创建（自动 `save-all`）、列表、还原（自动停服并备份当前世界至 `*.bak.<ts>`）、删除、SAF 导出
-- 还原时 zip-slip / 路径穿越防护
-- 旧快照按数量自动清理（`maxSnapshots`，默认 10）
+### 💾 备份、崩溃与网络
 
-### 🛠️ 崩溃报告
-- **自建报告**：`home/crash-logs/crash_yyyyMMdd_HHmmss.txt`，捕获 `latest.log` 最后 200 行 + 最新原生崩溃报告
-- **MC 原生报告**：`home/servers/{dirName}/crash-reports/`
-- 列表 / 查看（含预览）/ 删除 / 一键清空
-
-### ⚙️ 配置
-- 完整 `server.properties` 编辑器：全部 **75 个参数**，基础（37）/ 高级（38）分组，数据驱动渲染（Bool/Int/Text/Enum），未收录参数兜底自由编辑，服务器运行时保存提示需重启
-- JVM 堆内存限制、下载镜像（7 选）、APT 镜像（5 选）、自动重启开关、WiFi 锁、CPU 唤醒锁
-
-### 📊 设备与网络监控
-- 设备内存 / 存储 / 电池（含充电状态），无需任何权限
-- 实时网络流量：总上传下载 + 当前速度，3 秒轮询
-- 将真实 MC 进程 RSS 写入 `usedMemoryMb`
+- 主世界、地狱、末地的快照备份、还原、删除和 SAF 导出。
+- 异常退出时保存 `latest.log` 最后 200 行和最新原生报告；报告页面汇总全部服务器的原生 `crash-reports/` 并提供离线分析。
+- frp 与 bore 隧道支持；局域网地址和公网地址均可一键复制。
 
 ### 🛡️ 后台保活
 
-纯 Android 方案（无需 NDK）：
-- 前台服务 START_STICKY + 常驻通知 + PARTIAL_WAKE_LOCK + WIFI_MODE_FULL_HIGH_PERF，Android 13+ 使用 special-use 前台类型
-- 开机自启动（BOOT_COMPLETED 广播）
-- WorkManager 每 15 分钟周期保活
-- onTaskRemoved → 2 秒后非精确闹钟重启（`setAndAllowWhileIdle`，无需精确闹钟权限）
-- 30 秒健康看门狗——每 60 秒发送 `list`（全核心）+ `tps`（Paper）刷新在线人数与 TPS
-- 专属保活页面：3 个开关独立配置（开机自启 / 周期保活 / 崩溃自动重启）+ 详细功能说明
+- 前台服务、常驻通知、CPU/Wi-Fi 唤醒锁、开机自启和 WorkManager 周期检查。
+- 可选可拖动状态悬浮条，展示运行状态、CPU 和内存。
 
-> 提示：Android 系统对后台进程有严格限制，保活效果受系统版本与厂商策略影响；请勿在系统设置中限制本应用后台运行，并授予自启动权限。
+> Android 与厂商省电策略仍可能终止后台进程；请关闭本应用的电池优化并保持供电。CPU 读数受 Android/PRoot 的 `/proc` 限制，部分设备上可能不可用。
 
-### 🎨 UI & UX
-- Material 3，沉浸式全屏，**9-tab 底部导航**（概览 / 下载 / 玩家 / 插件 / 文件 / 网络 / 备份 / 配置 / 设置）
-- 输入防抖（300ms 写回，失焦立即同步，仅数字 sanitize）——输入无卡顿、无重排
-- 返回键逐页返回而非退出应用（日志浮层 → 子页面 → 非概览 Tab → 概览拦截返回）
-- 配置持久化 300ms 防抖（DataStore 经 conflated channel，CAS 风格原子更新）
+## 📱 手机是如何运行 MC 服务端的？
 
-### 📥 下载帮助
-- 专属页面应对 GitHub 下载慢：切换镜像（7 个内置）、切换 APT 源、切换网络、VPN/代理、PC 手动下载
-- 速度参考卡（5+ MB/s 快 / 1–5 良好 / 0.5–1 正常 / <0.5 慢）
+首次初始化时，应用会在私有目录部署 Termux 兼容运行时和 Java。Java 17/21/25 服务端通过 Android shell 启动；需要 Java 8 的旧服务端则在 ARM64 Ubuntu PRoot 中运行。服务端始终是应用管理的普通 Java 子进程，不需要 Root。
+
+控制台命令写入进程 stdin，输出实时显示并保存为 `logs/latest.log`。服务端监听手机正常网络端口：局域网使用手机 IP 连接；公网则依赖隧道或端口映射，无法绕过 NAT、CGNAT 和防火墙。
+
+详细实现见 [架构文档](./ARCHITECTURE.md)。
 
 ## 📄 许可证
 
-详见仓库 LICENSE 文件。
+本项目采用 [GNU GPL v3.0 或更高版本](LICENSE)。TCP STUN 穿透和部分后台保活实现改编自同为 GPL-3.0 的 [EdgeCube](https://github.com/venti1112/EdgeCube)，详见 [NOTICE](NOTICE)。

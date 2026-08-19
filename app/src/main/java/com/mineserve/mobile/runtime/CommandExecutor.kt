@@ -19,6 +19,9 @@ import java.util.concurrent.TimeUnit
  */
 class CommandExecutor(private val installer: BootstrapInstaller) {
 
+    @Volatile
+    private var interactiveInput: java.io.OutputStream? = null
+
     private val _consoleFlow = MutableSharedFlow<String>(
         replay = 256,
         extraBufferCapacity = 2048
@@ -132,7 +135,6 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         Log.d(TAG, "execOnceWithTimeout[$timeoutMs]: ${full.joinToString(" ").take(200)}")
         val pb = ProcessBuilder(full).apply {
             redirectErrorStream(true)
-            redirectInput(File("/dev/null"))
             directory(File(installer.rootDir, "home").apply { mkdirs() })
             environment().putAll(termuxEnv())
             env.forEach { (k, v) -> environment()[k] = v }
@@ -181,12 +183,24 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
             env.forEach { (k, v) -> environment()[k] = v }
         }
         val process = pb.start()
-        process.outputStream.close()
-        BufferedReader(InputStreamReader(process.inputStream)).useLines { seq ->
-            seq.forEach(onLine)
+        interactiveInput = process.outputStream
+        try {
+            BufferedReader(InputStreamReader(process.inputStream)).useLines { seq ->
+                seq.forEach(onLine)
+            }
+            return process.waitFor()
+        } finally {
+            if (interactiveInput === process.outputStream) interactiveInput = null
+            runCatching { process.outputStream.close() }
         }
-        return process.waitFor()
     }
+
+    fun sendInteractiveInput(input: String): Boolean = runCatching {
+        val stream = interactiveInput ?: return false
+        stream.write((input + "\n").toByteArray(Charsets.UTF_8))
+        stream.flush()
+        true
+    }.getOrDefault(false)
 
     /**
      * 后台长期命令（如 tmux new-session -d）。

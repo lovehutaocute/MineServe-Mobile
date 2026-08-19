@@ -72,7 +72,6 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
     var bootAuto by remember { mutableStateOf(vm.isBootAutoStart()) }
     var keepAlive by remember { mutableStateOf(vm.isKeepAliveEnabled()) }
-    var pixelKeep by remember { mutableStateOf(vm.isPixelKeepAlive()) }
     var serviceRunning by remember { mutableStateOf(McForegroundService.isRunning) }
     // 服务按钮防重复状态
     var serviceBusy by remember { mutableStateOf(false) }
@@ -165,10 +164,23 @@ fun KeepAliveScreen(vm: McViewModel, onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(8.dp))
                 KeepAliveToggle(
-                    title = stringResource(R.string.ui_pixel_title),
-                    subtitle = stringResource(R.string.ui_pixel_hint),
-                    checked = pixelKeep,
-                    onChange = { vm.setPixelKeepAlive(it); pixelKeep = it }
+                    title = "运行时屏幕常亮",
+                    subtitle = "仅主界面可见时生效，服务器运行中保持屏幕常亮。",
+                    checked = config.keepScreenOnWhileRunning,
+                    onChange = vm::setKeepScreenOnWhileRunning
+                )
+                Spacer(Modifier.height(8.dp))
+                KeepAliveToggle(
+                    title = "运行状态悬浮窗",
+                    subtitle = "显示可拖动状态点；需要授予“显示在其他应用上层”权限。",
+                    checked = config.keepStatusOverlay,
+                    onChange = { enabled ->
+                        if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !Settings.canDrawOverlays(context)) {
+                            runCatching { context.startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))) }
+                        }
+                        vm.setKeepStatusOverlay(enabled)
+                        if (enabled) vm.startKeepAliveService()
+                    }
                 )
             }
 

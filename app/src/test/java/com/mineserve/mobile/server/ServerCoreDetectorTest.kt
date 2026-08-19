@@ -63,12 +63,31 @@ class ServerCoreDetectorTest {
     }
 
     @Test
+    fun detectsModernPowerNukkitXEntryPoint() {
+        val dir = tempDir("pnx-modern")
+        val jar = File(dir, "server.jar")
+        createJar(jar, mapOf("org/powernukkitx/Server.class" to ByteArray(0)))
+        assertEquals("org.powernukkitx.Server", powerNukkitXMainClass(jar))
+        assertEquals(ServerCore.PowerNukkitX, ServerCoreDetector.detect(dir).core)
+    }
+
+    @Test
     fun detectsVelocityFromFileName() {
         val dir = tempDir("velocity")
         emptyJar(File(dir, "velocity-3.4.0-SNAPSHOT.jar"))
         val result = ServerCoreDetector.detect(dir)
         assertEquals(ServerCore.Velocity, result.core)
         assertEquals("3.4.0-SNAPSHOT", result.version)
+    }
+
+    @Test
+    fun detectsBungeeCordFromManifest() {
+        val dir = tempDir("bungee")
+        val bungeeManifest = "Manifest-Version: 1.0\r\nMain-Class: net.md_5.bungee.BungeeCord\r\nImplementation-Version: 1.21-R0.1\r\n\r\n"
+        createJar(File(dir, "server.jar"), mapOf("META-INF/MANIFEST.MF" to bungeeManifest.toByteArray()))
+        val result = ServerCoreDetector.detect(dir)
+        assertEquals(ServerCore.BungeeCord, result.core)
+        assertEquals("1.21-R0.1", result.version)
     }
 
     @Test

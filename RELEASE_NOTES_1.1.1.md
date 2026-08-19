@@ -1,5 +1,7 @@
 # MineServe Mobile 1.1.1
 
+> Historical release notes for 1.1.1. For current capabilities and requirements, see [README](./README.md) and [CHANGELOG](./CHANGELOG.md).
+
 ## 更新内容
 
 - 修复应用自动检查更新后不弹窗、不发送通知的问题。

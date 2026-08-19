@@ -18,8 +18,8 @@ android {
         applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
-        versionCode = 34
-        versionName = "1.1.7"
+        versionCode = 35
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -47,8 +47,7 @@ android {
 
     buildTypes {
         release {
-            // R8 混淆仅正式发版时启用：gradlew assembleRelease -PreleaseR8=true
-            // 本地测试/不更新 release 的构建保持无混淆（避免混淆引发的运行时问题干扰排查）
+            // 正式包始终启用 R8 混淆与资源压缩。
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -95,6 +94,10 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.xz)
     implementation(libs.commons.compress)
+    implementation(libs.zstd.jni)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlin.test.junit)
 
     debugImplementation(libs.androidx.ui.tooling)
 }

@@ -41,7 +41,12 @@ class ServerRepository(
     private val CONFIG_KEY = stringPreferencesKey("config_json")
 
     val configFlow: Flow<McConfig> = context.configDataStore.data.map { prefs ->
-        val stored = prefs[CONFIG_KEY]?.let { json.decodeFromString<McConfig>(it) } ?: McConfig()
+        val stored = prefs[CONFIG_KEY]?.let { raw ->
+            runCatching { json.decodeFromString<McConfig>(raw) }.getOrElse {
+                // STUN was removed; migrate only its old enum value without discarding user settings.
+                json.decodeFromString<McConfig>(raw.replace(Regex("\\\"tunnelType\\\"\\s*:\\s*\\\"Stun\\\""), "\"tunnelType\":\"Frp\""))
+            }
+        } ?: McConfig()
         val correctedCores = stored.installedCores.map { core ->
             core.copy(version = MinecraftVersionNormalizer.forCore(core.core, core.version))
         }

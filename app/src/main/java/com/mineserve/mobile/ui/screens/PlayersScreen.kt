@@ -103,6 +103,18 @@ private enum class OpLevel(val labelRes: Int, val value: Int) {
     L4(R.string.s671, 4)
 }
 
+private fun matchesPlayerQuery(name: String, query: String): Boolean {
+    val normalizedName = name.filterNot(Char::isWhitespace).lowercase()
+    val normalizedQuery = query.filterNot(Char::isWhitespace).lowercase()
+    if (normalizedQuery.isBlank()) return true
+    if (normalizedName.contains(normalizedQuery)) return true
+    var cursor = 0
+    normalizedName.forEach { char ->
+        if (cursor < normalizedQuery.length && char == normalizedQuery[cursor]) cursor++
+    }
+    return cursor == normalizedQuery.length
+}
+
 /**
  * 玩家管理页（重构版）
  *
@@ -131,6 +143,7 @@ fun PlayersScreen(
     val playerHistory by vm.playerHistory.collectAsState()
     val config by vm.config.collectAsState()
     val isBootstrapped by vm.isBootstrapped.collectAsState()
+    val activitySummaries = remember(playerHistory) { vm.playerActivitySummaries() }
 
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -241,6 +254,7 @@ fun PlayersScreen(
                     players = onlinePlayers,
                     isRunning = isRunning,
                     onRefresh = { vm.refreshOnlinePlayers() },
+                    onShowDetail = { detailPlayer = DetailInfo.Activity(it) },
                     onCopy = { name ->
                         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                         clipboard.setPrimaryClip(android.content.ClipData.newPlainText("MC Player", name))
@@ -285,6 +299,7 @@ fun PlayersScreen(
     detailPlayer?.let { info ->
         PlayerDetailDialog(
             info = info,
+            activity = activitySummaries.firstOrNull { it.player.equals(info.playerName(), ignoreCase = true) },
             isRunning = isRunning,
             onDismiss = { detailPlayer = null },
             onDeop = { vm.deopPlayer(it); detailPlayer = null },
@@ -304,7 +319,8 @@ fun PlayersScreen(
             summaries = vm.playerActivitySummaries(),
             onDismiss = { showHistory = false },
             onExport = { historyExportLauncher.launch("player_activity.csv") },
-            onClear = vm::clearPlayerHistory
+            onClear = vm::clearPlayerHistory,
+            onShowPlayer = { detailPlayer = DetailInfo.Activity(it) }
         )
     }
 }
@@ -317,11 +333,12 @@ private fun PlayerHistoryDialog(
     summaries: List<McViewModel.PlayerActivitySummary>,
     onDismiss: () -> Unit,
     onExport: () -> Unit,
-    onClear: () -> Unit
+    onClear: () -> Unit,
+    onShowPlayer: (String) -> Unit
 ) {
     var search by remember { mutableStateOf("") }
     var clearConfirm by remember { mutableStateOf(false) }
-    val filtered = remember(history, search) { history.filter { it.player.contains(search, ignoreCase = true) } }
+    val filtered = remember(history, search) { history.filter { matchesPlayerQuery(it.player, search) } }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -353,6 +370,7 @@ private fun PlayerHistoryDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable { onShowPlayer(h.player) }
                                 .padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -470,20 +488,34 @@ private fun OnlineTab(
     players: List<String>,
     isRunning: Boolean,
     onRefresh: () -> Unit,
+    onShowDetail: (String) -> Unit,
     onCopy: (String) -> Unit,
     onKick: (String) -> Unit,
     onSetGameMode: (String, Int) -> Unit
 ) {
+    var search by remember { mutableStateOf("") }
+    val filteredPlayers = remember(players, search) { players.filter { matchesPlayerQuery(it, search) } }
     McCard(title = stringResource(R.string.s657)) {
+        if (isRunning) {
+            OutlinedTextField(
+                value = search,
+                onValueChange = { search = it },
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                singleLine = true,
+                leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
+                label = { Text(stringResource(R.string.player_search), fontSize = 11.sp) }
+            )
+        }
         if (!isRunning) {
             StatusRow(color = Coral, text = stringResource(R.string.s684))
-        } else if (players.isEmpty()) {
+        } else if (filteredPlayers.isEmpty()) {
             EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s685))
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                players.forEach { name ->
+                filteredPlayers.forEach { name ->
                     OnlinePlayerRow(
                         name = name,
+                        onShowDetail = { onShowDetail(name) },
                         onCopy = { onCopy(name) },
                         onKick = { onKick(name) },
                         onSetGameMode = { mode -> onSetGameMode(name, mode) }
@@ -508,6 +540,7 @@ private fun OnlineTab(
 @Composable
 private fun OnlinePlayerRow(
     name: String,
+    onShowDetail: () -> Unit,
     onCopy: () -> Unit,
     onKick: () -> Unit,
     onSetGameMode: (Int) -> Unit
@@ -518,6 +551,7 @@ private fun OnlinePlayerRow(
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
             .background(IndigoSoft)
+            .clickable(onClick = onShowDetail)
             .padding(10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -603,7 +637,7 @@ private fun OpsTab(
         if (ops.isEmpty()) {
             EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s693))
         } else {
-            val filtered = ops.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+            val filtered = ops.filter { matchesPlayerQuery(it.name, search) }
             if (filtered.isEmpty()) {
                 EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s694))
             } else {
@@ -802,7 +836,7 @@ private fun WhitelistTab(
         if (whitelist.isEmpty()) {
             EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s706))
         } else {
-            val filtered = whitelist.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+            val filtered = whitelist.filter { matchesPlayerQuery(it.name, search) }
             if (filtered.isEmpty()) {
                 EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s707))
             } else {
@@ -880,7 +914,7 @@ private fun BannedTab(
                 shape = RoundedCornerShape(10.dp)
             )
             Spacer(Modifier.height(10.dp))
-            val filtered = banned.filter { search.isBlank() || it.name.contains(search, ignoreCase = true) }
+            val filtered = banned.filter { matchesPlayerQuery(it.name, search) }
             if (filtered.isEmpty()) {
                 EmptyHint(icon = Icons.Outlined.Person, text = stringResource(R.string.s712))
             } else {
@@ -968,14 +1002,23 @@ private fun BannedTab(
 // ── 详情对话框 ──────────────────────────────────────────────────────
 
 private sealed class DetailInfo {
+    data class Activity(val player: String) : DetailInfo()
     data class Op(val entry: PlayerManager.OpEntry) : DetailInfo()
     data class Whitelist(val entry: PlayerManager.WhitelistEntry) : DetailInfo()
     data class Banned(val entry: PlayerManager.BannedEntry) : DetailInfo()
 }
 
+private fun DetailInfo.playerName(): String = when (this) {
+    is DetailInfo.Activity -> player
+    is DetailInfo.Op -> entry.name
+    is DetailInfo.Whitelist -> entry.name
+    is DetailInfo.Banned -> entry.name
+}
+
 @Composable
 private fun PlayerDetailDialog(
     info: DetailInfo,
+    activity: McViewModel.PlayerActivitySummary?,
     isRunning: Boolean,
     onDismiss: () -> Unit,
     onDeop: (String) -> Unit,
@@ -998,6 +1041,7 @@ private fun PlayerDetailDialog(
         text = {
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 when (info) {
+                    is DetailInfo.Activity -> DetailRow(stringResource(R.string.s697), info.player)
                     is DetailInfo.Op -> {
                         val op = info.entry
                         DetailRow(stringResource(R.string.s697), op.name)
@@ -1019,6 +1063,15 @@ private fun PlayerDetailDialog(
                     }
                 }
 
+                activity?.let { summary ->
+                    Spacer(Modifier.height(8.dp))
+                    Text("活动记录", color = Indigo, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    DetailRow("最近进服", summary.lastJoinTime ?: "暂无记录")
+                    DetailRow("最近离服", summary.lastLeaveTime ?: if (summary.active) "当前在线" else "暂无记录")
+                    DetailRow("累计在线", formatActivitySeconds(summary.totalSeconds))
+                    DetailRow("最后退出原因", summary.lastExitReason ?: if (summary.active) "当前在线" else "暂无记录")
+                }
+
                 Spacer(Modifier.height(12.dp))
                 if (!isRunning) {
                     Text(stringResource(R.string.s726), color = Coral, fontSize = 10.sp)
@@ -1027,6 +1080,7 @@ private fun PlayerDetailDialog(
                     Spacer(Modifier.height(8.dp))
 
                     val playerName = when (info) {
+                        is DetailInfo.Activity -> info.player
                         is DetailInfo.Op -> info.entry.name
                         is DetailInfo.Whitelist -> info.entry.name
                         is DetailInfo.Banned -> info.entry.name
@@ -1043,6 +1097,7 @@ private fun PlayerDetailDialog(
 
                     // 根据类型显示对应操作
                     when (info) {
+                        is DetailInfo.Activity -> Unit
                         is DetailInfo.Op -> {
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                                 TextButton(onClick = { onDeop(playerName) }, modifier = Modifier.weight(1f)) {

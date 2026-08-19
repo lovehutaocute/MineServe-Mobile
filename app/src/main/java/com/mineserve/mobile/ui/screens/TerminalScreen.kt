@@ -6,6 +6,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,10 +15,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material.icons.outlined.Send
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -37,23 +42,37 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Context
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.TerminalLogTranslator
 import com.mineserve.mobile.ui.TerminalSessionType
 
-private data class QuickMcCommand(val label: String, val command: String)
+private data class QuickMcCommand(val emoji: String, val label: String, val command: String)
 
 private val quickMcCommands = listOf(
-    QuickMcCommand("晴天", "weather clear"),
-    QuickMcCommand("下雨", "weather rain"),
-    QuickMcCommand("白天", "time set day"),
-    QuickMcCommand("夜晚", "time set night"),
-    QuickMcCommand("难度普通", "difficulty normal"),
-    QuickMcCommand("创造模式", "gamemode creative @p"),
-    QuickMcCommand("杀死实体", "kill @e[type=!player]"),
-    QuickMcCommand("玩家列表", "list"),
-    QuickMcCommand("保存世界", "save-all"),
-    QuickMcCommand("停止服务端", "stop")
+    QuickMcCommand("☀️", "晴天", "weather clear"),
+    QuickMcCommand("🌧️", "下雨", "weather rain"),
+    QuickMcCommand("⛈️", "雷雨", "weather thunder"),
+    QuickMcCommand("🌅", "白天", "time set day"),
+    QuickMcCommand("🌙", "夜晚", "time set night"),
+    QuickMcCommand("🕛", "正午", "time set noon"),
+    QuickMcCommand("🕹️", "生存模式", "gamemode survival @p"),
+    QuickMcCommand("🧱", "创造模式", "gamemode creative @p"),
+    QuickMcCommand("🗺️", "冒险模式", "gamemode adventure @p"),
+    QuickMcCommand("👁️", "旁观模式", "gamemode spectator @p"),
+    QuickMcCommand("🕊️", "和平难度", "difficulty peaceful"),
+    QuickMcCommand("⚔️", "普通难度", "difficulty normal"),
+    QuickMcCommand("🔥", "困难难度", "difficulty hard"),
+    QuickMcCommand("💀", "杀死实体", "kill @e[type=!player]"),
+    QuickMcCommand("👥", "玩家列表", "list"),
+    QuickMcCommand("📍", "出生点", "spawnpoint @p"),
+    QuickMcCommand("🎒", "清空效果", "effect clear @p"),
+    QuickMcCommand("🛡️", "保留物品", "gamerule keepInventory true"),
+    QuickMcCommand("🚫", "关闭白名单", "whitelist off"),
+    QuickMcCommand("✅", "开启白名单", "whitelist on"),
+    QuickMcCommand("💾", "保存世界", "save-all"),
+    QuickMcCommand("❓", "帮助", "help"),
+    QuickMcCommand("🛑", "停止服务端", "stop")
 )
 
 @Composable
@@ -64,8 +83,11 @@ fun TerminalScreen(vm: McViewModel) {
     val mcLines by vm.consoleLines.collectAsState()
     val context = LocalContext.current
     var input by remember(activeId) { mutableStateOf("") }
-    var translateLogs by rememberSaveable { mutableStateOf(false) }
+    val logPrefs = remember { context.getSharedPreferences("log_prefs", Context.MODE_PRIVATE) }
+    var translateLogs by remember { mutableStateOf(logPrefs.getBoolean("localize", true)) }
     var showSettings by remember { mutableStateOf(false) }
+    var autoScrollPaused by rememberSaveable { mutableStateOf(false) }
+    var pendingDangerousCommand by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val rawLines = if (active.type == TerminalSessionType.Minecraft) mcLines else active.lines
     val visibleLines = remember(rawLines, translateLogs, active.type) {
@@ -87,14 +109,39 @@ fun TerminalScreen(vm: McViewModel) {
     }
     // 新日志到达时，若用户未手动上滑，自动滚动到底部
     LaunchedEffect(visibleLines.lastOrNull()) {
-        if (visibleLines.isNotEmpty() && !userScrolledUp) {
+        if (visibleLines.isNotEmpty() && !userScrolledUp && !autoScrollPaused) {
             listState.scrollToItem(visibleLines.lastIndex)
+        }
+    }
+
+    LaunchedEffect(autoScrollPaused) {
+        if (!autoScrollPaused && visibleLines.isNotEmpty()) {
+            listState.scrollToItem(visibleLines.lastIndex)
+        }
+    }
+
+    val sendCommand: (String) -> Unit = { command ->
+        val dangerous = active.type == TerminalSessionType.Minecraft && command.trim() in setOf(
+            "stop",
+            "kill @e[type=!player]",
+            "whitelist off"
+        )
+        if (dangerous) {
+            pendingDangerousCommand = command
+        } else if (active.type == TerminalSessionType.Termux) {
+            vm.executeTerminalCommand(active.id, command)
+        } else {
+            vm.sendCommand(command)
         }
     }
 
     val sendInput = {
         if (input.isNotBlank()) {
-            if (active.type == TerminalSessionType.Termux) vm.executeTerminalCommand(active.id, input) else vm.sendCommand(input)
+            if (active.type == TerminalSessionType.Termux && active.busy) {
+                vm.sendTerminalInput(active.id, input)
+            } else {
+                sendCommand(input)
+            }
             input = ""
         }
     }
@@ -122,7 +169,6 @@ fun TerminalScreen(vm: McViewModel) {
                     value = input,
                     onValueChange = { input = it },
                     singleLine = true,
-                    enabled = !active.busy,
                     modifier = Modifier.weight(1f),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedTextColor = Color.White,
@@ -134,7 +180,7 @@ fun TerminalScreen(vm: McViewModel) {
                 )
                 IconButton(
                     onClick = sendInput,
-                    enabled = !active.busy && input.isNotBlank(),
+                    enabled = input.isNotBlank(),
                     modifier = Modifier
                         .size(48.dp)
                         .background(Color(0xFF3996FF), RoundedCornerShape(8.dp))
@@ -155,6 +201,17 @@ fun TerminalScreen(vm: McViewModel) {
             Row {
                 IconButton(onClick = { showSettings = true }) { Icon(Icons.Outlined.Settings, "终端设置", tint = Color.White) }
                 IconButton(onClick = {
+                    if (active.type == TerminalSessionType.Minecraft) vm.clearConsole()
+                    else vm.clearTerminalSession(active.id)
+                }) { Icon(Icons.Outlined.Delete, "清空当前会话", tint = Color(0xFFFFA7A7)) }
+                IconButton(onClick = { autoScrollPaused = !autoScrollPaused }) {
+                    Icon(
+                        if (autoScrollPaused) Icons.Outlined.PlayArrow else Icons.Outlined.Pause,
+                        if (autoScrollPaused) "继续自动滚动" else "暂停自动滚动",
+                        tint = if (autoScrollPaused) Color(0xFFFFC857) else Color.White
+                    )
+                }
+                IconButton(onClick = {
                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                     clipboard.setPrimaryClip(android.content.ClipData.newPlainText(active.name, rawLines.joinToString("\n")))
                     android.widget.Toast.makeText(context, "已复制当前日志", android.widget.Toast.LENGTH_SHORT).show()
@@ -172,19 +229,27 @@ fun TerminalScreen(vm: McViewModel) {
         }
         if (active.type == TerminalSessionType.Minecraft) {
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                quickMcCommands.forEach { item -> AssistChip(onClick = { input = item.command }, label = { Text(item.label, fontSize = 11.sp) }) }
+                quickMcCommands.forEach { item ->
+                    AssistChip(
+                        onClick = { sendCommand(item.command) },
+                        label = { Text("${item.emoji} ${item.label}", fontSize = 11.sp) }
+                    )
+                }
             }
         }
         SelectionContainer {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(visibleLines) { line ->
-                    val color = when {
-                        line.startsWith("$ ") -> Color(0xFF57E357)
-                        line.startsWith("错误：") || line.contains("[ERROR]", true) || line.contains("[FATAL]", true) -> Color(0xFFFF7B72)
-                        line.startsWith("警告：") || line.contains("[WARN]", true) -> Color(0xFFE3B341)
-                        else -> Color(0xFFE8E8E8)
+                itemsIndexed(visibleLines, key = { index, _ -> index }) { index, line ->
+                    val color = terminalLogColor(line)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        Text(
+                            line,
+                            color = color,
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            softWrap = false
+                        )
                     }
-                    Text(line, color = color, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
                 }
             }
         }
@@ -193,7 +258,49 @@ fun TerminalScreen(vm: McViewModel) {
     if (showSettings) AlertDialog(
         onDismissRequest = { showSettings = false },
         title = { Text("终端设置") },
-        text = { Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("关键日志汉化\n仅改变终端显示，保留原始日志") ; Switch(checked = translateLogs, onCheckedChange = { translateLogs = it }) } },
+        text = {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("常用日志汉化\n仅改变终端显示，保留原始日志")
+                Switch(
+                    checked = translateLogs,
+                    onCheckedChange = {
+                        translateLogs = it
+                        logPrefs.edit().putBoolean("localize", it).apply()
+                    }
+                )
+            }
+        },
         confirmButton = { TextButton(onClick = { showSettings = false }) { Text("完成") } }
     )
+    pendingDangerousCommand?.let { command ->
+        AlertDialog(
+            onDismissRequest = { pendingDangerousCommand = null },
+            title = { Text("确认执行危险指令", color = Color(0xFFFF7B72)) },
+            text = { Text("该指令可能停止服务端、清除实体或关闭白名单：\n\n$command") },
+            dismissButton = {
+                TextButton(onClick = { pendingDangerousCommand = null }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        pendingDangerousCommand = null
+                        vm.sendCommand(command)
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFFF7B72))
+                ) { Text("确认执行") }
+            }
+        )
+    }
+}
+
+private fun terminalLogColor(line: String): Color = when {
+    line.startsWith("$ ") || line.startsWith("> ") -> Color(0xFF57E357)
+    line.contains("错误：") || line.contains("[ERROR]", true) || line.contains("[FATAL]", true) ||
+        line.contains("Exception", true) || line.contains("failed", true) -> Color(0xFFFF7B72)
+    line.contains("警告：") || line.contains("[WARN]", true) || line.contains("warning", true) -> Color(0xFFE3B341)
+    line.contains("[INFO]", true) || line.contains("信息：") -> Color(0xFF8BD5CA)
+    line.contains("[DEBUG]", true) || line.contains("调试：") -> Color(0xFF82AAFF)
+    line.contains("[bootstrap]", true) || line.contains("[download]", true) -> Color(0xFF89B4FA)
+    line.contains("启动完成") || line.contains("已启动") || line.contains("下载完成") -> Color(0xFFA6E3A1)
+    else -> Color(0xFFE8E8E8)
 }

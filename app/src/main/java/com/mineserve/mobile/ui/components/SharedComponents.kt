@@ -145,7 +145,7 @@ fun EmptyHint(icon: ImageVector, text: String, modifier: Modifier = Modifier) {
  * Hero 卡片：渐变背景 + 状态行 + 紧凑指标行（TPS / 在线 / 进程内存 / 运行时长）
  */
 @Composable
-fun HeroBlock(state: ServerState, coreLabel: String) {
+fun HeroBlock(state: ServerState, coreLabel: String, startupPhase: String = "准备环境", cpuPercent: Int? = null) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -207,12 +207,13 @@ fun HeroBlock(state: ServerState, coreLabel: String) {
                     else "--",
                     stringResource(R.string.hero_uptime)
                 )
+                HeroStat(cpuPercent?.let { "$it%" } ?: "--", "CPU")
             }
             // 启动中提示：适配启动耗时较长的场景
             if (isStarting) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    stringResource(R.string.s321),
+                    "启动阶段：$startupPhase",
                     color = Color.White.copy(alpha = 0.7f),
                     fontSize = 10.sp
                 )
@@ -365,6 +366,7 @@ fun SegPill(
     text: String,
     selected: Boolean,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
     unselectedBackground: Color = FieldGray,
     onClick: () -> Unit
 ) {
@@ -373,7 +375,7 @@ fun SegPill(
             .clip(RoundedCornerShape(12.dp))
             .background(if (selected) Indigo else unselectedBackground)
             .clickable { onClick() }
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = if (compact) 10.dp else 14.dp, vertical = if (compact) 6.dp else 8.dp)
     ) {
         Text(
             text,

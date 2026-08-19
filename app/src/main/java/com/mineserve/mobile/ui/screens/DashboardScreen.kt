@@ -115,6 +115,16 @@ fun DashboardScreen(
     val lanIp by vm.lanIp.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
     val consoleLines by vm.consolePreviewLines.collectAsState()
+    val startupPhase = remember(consoleLines) {
+        val text = consoleLines.takeLast(40).joinToString("\n")
+        when {
+            text.contains("启动完成") || text.contains("Done (") || text.contains("Server started", true) -> "已完成"
+            text.contains("准备世界") || text.contains("Preparing level", true) || text.contains("Preparing start region", true) -> "加载世界"
+            text.contains("加载核心", true) || text.contains("Loading server", true) || text.contains("Loading properties", true) -> "加载核心"
+            text.contains("正在启动 Java", true) || text.contains("java 路径", true) || text.contains("Starting Java", true) -> "启动 Java"
+            else -> "准备环境"
+        }
+    }
     LaunchedEffect(Unit) { vm.refreshLanIp() }
     val isInstalling by vm.isInstalling.collectAsState()
     val installedJava by vm.installedJava.collectAsState()
@@ -194,7 +204,7 @@ fun DashboardScreen(
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
-            HeroBlock(state = state, coreLabel = coreLabel)
+            HeroBlock(state = state, coreLabel = coreLabel, startupPhase = startupPhase, cpuPercent = resources.cpuPercent)
             if (!javaCardAtBottom) {
                 JavaManagementCard(
                     vm = vm,

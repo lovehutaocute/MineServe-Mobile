@@ -46,4 +46,4 @@
 -keep public class com.mineserve.mobile.BootReceiver { *; }
 
 # ---------- 数据/工具 ----------
-# xz / commons-compress 无反射，无需规则
+# xz / commons-compress / zstd-jni 无反射，无需规则

@@ -1,0 +1,9 @@
+MineServe Mobile is licensed under the GNU General Public License, version 3.0
+or later. See LICENSE for the full license text.
+
+This product contains source-derived and adapted implementations based on
+EdgeCube, Copyright the EdgeCube contributors, licensed under GPL-3.0.
+Source: https://github.com/venti1112/EdgeCube
+
+The adapted components include TCP STUN NAT traversal design, STUN protocol
+handling, connection forwarding, and Android keep-alive behavior.

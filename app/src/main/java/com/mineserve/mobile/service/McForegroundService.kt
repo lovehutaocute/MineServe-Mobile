@@ -26,6 +26,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 
 /**
@@ -54,6 +57,17 @@ class McForegroundService : Service() {
         isRunning = true
         termux = McApplication.get(this).termuxRuntime
         backupManager = BackupManager(termux)
+        scope.launch {
+            McApplication.get(this@McForegroundService).repository.configFlow
+                .map { it.keepStatusOverlay }
+                .distinctUntilChanged()
+                .collect { enabled -> syncOverlay(enabled) }
+        }
+        scope.launch {
+            val app = McApplication.get(this@McForegroundService)
+            combine(app.repository.configFlow, app.repository.serverState) { config, state -> config.keepStatusOverlay to state }
+                .collect { (enabled, state) -> if (enabled) StatusOverlay.update(state.cpuPercent, state.usedMemoryMb) }
+        }
         // 移到 IO 线程，避免主线程阻塞导致 ANR
         scope.launch { detectSurvivingProcess() }
     }
@@ -61,6 +75,7 @@ class McForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startForegroundInternal()
+            ACTION_REFRESH_KEEP_ALIVE -> scope.launch { syncOverlayFromConfig() }
             ACTION_STOP -> {
                 scope.launch {
                     termux.stopMc()
@@ -92,9 +107,15 @@ class McForegroundService : Service() {
         scope.launch { acquireLocks() }
         // 启动 socket 监听 + 健康 watchdog
         startWatchdog()
+        // 授权页返回、厂商系统延迟刷新 AppOps 时，前一次挂载可能发生得太早。
+        scope.launch {
+            kotlinx.coroutines.delay(500L)
+            syncOverlayFromConfig()
+        }
     }
 
     private fun stopForegroundInternal() {
+        StatusOverlay.hide(this)
         releaseLocks()
         stopForeground(STOP_FOREGROUND_REMOVE)
     }
@@ -107,7 +128,14 @@ class McForegroundService : Service() {
         if (running) {
             Log.i(TAG, "Detected surviving MC process, will reattach to log stream")
             McApplication.get(this).repository.updateServerState {
-                it.copy(isRunning = true)
+                // The original launch log is not replayed after an app restart.
+                // Restore the timestamp so the dashboard cannot remain in the
+                // perpetual "starting" state after reattaching.
+                it.copy(
+                    isRunning = true,
+                    runningSinceMs = it.runningSinceMs.takeIf { since -> since > 0L }
+                        ?: android.os.SystemClock.elapsedRealtime()
+                )
             }
         }
     }
@@ -122,7 +150,17 @@ class McForegroundService : Service() {
             while (true) {
                 val alive = try { termux.isMcRunning() } catch (e: Exception) { false }
                 val app = McApplication.get(this@McForegroundService)
-                app.repository.updateServerState { it.copy(isRunning = alive) }
+                app.repository.updateServerState {
+                    if (!alive) {
+                        it.copy(isRunning = false, runningSinceMs = 0L)
+                    } else {
+                        it.copy(
+                            isRunning = true,
+                            runningSinceMs = it.runningSinceMs.takeIf { since -> since > 0L }
+                                ?: android.os.SystemClock.elapsedRealtime()
+                        )
+                    }
+                }
                 // 服务器运行时，每 60 秒（2 个 tick）发送一次查询命令获取真实数据
                 if (alive && tick % 2 == 0) {
                     try {
@@ -205,18 +243,20 @@ class McForegroundService : Service() {
         }.getOrNull()
         val keepCpu = config?.keepCpuWakelock ?: true
         val keepWifi = config?.keepWifiLock ?: true
+        syncOverlay(config?.keepStatusOverlay == true)
 
-        if (keepCpu) {
+        if (keepCpu && wakeLock?.isHeld != true) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             wakeLock = pm.newWakeLock(
                 PowerManager.PARTIAL_WAKE_LOCK,
                 "MineServeMobile::McWake"
-            ).apply { acquire(60 * 60 * 1000L) }
+            ).apply { acquire() }
         }
-        if (keepWifi) {
+        if (keepWifi && wifiLock?.isHeld != true) {
             val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) WifiManager.WIFI_MODE_FULL_LOW_LATENCY else WifiManager.WIFI_MODE_FULL_HIGH_PERF
             wifiLock = wm.createWifiLock(
-                WifiManager.WIFI_MODE_FULL_HIGH_PERF,
+                mode,
                 "MineServeMobile::McWifi"
             ).apply { acquire() }
         }
@@ -225,6 +265,15 @@ class McForegroundService : Service() {
     private fun releaseLocks() {
         wakeLock?.let { if (it.isHeld) it.release() }
         wifiLock?.let { if (it.isHeld) it.release() }
+    }
+
+    private suspend fun syncOverlayFromConfig() {
+        val enabled = McApplication.get(this).repository.configFlow.first().keepStatusOverlay
+        syncOverlay(enabled)
+    }
+
+    private fun syncOverlay(enabled: Boolean) {
+        if (enabled) StatusOverlay.show(this) else StatusOverlay.hide(this)
     }
 
     /**
@@ -277,6 +326,7 @@ class McForegroundService : Service() {
         isRunning = false
         scope.cancel()
         releaseLocks()
+        StatusOverlay.hide(this)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -285,6 +335,7 @@ class McForegroundService : Service() {
         const val NOTIF_ID = 1001
         const val ACTION_START = "com.mineserve.mobile.action.START"
         const val ACTION_STOP = "com.mineserve.mobile.action.STOP"
+        const val ACTION_REFRESH_KEEP_ALIVE = "com.mineserve.mobile.action.REFRESH_KEEP_ALIVE"
         private const val TAG = "McForegroundService"
 
         /** 服务是否在运行（供保活检查） */

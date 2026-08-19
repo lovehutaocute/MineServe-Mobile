@@ -73,7 +73,12 @@ data class TunnelState(
     val publicUrl: String = "",
     val status: TunnelStatus = TunnelStatus.Idle,
     val errorMessage: String = "",
-    val activeType: TunnelType? = null
+    val activeType: TunnelType? = null,
+    val activeConnections: Int = 0,
+    val totalUploadBytes: Long = 0,
+    val totalDownloadBytes: Long = 0,
+    val uploadBytesPerSecond: Long = 0,
+    val downloadBytesPerSecond: Long = 0
 )
 
 /**
@@ -180,6 +185,10 @@ data class McConfig(
     val javaCardAtBottom: Boolean = false,
     val keepWifiLock: Boolean = true,
     val keepCpuWakelock: Boolean = true,
+    /** 服务端运行且主界面可见时保持屏幕常亮。 */
+    val keepScreenOnWhileRunning: Boolean = false,
+    /** 服务端运行时显示可拖动的状态悬浮窗。 */
+    val keepStatusOverlay: Boolean = false,
     /** 自动备份间隔（分钟），0 表示关闭 */
     val autoBackupIntervalMin: Int = 0,
     /** 自动备份内容，默认仅备份世界以避免无意生成大型 ZIP。 */
@@ -209,6 +218,8 @@ data class ServerState(
     val onlinePlayers: Int = 0,
     val maxPlayers: Int = 20,
     val usedMemoryMb: Long = 0L,
+    /** MC Java 进程 CPU 占用；首次采样或不可用时为 null。 */
+    val cpuPercent: Int? = null,
     val maxMemoryMb: Long = 0L,
     val healthPercent: Int = 0,            // 0-100，综合健康度
     /** 服务器本次启动完成的时刻（SystemClock.elapsedRealtime 基准），0 表示未启动 */

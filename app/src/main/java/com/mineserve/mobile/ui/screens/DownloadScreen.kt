@@ -101,6 +101,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     var pendingImport by remember { mutableStateOf<DownloadImport?>(null) }
     var importName by remember { mutableStateOf("") }
     var importObservedRunning by remember { mutableStateOf(false) }
+    var showAllVersions by remember { mutableStateOf(false) }
     val folderImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri?.let { pendingImport = DownloadImport("folder", it); showImportDialog = true }
     }
@@ -109,6 +110,9 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     }
     val jarImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { pendingImport = DownloadImport("jar", it); showImportDialog = true }
+    }
+    val modpackImportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { pendingImport = DownloadImport("modpack", it); showImportDialog = true }
     }
     LaunchedEffect(pendingImport) {
         pendingImport?.let { importName = vm.proposeImportName(it.kind, it.uri).orEmpty() }
@@ -124,6 +128,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     }
     // 切换核心时自动加载版本列表
     LaunchedEffect(config.selectedCore) {
+        showAllVersions = false
         vm.loadVersions(config.selectedCore)
     }
 
@@ -242,14 +247,13 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     )
                 }
             ) {
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ServerCore.values().forEach { core ->
                         SegPill(
                             text = core.displayName,
                             selected = config.selectedCore == core,
-                            unselectedBackground = if (core == ServerCore.PowerNukkitX) {
-                                Coral.copy(alpha = 0.16f)
-                            } else com.mineserve.mobile.ui.theme.FieldGray,
+                            compact = true,
+                            unselectedBackground = if (core == ServerCore.PowerNukkitX) Coral.copy(alpha = 0.16f) else com.mineserve.mobile.ui.theme.FieldGray,
                             onClick = { vm.selectCore(core) }
                         )
                     }
@@ -312,8 +316,9 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                 } else if (availableVersions.isEmpty()) {
                     Text(stringResource(R.string.s473), color = Muted, fontSize = 12.sp)
                 } else {
+                    val shownVersions = if (showAllVersions) availableVersions else availableVersions.take(8)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        (if (usesCoreVersion) availableVersions else availableVersions.take(20)).forEach { ver ->
+                        shownVersions.forEach { ver ->
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 SegPill(
                                     text = ver,
@@ -328,6 +333,15 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                     )
                                 }
                             }
+                        }
+                    }
+                    if (availableVersions.size > shownVersions.size) {
+                        TextButton(onClick = { showAllVersions = true }) {
+                            Text("显示全部 ${availableVersions.size} 个版本", color = Indigo, fontSize = 12.sp)
+                        }
+                    } else if (showAllVersions && availableVersions.size > 8) {
+                        TextButton(onClick = { showAllVersions = false }) {
+                            Text("仅显示常用版本", color = Indigo, fontSize = 12.sp)
                         }
                     }
                 }
@@ -516,12 +530,13 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     title = { Text("导入服务器") },
                     text = {
                         Column {
-                            Text("压缩包解压后需包含核心文件与 plugins/、worlds/ 等必要目录；文件夹需包含完整服务端目录结构；JAR 会自动创建 plugins/、worlds/、logs/ 等标准目录和默认配置。", color = Muted, fontSize = 12.sp)
+                            Text("选择导入方式：文件夹和压缩包用于已有完整服务端；JAR 用于单个服务端核心；整合包仅支持 Modrinth .mrpack，会自动下载服务端模组并应用 overrides。", color = Muted, fontSize = 12.sp)
                             Spacer(Modifier.height(8.dp))
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                OutlinedButton(onClick = { folderImportLauncher.launch(null) }, enabled = !importingServer, modifier = Modifier.weight(1f)) { Text("文件夹", fontSize = 11.sp) }
-                                OutlinedButton(onClick = { archiveImportLauncher.launch(arrayOf("application/zip", "application/gzip", "application/x-tar", "application/octet-stream")) }, enabled = !importingServer, modifier = Modifier.weight(1f)) { Text("压缩包", fontSize = 11.sp) }
-                                OutlinedButton(onClick = { jarImportLauncher.launch(arrayOf("application/java-archive", "application/octet-stream")) }, enabled = !importingServer, modifier = Modifier.weight(1f)) { Text("JAR", fontSize = 11.sp) }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                OutlinedButton(onClick = { folderImportLauncher.launch(null) }, enabled = !importingServer) { Text("文件夹", fontSize = 11.sp) }
+                                OutlinedButton(onClick = { archiveImportLauncher.launch(arrayOf("application/zip", "application/gzip", "application/x-tar", "application/octet-stream")) }, enabled = !importingServer) { Text("压缩包", fontSize = 11.sp) }
+                                OutlinedButton(onClick = { jarImportLauncher.launch(arrayOf("application/java-archive", "application/octet-stream")) }, enabled = !importingServer) { Text("JAR", fontSize = 11.sp) }
+                                OutlinedButton(onClick = { modpackImportLauncher.launch(arrayOf("application/octet-stream", "application/zip")) }, enabled = !importingServer) { Text("整合包", fontSize = 11.sp) }
                             }
                             if (pendingImport != null) {
                                 Spacer(Modifier.height(8.dp))
@@ -542,6 +557,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                                 when (selected.kind) {
                                     "folder" -> vm.importServerFromFolder(selected.uri, importName.trim())
                                     "jar" -> vm.importServerFromJar(selected.uri, importName.trim())
+                                    "modpack" -> vm.importServerFromArchive(selected.uri, importName.trim())
                                     else -> vm.importServerFromArchive(selected.uri, importName.trim())
                                 }
                             }

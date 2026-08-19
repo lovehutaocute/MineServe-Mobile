@@ -22,6 +22,7 @@ data class DiagnosticReport(
 
 data class ServerResourceStats(
     val processMemoryMb: Long? = null,
+    val cpuPercent: Int? = null,
     val availableBytes: Long? = null,
     val directoryBytes: Long? = null,
     val javaAvailable: Boolean = false,

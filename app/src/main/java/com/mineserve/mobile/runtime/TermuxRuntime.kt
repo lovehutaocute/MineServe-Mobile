@@ -58,6 +58,7 @@ class TermuxRuntime(context: Context) {
     /** MC 服务器进程（null 表示未启动） */
     @Volatile
     private var mcProcess: Process? = null
+    @Volatile private var mcPid: Int? = null
 
     /** MC 进程的 stdin，用于发送命令 */
     @Volatile
@@ -1060,6 +1061,8 @@ class TermuxRuntime(context: Context) {
     fun execTermux(command: String, onLine: (String) -> Unit): Int =
         executor.execWithOutput("/system/bin/sh", "-c", command, onLine = onLine)
 
+    fun sendTermuxInput(input: String): Boolean = executor.sendInteractiveInput(input)
+
     /**
      * 修复 rootfs 命令可执行权限（幂等，毫秒级）。
      *
@@ -1952,6 +1955,7 @@ class TermuxRuntime(context: Context) {
         emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
         emitLog("[startMc] 正在启动 Java 8 服务端...")
         mcProcess = process
+        mcPid = findMcChildPid()
         mcStdin = process.outputStream
         Thread({
             try {
@@ -1977,6 +1981,7 @@ class TermuxRuntime(context: Context) {
             Log.w(TAG, "Ubuntu Java 8 MC process exited code=$code")
             emitLog("[startMc] Java 8 服务端已退出 (exit=$code)")
             mcProcess = null
+            mcPid = null
             mcStdin = null
             onExit(code)
         }, "mc-ubuntu-watch").start()
@@ -2050,7 +2055,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR='$prefix/tmp'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
             "cd '$serverDir' && " +
-            "'$javaPath' $nativeAccessArg-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
+            "exec '$javaPath' $nativeAccessArg-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
@@ -2066,6 +2071,7 @@ class TermuxRuntime(context: Context) {
         }
         val process = pb.start()
         mcProcess = process
+        mcPid = findMcChildPid()
         mcStdin = process.outputStream
 
         // 后台线程读取 stdout，推送到 consoleFlow 并写入日志文件
@@ -2095,6 +2101,7 @@ class TermuxRuntime(context: Context) {
             val code = process.waitFor()
             Log.w(TAG, "MC process exited code=$code")
             mcProcess = null
+            mcPid = null
             mcStdin = null
             onExit(code)
         }, "mc-watch").start()
@@ -2107,6 +2114,7 @@ class TermuxRuntime(context: Context) {
         val proc = mcProcess ?: return@withContext true
         if (!proc.isAlive) {
             mcProcess = null
+            mcPid = null
             return@withContext true
         }
         try {
@@ -2126,6 +2134,7 @@ class TermuxRuntime(context: Context) {
             withTimeoutOrNull(3000) { while (proc.isAlive) delay(50) }
         }
         mcProcess = null
+        mcPid = null
         mcStdin = null
         true
     }
@@ -2156,6 +2165,10 @@ class TermuxRuntime(context: Context) {
      */
     fun mcProcessMemoryMb(): Long {
         return try {
+            processStat(mcProcess)?.let { stat ->
+                val rssPages = stat.getOrNull(21)?.toLongOrNull() ?: 0L
+                if (rssPages > 0) return rssPages * 4096 / (1024 * 1024)
+            }
             val procDir = java.io.File("/proc")
             var fallbackRss = 0L
             procDir.listFiles()?.forEach { f ->
@@ -2184,6 +2197,42 @@ class TermuxRuntime(context: Context) {
         } catch (e: Exception) {
             0L
         }
+    }
+
+    /** MC Java 进程的 utime + stime ticks；用于跨采样周期计算 CPU 占用。 */
+    fun mcProcessCpuTicks(): Long? = processStat(mcProcess)?.let { fields ->
+        val user = fields.getOrNull(11)?.toLongOrNull()
+        val system = fields.getOrNull(12)?.toLongOrNull()
+        if (user != null && system != null) user + system else null
+    }
+
+    /** Read the launched child process instead of trying to identify a Java process globally. */
+    private fun processStat(process: Process?): List<String>? {
+        if (process?.isAlive != true) return null
+        return try {
+            val pid = mcPid ?: findMcChildPid()?.also { mcPid = it } ?: return null
+            val stat = File("/proc/$pid/stat").readText()
+            val end = stat.lastIndexOf(')')
+            if (end < 0) null else stat.substring(end + 1).trim().split(Regex("\\s+"))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Android exposes our app's child relationship in procfs even though Process.pid() is absent. */
+    private fun findMcChildPid(): Int? = try {
+        val parentPid = android.os.Process.myPid().toString()
+        File("/proc").listFiles()?.firstNotNullOfOrNull { dir ->
+            if (!dir.name.all(Char::isDigit)) return@firstNotNullOfOrNull null
+            val stat = File(dir, "stat").takeIf { it.isFile }?.readText() ?: return@firstNotNullOfOrNull null
+            val end = stat.lastIndexOf(')').takeIf { it > 0 } ?: return@firstNotNullOfOrNull null
+            val fields = stat.substring(end + 1).trim().split(Regex("\\s+"))
+            if (fields.getOrNull(1) != parentPid) return@firstNotNullOfOrNull null
+            val cmdline = File(dir, "cmdline").takeIf { it.isFile }?.readText().orEmpty()
+            if (cmdline.contains(installer.rootDir.absolutePath)) dir.name.toIntOrNull() else null
+        }
+    } catch (_: Exception) {
+        null
     }
 
     /**

@@ -1,5 +1,21 @@
 # 更新日志
 
+## 1.2.0
+
+### 文档与运行说明
+
+- 更新中英文 README 和架构文档，准确说明无 Root 手机运行链路：Termux bootstrap、Java 17/21/25 主机路径、Java 8 Ubuntu PRoot 路径、ProcessBuilder I/O、网络连接与后台限制。
+- 修正支持核心数量为 10 类，并补充 PowerNukkitX、独立导入入口、支持的压缩格式与 Modrinth `.mrpack` 服务端导入边界。
+- 补充崩溃报告的全核心原生报告汇总、离线分析、状态悬浮条及 CPU 采样的设备相关限制。
+
+### 功能
+
+- 导入支持文件夹、JAR、ZIP/TAR/TAR.GZ/TAR.XZ/TAR.BZ2/TAR.ZST/TAR.LZ4/7z，以及 Modrinth `.mrpack`；整合包下载文件会校验 SHA-1，并应用服务端覆盖目录。
+- 下载页核心选项改为紧凑布局，核心切换会清空旧版本并防止过期请求覆盖新列表，默认显示最近 8 个版本。
+- 崩溃报告收集 `latest.log` 最后 200 行和最新原生报告；报告列表可汇总所有已安装核心的原生 `crash-reports/`。
+- 增加可选的可拖动运行状态悬浮条；CPU/内存显示在 Android/PRoot 限制下按尽力采样处理。
+- Release 构建启用 R8 代码混淆与资源压缩。
+
 ## 1.1.7
 
 ### 稳定版重发布

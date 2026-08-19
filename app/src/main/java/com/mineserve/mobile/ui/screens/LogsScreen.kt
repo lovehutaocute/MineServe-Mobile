@@ -97,6 +97,22 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     var showLogSettings by remember { mutableStateOf(false) }
     val isChineseLocale = java.util.Locale.getDefault().language == "zh"
 
+    // 日志每 200ms 批量刷新一次；预计算显示文本和颜色，避免每次重组对可见行重复执行正则。
+    val displayLines = remember(lines, logLocalized, isChineseLocale) {
+        lines.map { line ->
+            val color = when {
+                line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
+                line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
+                line.contains("[tunnel]") -> Color(0xFF89B4FA)
+                line.contains("[crash]") -> Color(0xFFFAB387)
+                line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
+                else -> Color(0xFFCDD6F4)
+            }
+            val text = if (logLocalized && isChineseLocale) localizeLogLine(line) else line
+            text to color
+        }
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // 顶部带返回按钮的 Header（白底覆盖状态栏，配合全屏展示）
         Row(
@@ -212,19 +228,9 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    itemsIndexed(lines, key = { index, _ -> index }) { _, line ->
-                        val color = remember(line) {
-                            when {
-                                line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
-                                line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
-                                line.contains("[tunnel]") -> Color(0xFF89B4FA)
-                                line.contains("[crash]") -> Color(0xFFFAB387)
-                                line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
-                                else -> Color(0xFFCDD6F4)
-                            }
-                        }
+                    itemsIndexed(displayLines, key = { index, _ -> index }) { _, (text, color) ->
                         Text(
-                            if (logLocalized && isChineseLocale) localizeLogLine(line) else line,
+                            text,
                             color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace
                         )
                     }

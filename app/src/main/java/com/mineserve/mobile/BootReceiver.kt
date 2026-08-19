@@ -34,7 +34,6 @@ class BootReceiver : BroadcastReceiver() {
         const val META_PREFS = "mc_config_meta"
         const val KEY_BOOT_AUTO_START = "boot_auto_start"
         const val KEY_KEEP_ALIVE = "keep_alive_enabled"
-        const val KEY_PIXEL = "pixel_keep_alive"
         private const val TAG = "BootReceiver"
     }
 }

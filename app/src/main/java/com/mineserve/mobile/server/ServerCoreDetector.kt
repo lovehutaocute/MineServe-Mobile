@@ -27,7 +27,9 @@ object ServerCoreDetector {
 
         // ── 1. PowerNukkitX（基岩版） ────────────────────────────────
         if (rootJars.any { it.name.equals("powernukkitx.jar", ignoreCase = true) } ||
-            hasClassEntry(rootJars, "cn/nukkit/Server.class")
+            hasClassEntry(rootJars, "cn/nukkit/Server.class") ||
+            hasClassEntry(rootJars, "org/powernukkitx/Server.class") ||
+            hasClassEntry(rootJars, "org/powernukkitx/JarStart.class")
         ) {
             val gameVersion = mojangCacheVersion(serverDir)
             val coreVersion = jarManifestValue(
@@ -56,8 +58,16 @@ object ServerCoreDetector {
         }
 
         // ── 5. BungeeCord（代理端） ─────────────────────────────────
-        if (rootJars.any { it.name.equals("BungeeCord.jar", ignoreCase = true) }) {
-            return Detection(ServerCore.BungeeCord, null)
+        rootJars.firstOrNull {
+            it.name.equals("BungeeCord.jar", ignoreCase = true) ||
+                it.name.equals("bungee.jar", ignoreCase = true)
+        }?.let { jar ->
+            return Detection(ServerCore.BungeeCord, jarManifestValue(jar, "Implementation-Version"))
+        }
+        if (hasManifestMain(rootJars, "net.md_5.bungee.BungeeCord")) {
+            return Detection(ServerCore.BungeeCord, rootJars.firstNotNullOfOrNull {
+                jarManifestValue(it, "Implementation-Version")
+            })
         }
 
         // ── 6. Forge（libraries/net/minecraftforge/forge/<mc>-<fv>/） ──

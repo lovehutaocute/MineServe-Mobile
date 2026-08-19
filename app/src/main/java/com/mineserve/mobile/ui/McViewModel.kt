@@ -7,7 +7,6 @@ import com.mineserve.mobile.R
 import com.mineserve.mobile.BuildConfig
 import com.mineserve.mobile.MainActivity
 import com.mineserve.mobile.BootReceiver
-import com.mineserve.mobile.KeepAlivePixelActivity
 import com.mineserve.mobile.KeepAliveWorker
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.service.McForegroundService
@@ -152,6 +151,7 @@ class McViewModel(
     val termuxBusy: StateFlow<Boolean> = _termuxBusy.asStateFlow()
 
     private val terminalMutex = Mutex()
+    @Volatile private var interactiveTerminalSessionId: String? = null
     private val _terminalSessions = MutableStateFlow(
         listOf(
             TerminalSession("minecraft", str(R.string.mc_console_label), TerminalSessionType.Minecraft),
@@ -192,37 +192,29 @@ class McViewModel(
         viewModelScope.launch {
             terminalMutex.withLock {
                 updateTerminalSession(id) { it.copy(busy = true).append("$ $command") }
+                interactiveTerminalSessionId = id
                 try {
                     withContext(Dispatchers.IO) { repo.termuxRuntime.refreshTermux() }
-                    val executableCommand = prepareTermuxCommand(command)
                     val exit = withContext(Dispatchers.IO) {
-                        repo.termuxRuntime.execTermux(executableCommand) { line -> updateTerminalSession(id) { it.append(line) } }
+                        repo.termuxRuntime.execTermux(command) { line -> updateTerminalSession(id) { it.append(line) } }
                     }
                     if (exit != 0) updateTerminalSession(id) { it.append(str(R.string.term_exit_code, exit)) }
                 } catch (e: Exception) {
                     updateTerminalSession(id) { it.append(str(R.string.term_exec_error, e.message)) }
                 } finally {
+                    interactiveTerminalSessionId = null
                     updateTerminalSession(id) { it.copy(busy = false) }
                 }
             }
         }
     }
 
-    /**
-     * Termux 会话命令不是交互式 PTY；对常见安装命令显式确认，避免 stdin=/dev/null
-     * 导致遇到 [Y/n] 后立即退出。普通命令原样执行，避免替用户确认危险操作。
-     */
-    private fun prepareTermuxCommand(command: String): String {
-        val trimmed = command.trim()
-        if (Regex("^(pkg|apt|apt-get)\\s+(install|upgrade|dist-upgrade|remove|autoremove)(\\s|$)", RegexOption.IGNORE_CASE).matches(trimmed) &&
-            !Regex("(^|\\s)(-y|--assume-yes)(\\s|$)").containsMatchIn(trimmed)
-        ) {
-            return "$trimmed -y"
+    /** 向当前 Termux 会话中的命令发送一行 stdin。 */
+    fun sendTerminalInput(id: String, input: String) {
+        if (input.isBlank() || interactiveTerminalSessionId != id) return
+        if (repo.termuxRuntime.sendTermuxInput(input)) {
+            updateTerminalSession(id) { it.append("> $input") }
         }
-        if (trimmed.startsWith("proot-distro install ", ignoreCase = true)) {
-            return "printf 'y\\n' | $trimmed"
-        }
-        return command
     }
 
     /** 清空指定终端会话的显示行（保留会话本身） */
@@ -260,7 +252,7 @@ class McViewModel(
                 }
                 appendTermux("$ " + command)
                 val exit = withContext(Dispatchers.IO) {
-                    repo.termuxRuntime.execTermux(prepareTermuxCommand(command)) { line ->
+                    repo.termuxRuntime.execTermux(command) { line ->
                         appendTermux(line)
                     }
                 }
@@ -598,6 +590,8 @@ class McViewModel(
     private var cachedResourceDir: String? = null
     private var cachedDirectoryBytes: Long? = null
     private var cachedDirectoryBytesAtMs = 0L
+    private var previousCpuTicks = 0L
+    private var previousTotalTicks = 0L
 
     /** Samples only values that belong to the selected server or its process. */
     private fun startServerResourceCollection() {
@@ -626,18 +620,37 @@ class McViewModel(
             }
             val running = repo.termuxRuntime.isMcRunning()
             val memory = repo.termuxRuntime.mcProcessMemoryMb().takeIf { running && it > 0L }
+            val cpu = readMcCpuPercent()
             _serverResources.value = ServerResourceStats(
                 processMemoryMb = memory,
+                cpuPercent = cpu,
                 availableBytes = available,
                 directoryBytes = directoryBytes,
                 javaAvailable = repo.termuxRuntime.isJavaInstalled(cfg.selectedJavaVersion),
                 sampledAtMs = now
             )
-            repo.updateServerState { it.copy(usedMemoryMb = memory ?: 0L) }
+            repo.updateServerState { it.copy(usedMemoryMb = memory ?: 0L, cpuPercent = cpu) }
         } catch (e: Exception) {
             // Keep the last known snapshot when Android or PRoot denies a probe.
         }
     }
+
+    /** Linux procfs 轻量采样，复用现有资源轮询，不新增线程或依赖。 */
+    private fun readMcCpuPercent(): Int? = runCatching {
+        val processTicks = repo.termuxRuntime.mcProcessCpuTicks() ?: return null
+        val totalTicks = File("/proc/stat").useLines { lines ->
+            lines.firstOrNull { it.startsWith("cpu ") }
+                ?.trim()?.split(Regex("\\s+"))?.drop(1)?.sumOf { it.toLong() } ?: 0L
+        }
+        val percent = if (previousTotalTicks > 0L && totalTicks > previousTotalTicks) {
+            ((processTicks - previousCpuTicks).toDouble() /
+                (totalTicks - previousTotalTicks) * 100.0 * Runtime.getRuntime().availableProcessors())
+                .toInt().coerceIn(0, 100)
+        } else null
+        previousCpuTicks = processTicks
+        previousTotalTicks = totalTicks
+        percent
+    }.getOrNull()
 
     private val _diagnosticReport = MutableStateFlow(DiagnosticReport())
     val diagnosticReport: StateFlow<DiagnosticReport> = _diagnosticReport.asStateFlow()
@@ -1069,6 +1082,8 @@ class McViewModel(
     fun setAutoRestart(v: Boolean) = updateConfig { it.copy(autoRestartOnCrash = v) }
     fun setKeepWifiLock(v: Boolean) = updateConfig { it.copy(keepWifiLock = v) }
     fun setKeepCpuWakelock(v: Boolean) = updateConfig { it.copy(keepCpuWakelock = v) }
+    fun setKeepScreenOnWhileRunning(v: Boolean) = updateConfig { it.copy(keepScreenOnWhileRunning = v) }
+    fun setKeepStatusOverlay(v: Boolean) = updateConfig { it.copy(keepStatusOverlay = v) }
     fun setAptMirror(mirror: com.mineserve.mobile.data.AptMirror) =
         viewModelScope.launch {
             val effective = if (mirror == com.mineserve.mobile.data.AptMirror.Official) {
@@ -1134,9 +1149,9 @@ class McViewModel(
                 lastJavaCompatibilityWarning = null
                 val current = config.value
                 val startConfig = current
+                _messageFlow.tryEmit(str(R.string.s196))
                 controller.start(startConfig)
                 startKeepAliveService()
-                _messageFlow.tryEmit(str(R.string.s196))
             } catch (e: Exception) {
                 repo.termuxRuntime.emitLog("[startMc] 启动失败: ${e.message}")
                 showStartupFailureReport(e)
@@ -2184,9 +2199,10 @@ class McViewModel(
     suspend fun proposeImportName(kind: String, uri: android.net.Uri): String? = withContext(Dispatchers.IO) {
         runCatching {
             when (kind) {
-                "folder" -> serverImporter.proposeFolderName(uri)
-                "jar" -> serverImporter.proposeJarName(uri)
-                else -> serverImporter.proposeArchiveName(uri)
+            "folder" -> serverImporter.proposeFolderName(uri)
+            "jar" -> serverImporter.proposeJarName(uri)
+            "modpack" -> serverImporter.proposeArchiveName(uri)
+            else -> serverImporter.proposeArchiveName(uri)
             }
         }.getOrNull()
     }
@@ -2435,7 +2451,15 @@ class McViewModel(
         val sessionEnd: Long? = null,
         val interrupted: Boolean = false
     )
-    data class PlayerActivitySummary(val player: String, val sessions: Int, val totalSeconds: Long, val active: Boolean)
+    data class PlayerActivitySummary(
+        val player: String,
+        val sessions: Int,
+        val totalSeconds: Long,
+        val active: Boolean,
+        val lastJoinTime: String? = null,
+        val lastLeaveTime: String? = null,
+        val lastExitReason: String? = null
+    )
 
     private val _playerHistory: MutableStateFlow<List<PlayerHistoryEntry>> by lazy { MutableStateFlow(emptyList()) }
     val playerHistory: StateFlow<List<PlayerHistoryEntry>> by lazy { _playerHistory.asStateFlow() }
@@ -2506,7 +2530,19 @@ class McViewModel(
         val entries = _playerHistory.value
         return entries.groupBy { it.player }.map { (player, rows) ->
             val seconds = rows.filter { it.event == "离服" && !it.interrupted }.sumOf { ((it.sessionEnd ?: 0L) - (it.sessionStart ?: 0L)).coerceAtLeast(0L) / 1000 }
-            PlayerActivitySummary(player, rows.count { it.event == "离服" }, seconds, rows.any { it.event == "进服" && it.sessionEnd == null })
+            val lastJoin = rows.filter { it.event == "进服" }.maxByOrNull { it.time }
+            val lastLeave = rows.filter { it.event == "离服" }.maxByOrNull { it.time }
+            PlayerActivitySummary(
+                player = player,
+                sessions = rows.count { it.event == "离服" },
+                totalSeconds = seconds,
+                active = rows.any { it.event == "进服" && it.sessionEnd == null },
+                lastJoinTime = lastJoin?.time,
+                lastLeaveTime = lastLeave?.time,
+                lastExitReason = lastLeave?.let {
+                    if (it.interrupted) "服务停止或应用重启导致中断" else "日志未提供退出原因"
+                }
+            )
         }.sortedByDescending { it.totalSeconds }
     }
 
@@ -2741,7 +2777,9 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 _crashReports.value = withContext(Dispatchers.IO) {
-                    val native = activeDirName()?.let { crashReportManager.listNativeCrashReports(it) }.orEmpty()
+                    val native = config.value.installedCores.flatMap { core ->
+                        crashReportManager.listNativeCrashReports(core.dirName)
+                    }
                     (crashReportManager.listCrashReports() + native).sortedByDescending { it.createdTime }
                 }
             } catch (e: Exception) {
@@ -2873,6 +2911,7 @@ class McViewModel(
     /** 可用版本列表（从 API 获取，供 DownloadScreen 选择） */
     private val _availableVersions = MutableStateFlow<List<String>>(emptyList())
     val availableVersions: StateFlow<List<String>> = _availableVersions.asStateFlow()
+    private var versionsLoadToken = 0L
     private val _versionHints = MutableStateFlow<Map<String, String?>>(emptyMap())
     val versionHints: StateFlow<Map<String, String?>> = _versionHints.asStateFlow()
 
@@ -2930,10 +2969,14 @@ class McViewModel(
 
     /** 加载指定核心的可用版本列表 */
     fun loadVersions(core: ServerCore) {
+        val token = ++versionsLoadToken
+        _availableVersions.value = emptyList()
+        _versionHints.value = emptyMap()
+        _isLoadingVersions.value = true
         viewModelScope.launch {
-            _isLoadingVersions.value = true
             try {
                 val options = controller.fetchVersionOptions(core)
+                if (token != versionsLoadToken) return@launch
                 val versions = options.map { it.version }
                 _availableVersions.value = versions
                 _versionHints.value = options.associate { it.version to it.supportedGameVersion }
@@ -2942,11 +2985,12 @@ class McViewModel(
                     updateConfig { it.copy(mcVersion = versions.first()) }
                 }
             } catch (e: Exception) {
+                if (token != versionsLoadToken) return@launch
                 _errorFlow.tryEmit(str(R.string.s294, e.message))
                 _availableVersions.value = emptyList()
                 _versionHints.value = emptyMap()
             } finally {
-                _isLoadingVersions.value = false
+                if (token == versionsLoadToken) _isLoadingVersions.value = false
             }
         }
     }
@@ -3345,24 +3389,6 @@ class McViewModel(
     fun setKeepAliveEnabled(v: Boolean) {
         metaPrefs().edit().putBoolean(BootReceiver.KEY_KEEP_ALIVE, v).apply()
         if (v) scheduleKeepAlive() else cancelKeepAlive()
-    }
-
-    /** 一像素保活开关状态 */
-    fun isPixelKeepAlive(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_PIXEL, false)
-
-    /** 设置一像素保活：开启时启动 1px 透明 Activity 常驻，关闭时发送销毁广播 */
-    fun setPixelKeepAlive(v: Boolean) {
-        metaPrefs().edit().putBoolean(BootReceiver.KEY_PIXEL, v).apply()
-        val app = McApplication.get()
-        if (v) {
-            try {
-                val intent = android.content.Intent(app, KeepAlivePixelActivity::class.java)
-                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                app.startActivity(intent)
-            } catch (_: Exception) {}
-        } else {
-            KeepAlivePixelActivity.stop(app)
-        }
     }
 
     /** 拉起前台保活服务 */

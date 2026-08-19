@@ -1,5 +1,7 @@
 # 依赖升级说明（2024-12 批次）
 
+> 历史升级记录，不代表当前依赖、SDK 或构建要求。当前使用说明见 [README](../README.zh-CN.md) 与 [CHANGELOG](../CHANGELOG.md)。
+
 本批次在 `libs.versions.toml` 中升级了以下依赖（保守选择：同主版本内的 patch/minor，或已被广泛验证的稳定版）：
 
 | 依赖 | 原版本 | 新版本 | 说明 |

@@ -45,6 +45,18 @@ internal fun selectNeoForgeVersion(minecraftVersion: String, versions: List<Stri
         })
 }
 
+/** Resolve the actual PNX entry point instead of assuming every release is legacy Nukkit. */
+internal fun powerNukkitXMainClass(jarFile: File): String? = runCatching {
+    JarFile(jarFile).use { jar ->
+        listOf(
+            "org/powernukkitx/Server.class" to "org.powernukkitx.Server",
+            "org/powernukkitx/JarStart.class" to "org.powernukkitx.JarStart",
+            "cn/nukkit/Nukkit.class" to "cn.nukkit.Nukkit",
+            "cn/nukkit/JarStart.class" to "cn.nukkit.JarStart"
+        ).firstOrNull { (entry, _) -> jar.getEntry(entry) != null }?.second
+    }
+}.getOrNull()
+
 /**
  * MC 服务控制器（生产化）：
  *  - 一键安装依赖（JDK/tmux/wget 等）
@@ -1051,8 +1063,12 @@ class McServerController(
                 if (launchJar.exists()) "-jar ${launchJar.absolutePath}"
                 else throw RuntimeException("Quilt 启动文件缺失，请重新下载安装核心")
             }
-            ServerCore.PowerNukkitX ->
-                "--add-opens=java.base/java.lang=ALL-UNNAMED -cp '${File(jarPath).absolutePath}:${File(serverDir, "libs").absolutePath}/*' cn.nukkit.Nukkit --language=chs"
+            ServerCore.PowerNukkitX -> {
+                val mainClass = powerNukkitXMainClass(File(jarPath))
+                    ?: throw RuntimeException("PowerNukkitX 核心缺少可识别的启动入口（org.powernukkitx.Server/cn.nukkit.Nukkit），请重新下载")
+                val languageArg = if (mainClass == "cn.nukkit.Nukkit") " --language=chs" else ""
+                "--add-opens=java.base/java.lang=ALL-UNNAMED -cp '${File(jarPath).absolutePath}:${File(serverDir, "libs").absolutePath}/*' $mainClass$languageArg"
+            }
             else -> null
         }
         startupDeadlineMs = System.currentTimeMillis() + 20_000L

@@ -8,20 +8,31 @@ import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.contentOrNull
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
+import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
+import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
+import java.security.MessageDigest
 import java.util.jar.JarFile
 import java.util.zip.ZipInputStream
+import java.util.zip.ZipFile
 
 /**
  * 服务器导入器：
@@ -234,10 +245,18 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             val dirName = uniqueDirName(McServerController.sanitizeDirName(displayName))
             val target = File(termux.serversDir, dirName)
             extractArchive(temp, format, target, stripPrefix, onProgress, entryNames.size.toLong())
+            val modpackHint = if (format == ArchiveFormat.ZIP && hasModrinthManifest(temp)) {
+                installModrinthPack(temp, target, onProgress)
+            } else null
 
             val detection = ServerCoreDetector.detect(target)
             ensureEula(target)
-            ImportedServer(dirName, displayName, detection.core, detection.version)
+            ImportedServer(
+                dirName,
+                displayName,
+                detection.core ?: modpackHint?.first,
+                detection.version ?: modpackHint?.second
+            )
         } finally {
             temp.delete()
         }
@@ -299,6 +318,98 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
         }
     }
 
+    /** Minimal Modrinth .mrpack support: download server files and apply overrides. */
+    private fun installModrinthPack(
+        archiveFile: File,
+        target: File,
+        onProgress: (Long, Long) -> Unit
+    ): Pair<ServerCore?, String?>? {
+        val json = Json { ignoreUnknownKeys = true }
+        ZipFile(archiveFile).use { zip ->
+            val manifestEntry = zip.getEntry("modrinth.index.json") ?: return null
+            val root = json.parseToJsonElement(zip.getInputStream(manifestEntry).bufferedReader().use { it.readText() }).jsonObject
+            val deps = root["dependencies"]?.jsonObject ?: emptyMap()
+            val mcVersion = deps["minecraft"]?.jsonPrimitive?.contentOrNull
+            val loader = deps.keys.firstOrNull { it in setOf("fabric-loader", "forge", "neoforge", "quilt-loader") }
+            val core = when (loader) {
+                "fabric-loader" -> ServerCore.Fabric
+                "forge" -> ServerCore.Forge
+                "neoforge" -> ServerCore.NeoForge
+                "quilt-loader" -> ServerCore.Quilt
+                else -> null
+            }
+            val fileArray = root["files"]?.jsonArray ?: emptyList()
+            var done = 0L
+            val total = fileArray.size.toLong()
+            for (item in fileArray) {
+                val obj = item.jsonObject
+                val env = obj["env"]?.jsonObject
+                if (env?.get("server")?.jsonPrimitive?.contentOrNull == "unsupported") continue
+                val rel = safeImportedPath(obj["path"]?.jsonPrimitive?.contentOrNull ?: continue)
+                val urls = obj["downloads"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull }.orEmpty()
+                val sha1 = obj["hashes"]?.jsonObject?.get("sha1")?.jsonPrimitive?.contentOrNull
+                if (urls.isNotEmpty()) downloadPackFile(urls, File(target, rel), sha1)
+                done++
+                onProgress(done, total)
+            }
+            val overridePrefixes = listOf("overrides/", "server-overrides/")
+            for (entry in zip.entries()) {
+                if (entry.isDirectory) continue
+                val prefix = overridePrefixes.firstOrNull { entry.name.startsWith(it) } ?: continue
+                val rel = safeImportedPath(entry.name.removePrefix(prefix))
+                val out = File(target, rel)
+                out.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input -> out.outputStream().use { output -> input.copyTo(output) } }
+            }
+            File(target, "overrides").deleteRecursively()
+            File(target, "server-overrides").deleteRecursively()
+            File(target, "client-overrides").deleteRecursively()
+            File(target, "modrinth.index.json").delete()
+            return core to mcVersion
+        }
+    }
+
+    private fun hasModrinthManifest(file: File): Boolean = runCatching {
+        ZipFile(file).use { it.getEntry("modrinth.index.json") != null }
+    }.getOrDefault(false)
+
+    private fun safeImportedPath(path: String): String {
+        val normalized = path.replace('\\', '/').trimStart('/')
+        require(normalized.isNotEmpty() && normalized != "." && !normalized.split('/').contains("..") && !normalized.contains(':')) {
+            "整合包包含非法路径: $path"
+        }
+        return normalized
+    }
+
+    private fun downloadPackFile(urls: List<String>, target: File, expectedSha1: String?) {
+        target.parentFile?.mkdirs()
+        var last: Exception? = null
+        for (url in urls) {
+            try {
+                val conn = (URL(url).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 15_000
+                    readTimeout = 60_000
+                    setRequestProperty("User-Agent", "MineServeMobile/1.1")
+                }
+                conn.connect()
+                if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
+                conn.inputStream.use { input -> target.outputStream().use { output -> input.copyTo(output) } }
+                conn.disconnect()
+                if (expectedSha1 != null && sha1(target) != expectedSha1.lowercase(Locale.US)) {
+                    target.delete()
+                    throw IOException("整合包文件校验失败: ${target.name}")
+                }
+                return
+            } catch (e: Exception) {
+                last = e
+            }
+        }
+        throw IOException("整合包文件下载失败: ${target.name}", last)
+    }
+
+    private fun sha1(file: File): String = MessageDigest.getInstance("SHA-1").digest(file.readBytes())
+        .joinToString("") { "%02x".format(it) }
+
     /** 查询所选文件的原始文件名 */
     private fun queryDisplayName(uri: Uri): String? =
         context.contentResolver.query(
@@ -312,7 +423,7 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
     }
 
     /** 压缩包格式 */
-    private enum class ArchiveFormat { ZIP, TAR, TAR_GZ, TAR_XZ, TAR_BZ2, SEVEN_Z }
+    private enum class ArchiveFormat { ZIP, TAR, TAR_GZ, TAR_XZ, TAR_BZ2, TAR_ZST, TAR_LZ4, SEVEN_Z }
 
     /** 按扩展名判断格式，未知扩展名时嗅探文件头 */
     private fun detectFormat(file: File, fileName: String): ArchiveFormat {
@@ -322,6 +433,8 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             lower.endsWith(".tar.gz") || lower.endsWith(".tgz") -> ArchiveFormat.TAR_GZ
             lower.endsWith(".tar.xz") || lower.endsWith(".txz") -> ArchiveFormat.TAR_XZ
             lower.endsWith(".tar.bz2") || lower.endsWith(".tbz2") -> ArchiveFormat.TAR_BZ2
+            lower.endsWith(".tar.zst") || lower.endsWith(".tzst") -> ArchiveFormat.TAR_ZST
+            lower.endsWith(".tar.lz4") -> ArchiveFormat.TAR_LZ4
             lower.endsWith(".tar") -> ArchiveFormat.TAR
             lower.endsWith(".7z") -> ArchiveFormat.SEVEN_Z
             else -> sniffFormat(file) ?: ArchiveFormat.ZIP
@@ -341,6 +454,10 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
                 magic[2] == 'h'.code.toByte() -> ArchiveFormat.TAR_BZ2
             magic[0] == 0xfd.toByte() && magic[1] == 0x37.toByte() &&
                 magic[2] == 0x7a.toByte() -> ArchiveFormat.TAR_XZ
+            magic[0] == 0x28.toByte() && magic[1] == 0xb5.toByte() &&
+                magic[2] == 0x2f.toByte() && magic[3] == 0xfd.toByte() -> ArchiveFormat.TAR_ZST
+            magic[0] == 0x04.toByte() && magic[1] == 0x22.toByte() &&
+                magic[2] == 0x4d.toByte() && magic[3] == 0x18.toByte() -> ArchiveFormat.TAR_LZ4
             magic[0] == 0x37.toByte() && magic[1] == 0x7a.toByte() &&
                 magic[2] == 0xbc.toByte() -> ArchiveFormat.SEVEN_Z
             else -> {
@@ -372,7 +489,8 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
                     }
                 }
             }
-            ArchiveFormat.TAR, ArchiveFormat.TAR_GZ, ArchiveFormat.TAR_XZ, ArchiveFormat.TAR_BZ2 -> {
+            ArchiveFormat.TAR, ArchiveFormat.TAR_GZ, ArchiveFormat.TAR_XZ, ArchiveFormat.TAR_BZ2,
+            ArchiveFormat.TAR_ZST, ArchiveFormat.TAR_LZ4 -> {
                 openTar(file, format).use { tar ->
                     var entry = tar.nextTarEntry
                     while (entry != null) {
@@ -424,7 +542,8 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
         val counter = ProgressCounter(onProgress, total)
         when (format) {
             ArchiveFormat.ZIP -> extractZip(file, dest, stripPrefix, counter)
-            ArchiveFormat.TAR, ArchiveFormat.TAR_GZ, ArchiveFormat.TAR_XZ, ArchiveFormat.TAR_BZ2 ->
+            ArchiveFormat.TAR, ArchiveFormat.TAR_GZ, ArchiveFormat.TAR_XZ, ArchiveFormat.TAR_BZ2,
+            ArchiveFormat.TAR_ZST, ArchiveFormat.TAR_LZ4 ->
                 extractTar(file, format, dest, stripPrefix, counter)
             ArchiveFormat.SEVEN_Z -> extractSevenZ(file, dest, stripPrefix, counter)
         }
@@ -449,6 +568,8 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             ArchiveFormat.TAR_GZ -> TarArchiveInputStream(GzipCompressorInputStream(buffered))
             ArchiveFormat.TAR_XZ -> TarArchiveInputStream(XZCompressorInputStream(buffered))
             ArchiveFormat.TAR_BZ2 -> TarArchiveInputStream(BZip2CompressorInputStream(buffered))
+            ArchiveFormat.TAR_ZST -> TarArchiveInputStream(ZstdCompressorInputStream(buffered))
+            ArchiveFormat.TAR_LZ4 -> TarArchiveInputStream(FramedLZ4CompressorInputStream(buffered))
             else -> throw IOException("不是 tar 格式")
         }
     }

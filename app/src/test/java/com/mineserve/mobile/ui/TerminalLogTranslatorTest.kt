@@ -54,7 +54,7 @@ class TerminalLogTranslatorTest {
 
     @Test
     fun leavesUnrelatedLinesUntouched() {
-        val line = "[Server thread/INFO]: Loading properties"
+        val line = "[Server thread/INFO]: Custom extension diagnostic"
         assertEquals(line, TerminalLogTranslator.translate(line))
     }
 
