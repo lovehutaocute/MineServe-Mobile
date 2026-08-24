@@ -73,7 +73,8 @@ jobs:
 
   release:
     name: Release (tag)
-    if: startsWith(github.ref, 'refs/tags/')
+    # Release APK is published from the maintainer machine so it keeps the original signing key.
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -116,8 +117,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: MineServe Mobile 1.2.1
-          body_path: RELEASE_NOTES_1.2.1.md
+          name: MineServe Mobile 1.2.2
+          body_path: RELEASE_NOTES_1.2.2.md
           fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/release/*.apk

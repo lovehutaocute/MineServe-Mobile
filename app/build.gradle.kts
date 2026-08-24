@@ -5,6 +5,13 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+composeCompiler {
+    if (providers.gradleProperty("composeCompilerReports").orNull == "true") {
+        reportsDestination = layout.buildDirectory.dir("compose_compiler")
+        metricsDestination = layout.buildDirectory.dir("compose_compiler")
+    }
+}
+
 // 正式包名（影响 APK 输出文件名）
 base {
     archivesName.set("MineServeMobile")
@@ -18,8 +25,8 @@ android {
         applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
-        versionCode = 36
-        versionName = "1.2.1"
+        versionCode = 37
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -95,6 +102,7 @@ dependencies {
     implementation(libs.xz)
     implementation(libs.commons.compress)
     implementation(libs.zstd.jni)
+    implementation(libs.kotlinx.collections.immutable)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test.junit)

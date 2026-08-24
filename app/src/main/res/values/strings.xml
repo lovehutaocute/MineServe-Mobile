@@ -1143,6 +1143,7 @@
     <string name="hero_online">在线</string>
     <string name="hero_memory">内存</string>
     <string name="hero_uptime">运行时长</string>
+    <string name="hero_online_mode_warning">正版验证未关闭，离线玩家无法进入</string>
     <string name="s1061">版本</string>
     <string name="s1062">暂无版本</string>
     <string name="s1063" formatted="false">所选版本 %1$s 与当前服务器版本 %2$s 不匹配，可能无法加载</string>

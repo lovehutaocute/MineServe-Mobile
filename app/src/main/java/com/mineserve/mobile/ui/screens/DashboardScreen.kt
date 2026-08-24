@@ -104,6 +104,7 @@ fun DashboardScreen(
 ) {
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
+    val serverProperties by vm.serverProperties.collectAsState()
     val resources by vm.serverResources.collectAsState()
     val diagnosticReport by vm.diagnosticReport.collectAsState()
     val isDiagnosing by vm.isDiagnosing.collectAsState()
@@ -176,6 +177,9 @@ fun DashboardScreen(
         vm.refreshJava()
         vm.refreshDependencies()
     }
+    LaunchedEffect(isBootstrapped, config.activeCoreName, state.isRunning) {
+        if (isBootstrapped) vm.loadServerProperties()
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -192,7 +196,15 @@ fun DashboardScreen(
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
                 ?: "${config.selectedCore.displayName} ${config.mcVersion}"
-            HeroBlock(state = state, coreLabel = coreLabel, cpuPercent = resources.cpuPercent)
+            val onlineModeEnabled = serverProperties["online-mode"]
+                ?.trim()
+                ?.equals("true", ignoreCase = true) == true
+            HeroBlock(
+                state = state,
+                coreLabel = coreLabel,
+                cpuPercent = resources.cpuPercent,
+                onlineModeEnabled = onlineModeEnabled
+            )
             if (!javaCardAtBottom) {
                 JavaManagementCard(
                     vm = vm,

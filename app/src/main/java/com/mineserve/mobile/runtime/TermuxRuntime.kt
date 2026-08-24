@@ -1955,7 +1955,7 @@ class TermuxRuntime(context: Context) {
         emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
         emitLog("[startMc] 正在启动 Java 8 服务端...")
         mcProcess = process
-        mcPid = findMcChildPid()
+        mcPid = processPid(process) ?: findMcChildPid()
         mcStdin = process.outputStream
         Thread({
             try {
@@ -2071,7 +2071,7 @@ class TermuxRuntime(context: Context) {
         }
         val process = pb.start()
         mcProcess = process
-        mcPid = findMcChildPid()
+        mcPid = processPid(process) ?: findMcChildPid()
         mcStdin = process.outputStream
 
         // 后台线程读取 stdout，推送到 consoleFlow 并写入日志文件
@@ -2206,11 +2206,14 @@ class TermuxRuntime(context: Context) {
         if (user != null && system != null) user + system else null
     }
 
-    /** Read the launched child process instead of trying to identify a Java process globally. */
+    /** Read the launched Java process, which may be several layers below shell/proot. */
     private fun processStat(process: Process?): List<String>? {
         if (process?.isAlive != true) return null
         return try {
-            val pid = mcPid ?: findMcChildPid()?.also { mcPid = it } ?: return null
+            val rootPid = mcPid ?: processPid(process)?.also { mcPid = it }
+                ?: findMcChildPid()?.also { mcPid = it } ?: return null
+            val pid = findServerPid(rootPid) ?: rootPid
+            mcPid = pid
             val stat = File("/proc/$pid/stat").readText()
             val end = stat.lastIndexOf(')')
             if (end < 0) null else stat.substring(end + 1).trim().split(Regex("\\s+"))
@@ -2218,6 +2221,40 @@ class TermuxRuntime(context: Context) {
             null
         }
     }
+
+    private data class ProcEntry(val pid: Int, val parentPid: Int, val comm: String, val cmdline: String)
+
+    private fun processPid(process: Process): Int? = runCatching {
+        (process.javaClass.getMethod("pid").invoke(process) as? Long)?.toInt()
+    }.getOrNull()
+
+    /** Finds the Java descendant instead of measuring the shell or proot wrapper. */
+    private fun findServerPid(rootPid: Int): Int? = runCatching {
+        val entries = File("/proc").listFiles().orEmpty().mapNotNull { dir ->
+            if (!dir.name.all(Char::isDigit)) return@mapNotNull null
+            val raw = File(dir, "stat").takeIf { it.isFile }?.readText() ?: return@mapNotNull null
+            val open = raw.indexOf('(')
+            val close = raw.lastIndexOf(')')
+            if (open < 0 || close <= open) return@mapNotNull null
+            val fields = raw.substring(close + 1).trim().split(Regex("\\s+"))
+            val pid = dir.name.toIntOrNull() ?: return@mapNotNull null
+            val parent = fields.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            ProcEntry(pid, parent, raw.substring(open + 1, close), File(dir, "cmdline").readText())
+        }
+        val byPid = entries.associateBy { it.pid }
+        fun isDescendant(pid: Int): Boolean {
+            var current = byPid[pid]?.parentPid
+            repeat(32) {
+                if (current == rootPid) return true
+                current = byPid[current]?.parentPid
+            }
+            return false
+        }
+        entries.filter { it.pid == rootPid || isDescendant(it.pid) }
+            .filter { it.comm == "java" || it.cmdline.substringBefore('\u0000').substringAfterLast('/') == "java" }
+            .maxByOrNull { if (it.cmdline.contains(".jar") || it.cmdline.contains(installer.rootDir.absolutePath)) 2 else 1 }
+            ?.pid
+    }.getOrNull()
 
     /** Android exposes our app's child relationship in procfs even though Process.pid() is absent. */
     private fun findMcChildPid(): Int? = try {

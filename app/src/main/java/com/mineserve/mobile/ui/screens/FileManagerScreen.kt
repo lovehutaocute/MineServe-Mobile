@@ -306,7 +306,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    items(files, key = { it.path }) { entry ->
+                    items(files, key = { it.path }, contentType = { "file-entry" }) { entry ->
                         FileItemRow(
                             entry = entry,
                             onClick = {

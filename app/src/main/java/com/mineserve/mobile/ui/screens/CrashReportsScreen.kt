@@ -45,7 +45,7 @@ fun CrashReportsScreen(vm: McViewModel, onBack: () -> Unit) {
         }
         if (reports.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.crash_empty), color = Muted) }
         else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(reports, key = { it.path }) { report ->
+            items(reports, key = { it.path }, contentType = { "crash-report" }) { report ->
                 val label = remember(report.preview) { CrashReportAnalyzer.analyze(report.preview).primaryLabel }
                 ListItem(headlineContent = { Text(report.fileName, maxLines = 1) }, supportingContent = { Text("$label | ${report.createdText} | ${report.sizeText}", fontSize = 11.sp) }, leadingContent = { Icon(Icons.Outlined.Warning, null, tint = Coral) }, modifier = Modifier.clickable { vm.readCrashReport(report.fileName) })
                 HorizontalDivider()

@@ -45,7 +45,7 @@ fun MoreScreen(onNetwork: () -> Unit, onBackup: () -> Unit, onDiagnostics: () ->
     Column(Modifier.fillMaxSize()) {
         HeaderBlock("MORE", "更多功能")
         LazyVerticalGrid(columns = GridCells.Fixed(2), modifier = Modifier.fillMaxSize().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            items(entries) { entry ->
+            items(entries, key = { it.title }, contentType = { "more-entry" }) { entry ->
                 Card(onClick = entry.onClick, modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors()) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Icon(entry.icon, null, tint = Indigo, modifier = Modifier.size(26.dp))

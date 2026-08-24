@@ -240,7 +240,11 @@ fun TerminalScreen(vm: McViewModel) {
         }
         SelectionContainer {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                itemsIndexed(renderedLines, key = { _, line -> line.id }) { _, line ->
+                itemsIndexed(
+                    renderedLines,
+                    key = { _, line -> line.id },
+                    contentType = { _, _ -> "terminal-log" }
+                ) { _, line ->
                     val color = terminalLogColor(line.tone)
                     Text(
                         line.text,

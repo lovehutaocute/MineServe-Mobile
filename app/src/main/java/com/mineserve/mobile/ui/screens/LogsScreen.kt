@@ -226,7 +226,11 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxSize().padding(8.dp),
                     verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    itemsIndexed(displayLines, key = { index, _ -> index }) { _, (text, color) ->
+                    itemsIndexed(
+                        displayLines,
+                        key = { index, _ -> index },
+                        contentType = { _, _ -> "console-log" }
+                    ) { _, (text, color) ->
                         Text(
                             text,
                             color = color, fontSize = 10.sp, fontFamily = FontFamily.Monospace
@@ -303,7 +307,11 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
                             modifier = Modifier.fillMaxSize().padding(6.dp),
                             verticalArrangement = Arrangement.spacedBy(2.dp)
                         ) {
-                            itemsIndexed(termuxLines) { _, line ->
+                            itemsIndexed(
+                                termuxLines,
+                                key = { index, _ -> index },
+                                contentType = { _, _ -> "termux-log" }
+                            ) { _, line ->
                                 Text(
                                     line,
                                     color = if (line.startsWith("$ ")) Color(0xFFA6E3A1) else Color(0xFFCDD6F4),

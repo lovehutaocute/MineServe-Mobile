@@ -144,7 +144,12 @@ fun EmptyHint(icon: ImageVector, text: String, modifier: Modifier = Modifier) {
  * Hero 卡片：渐变背景 + 状态行 + 紧凑指标行（TPS / 在线 / 进程内存 / 运行时长）
  */
 @Composable
-fun HeroBlock(state: ServerState, coreLabel: String, cpuPercent: Int? = null) {
+fun HeroBlock(
+    state: ServerState,
+    coreLabel: String,
+    cpuPercent: Int? = null,
+    onlineModeEnabled: Boolean = false
+) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -207,6 +212,14 @@ fun HeroBlock(state: ServerState, coreLabel: String, cpuPercent: Int? = null) {
                     stringResource(R.string.hero_uptime)
                 )
                 HeroStat(cpuPercent?.let { "$it%" } ?: "--", "CPU")
+            }
+            if (onlineModeEnabled) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    stringResource(R.string.hero_online_mode_warning),
+                    color = Color(0xFFFF8A80),
+                    fontSize = 10.sp
+                )
             }
             // 启动中提示：适配启动耗时较长的场景
             if (isStarting) {

@@ -12,6 +12,7 @@ workManager = "2.10.0"
 xz = "1.10"
 commonsCompress = "1.27.1"
 zstdJni = "1.5.6-9"
+immutableCollections = "0.3.8"
 junit = "4.13.2"
 kotlinTest = "2.0.21"
 
@@ -35,6 +36,7 @@ kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
+kotlinx-collections-immutable = { group = "org.jetbrains.kotlinx", name = "kotlinx-collections-immutable", version.ref = "immutableCollections" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlin-test-junit = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit", version.ref = "kotlinTest" }
 

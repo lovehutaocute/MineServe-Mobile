@@ -1142,6 +1142,7 @@
     <string name="hero_online">Online</string>
     <string name="hero_memory">Memory</string>
     <string name="hero_uptime">Uptime</string>
+    <string name="hero_online_mode_warning">Online authentication is enabled; offline players cannot join.</string>
     <string name="s1061">Version</string>
     <string name="s1062">No versions</string>
     <string name="s1063" formatted="false">Selected version %1$s does not match current server version %2$s, may fail to load</string>
@@ -1198,4 +1199,3 @@
     <string name="termux_busy">Running…</string>
     <string name="termux_placeholder">Type a command to start</string>
 </resources>
-

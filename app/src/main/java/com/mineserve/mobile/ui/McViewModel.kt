@@ -57,6 +57,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -234,7 +235,7 @@ class McViewModel(
     /** 清空指定终端会话的显示行（保留会话本身） */
     fun clearTerminalSession(id: String) {
         synchronized(terminalOutputBuffers) { terminalOutputBuffers.remove(id) }
-        updateTerminalSession(id) { it.copy(lines = emptyList()) }
+        updateTerminalSession(id) { it.copy(lines = kotlinx.collections.immutable.persistentListOf()) }
     }
 
     /** 清空 MC 控制台缓冲 */
@@ -666,7 +667,11 @@ class McViewModel(
                 cachedDirectoryBytes
             }
             val memory = repo.termuxRuntime.mcProcessMemoryMb().takeIf { running && it > 0L }
-            val cpu = readMcCpuPercent()
+            val cpu = if (running) readMcCpuPercent() else {
+                previousCpuTicks = 0L
+                previousTotalTicks = 0L
+                null
+            }
             _serverResources.value = ServerResourceStats(
                 processMemoryMb = memory,
                 cpuPercent = cpu,
@@ -688,7 +693,7 @@ class McViewModel(
             lines.firstOrNull { it.startsWith("cpu ") }
                 ?.trim()?.split(Regex("\\s+"))?.drop(1)?.sumOf { it.toLong() } ?: 0L
         }
-        val percent = if (previousTotalTicks > 0L && totalTicks > previousTotalTicks) {
+        val percent = if (previousTotalTicks > 0L && totalTicks > previousTotalTicks && processTicks >= previousCpuTicks) {
             ((processTicks - previousCpuTicks).toDouble() /
                 (totalTicks - previousTotalTicks) * 100.0 * Runtime.getRuntime().availableProcessors())
                 .toInt().coerceIn(0, 100)
@@ -3476,7 +3481,7 @@ class McViewModel(
                 batch.forEach { (id, lines) ->
                     updateTerminalSession(id) { session ->
                         val additions = lines.map { TerminalLogProcessor.process(it, false) }
-                        session.copy(lines = (session.lines + additions).takeLast(MAX_LOG_LINES))
+                        session.copy(lines = (session.lines + additions).takeLast(MAX_LOG_LINES).toImmutableList())
                     }
                 }
             }
