@@ -49,7 +49,9 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
         val dirName: String,
         val displayName: String,
         val core: ServerCore?,
-        val version: String?
+        val version: String?,
+        /** 导入目录中检测到的真实入口；没有入口时保持为空，绝不伪造 server.jar。 */
+        val serverFile: String? = null
     )
 
     // ── 文件夹导入（SAF tree） ─────────────────────────────────────
@@ -75,11 +77,12 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
         val dirName = uniqueDirName(McServerController.sanitizeDirName(displayName))
         val target = File(termux.serversDir, dirName)
         val totalFiles = countTreeFiles(treeUri, rootDocId)
-        walkTreeCopy(treeUri, rootDocId, target, onProgress, totalFiles)
-
-        val detection = ServerCoreDetector.detect(target)
-        ensureEula(target)
-        ImportedServer(dirName, displayName, detection.core, detection.version)
+        importInto(target) {
+            walkTreeCopy(treeUri, rootDocId, target, onProgress, totalFiles)
+            val detection = ServerCoreDetector.detect(target)
+            ensureEula(target)
+            ImportedServer(dirName, displayName, detection.core, detection.version, detection.serverFile)
+        }
     }
 
     /** 解析服务器根目录：所选文件夹本身 / 唯一像服务器的子目录 / 原样 */
@@ -132,7 +135,7 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
         fun copyRecursive(uri: Uri, id: String, dest: File) {
             dest.mkdirs()
             listTreeChildren(uri, id).forEach { child ->
-                val d = File(dest, child.name)
+                val d = safeChild(dest, child.name)
                 if (child.isDir) {
                     copyRecursive(uri, child.docId, d)
                 } else {
@@ -244,19 +247,22 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             val displayName = requestedName?.takeIf { it.isNotBlank() } ?: autoName
             val dirName = uniqueDirName(McServerController.sanitizeDirName(displayName))
             val target = File(termux.serversDir, dirName)
-            extractArchive(temp, format, target, stripPrefix, onProgress, entryNames.size.toLong())
-            val modpackHint = if (format == ArchiveFormat.ZIP && hasModrinthManifest(temp)) {
-                installModrinthPack(temp, target, onProgress)
-            } else null
+            importInto(target) {
+                extractArchive(temp, format, target, stripPrefix, onProgress, entryNames.size.toLong())
+                val modpackHint = if (format == ArchiveFormat.ZIP && hasModrinthManifest(temp)) {
+                    installModrinthPack(temp, target, onProgress)
+                } else null
 
-            val detection = ServerCoreDetector.detect(target)
-            ensureEula(target)
-            ImportedServer(
-                dirName,
-                displayName,
-                detection.core ?: modpackHint?.first,
-                detection.version ?: modpackHint?.second
-            )
+                val detection = ServerCoreDetector.detect(target)
+                ensureEula(target)
+                ImportedServer(
+                    dirName,
+                    displayName,
+                    detection.core ?: modpackHint?.first,
+                    detection.version ?: modpackHint?.second,
+                    detection.serverFile
+                )
+            }
         } finally {
             temp.delete()
         }
@@ -274,8 +280,8 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             ?: fileName.removeSuffix(".jar").ifBlank { "imported_server" }
         val dirName = uniqueDirName(McServerController.sanitizeDirName(displayName))
         val target = File(termux.serversDir, dirName)
-        val targetJar = File(target, "server.jar")
-        try {
+        val targetJar = File(target, ServerImportLayout.importedJarFileName(fileName))
+        importInto(target) {
             target.mkdirs()
             context.contentResolver.openInputStream(uri)?.use { input ->
                 targetJar.outputStream().use { output -> input.copyTo(output) }
@@ -285,11 +291,22 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             prepareJarLayout(target, detection.core)
             ensureEula(target)
             onProgress(1, 1)
-            ImportedServer(dirName, displayName, detection.core, detection.version)
-        } catch (e: Exception) {
-            target.deleteRecursively()
-            throw e
+            ImportedServer(dirName, displayName, detection.core, detection.version, detection.serverFile)
         }
+    }
+
+    /** Match EdgeCube's empty-instance lifecycle: failed imports leave no partial server behind. */
+    private inline fun <T> importInto(target: File, block: () -> T): T = try {
+        block()
+    } catch (e: Exception) {
+        target.deleteRecursively()
+        throw e
+    }
+
+    private fun safeChild(parent: File, name: String): File {
+        require(name.isNotBlank() && name != "." && name != ".." &&
+            !name.contains('/') && !name.contains('\\')) { "导入文件名非法: $name" }
+        return File(parent, name)
     }
 
     /** JAR 导入只补齐安全的空目录和最小配置，不覆盖核心自带文件。 */

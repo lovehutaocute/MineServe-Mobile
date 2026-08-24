@@ -5,7 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.res.stringResource
 import com.mineserve.mobile.R
 import androidx.compose.ui.unit.dp
@@ -104,7 +106,10 @@ fun McApp() {
         // 以白色背景覆盖，不再显示系统状态栏灰色条
         contentWindowInsets = WindowInsets(0.dp),
         bottomBar = {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+            NavigationBar(
+                modifier = Modifier.navigationBarsPadding(),
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
                 McTab.values().forEach { t ->
                     NavigationBarItem(
                         selected = tab == t && subPage == null,
@@ -134,12 +139,14 @@ fun McApp() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
                 .padding(padding)
         ) {
+            val page = Triple(showLogs, subPage, tab)
             when {
-                showLogs -> LogsScreen(vm = vm, onBack = { showLogs = false })
-                subPage != null -> {
-                    when (subPage) {
+                page.first -> LogsScreen(vm = vm, onBack = { showLogs = false })
+                page.second != null -> {
+                    when (page.second) {
                         SubPage.Properties -> PropertiesScreen(vm = vm, onBack = { subPage = null })
                         SubPage.Network -> NetworkScreen(vm = vm, onBack = { subPage = null })
                         SubPage.Backup -> BackupScreen(vm = vm, onBack = { subPage = null })
@@ -166,7 +173,7 @@ fun McApp() {
                         null -> {}
                     }
                 }
-                else -> when (tab) {
+                else -> when (page.third) {
                     McTab.Dashboard -> DashboardScreen(
                         vm = vm,
                         onShowDownloadHelp = { subPage = SubPage.DownloadHelp },

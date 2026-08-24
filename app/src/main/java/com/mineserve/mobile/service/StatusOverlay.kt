@@ -6,8 +6,6 @@ import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.StateListDrawable
-import android.view.animation.AlphaAnimation
-import android.view.animation.Animation
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -62,7 +60,6 @@ internal object StatusOverlay {
             addView(View(context).apply {
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0xFF48D597.toInt()) }
                 layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { marginEnd = dp(10) }
-                startAnimation(AlphaAnimation(0.4f, 1f).apply { duration = 700; repeatMode = Animation.REVERSE; repeatCount = Animation.INFINITE })
             })
             addView(TextView(context).also { info = it }.apply { text = "运行中 CPU:--%｜内存:--M"; setTextColor(0xFFE6EDF7.toInt()); textSize = 11f; maxLines = 1; layoutParams = LinearLayout.LayoutParams(0, WindowManager.LayoutParams.WRAP_CONTENT, 1f) })
         }

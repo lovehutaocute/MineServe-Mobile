@@ -3,7 +3,7 @@ package com.mineserve.mobile.data
 import kotlinx.serialization.Serializable
 
 /**
- * 服务端核心类型：Paper / Purpur / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
+ * 服务端核心类型：Paper / Purpur / Leaves / Leaf / Spigot / CraftBukkit / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
  */
 enum class PropertiesMode { JavaProperties, PowerNukkitXYaml, Unsupported }
 
@@ -11,6 +11,10 @@ enum class PropertiesMode { JavaProperties, PowerNukkitXYaml, Unsupported }
 enum class ServerCore(val displayName: String) {
     Paper("Paper"),
     Purpur("Purpur"),
+    Leaves("Leaves"),
+    Leaf("Leaf"),
+    Spigot("Spigot"),
+    CraftBukkit("CraftBukkit"),
     Fabric("Fabric"),
     Forge("Forge"),
     NeoForge("NeoForge"),
@@ -24,7 +28,8 @@ enum class ServerCore(val displayName: String) {
     /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
     val isBedrock: Boolean get() = this == PowerNukkitX
 
-    val supportsPlugins: Boolean get() = this == Paper || this == Purpur || this == PowerNukkitX
+    val supportsPlugins: Boolean get() = this == Paper || this == Purpur ||
+        this == Leaves || this == Leaf || this == Spigot || this == CraftBukkit || this == PowerNukkitX
 
     /** 是否支持 Fabric/Forge 模组体系 */
     val supportsMods: Boolean get() = this == Fabric || this == Forge || this == NeoForge || this == Quilt
@@ -158,7 +163,9 @@ data class InstalledCore(
     /** MC 版本 */
     val version: String,
     /** 文件夹名（从 name 自动生成，sanitized），例如 "sheng-cun-fu-1-20-4" */
-    val dirName: String
+    val dirName: String,
+    /** 实际启动入口文件名；旧配置缺省为 server.jar，导入的完整目录可暂未指定。 */
+    val serverFile: String? = "server.jar"
 )
 
 /**
@@ -224,6 +231,8 @@ data class ServerState(
     val healthPercent: Int = 0,            // 0-100，综合健康度
     /** 服务器本次启动完成的时刻（SystemClock.elapsedRealtime 基准），0 表示未启动 */
     val runningSinceMs: Long = 0L,
+    /** 启动过程阶段，仅保存在运行时状态，不写入配置。 */
+    val startupPhase: StartupPhase = StartupPhase.Idle,
     val installSteps: List<StepState> = InstallStep.values().map {
         StepState(it, StepStatus.Wait)
     },
@@ -231,4 +240,47 @@ data class ServerState(
 ) {
     val isInstallComplete: Boolean get() = installSteps.filter { it.step != InstallStep.Jdk }.isNotEmpty() &&
         installSteps.filter { it.step != InstallStep.Jdk }.all { it.status == StepStatus.Done }
+}
+
+enum class StartupPhase(val label: String, val progress: Float) {
+    Idle("未启动", 0f),
+    PreparingEnvironment("准备环境", 0.10f),
+    DownloadingDependencies("下载依赖", 0.28f),
+    StartingJava("启动 Java", 0.46f),
+    LoadingCore("加载核心", 0.62f),
+    CreatingWorld("创建世界", 0.80f),
+    StartingNetwork("启动网络", 0.92f),
+    Ready("已完成", 1f),
+    Failed("启动失败", 0f)
+}
+
+/** Maps common startup messages from Java, proxy, modded and Bedrock cores. */
+fun startupPhaseForLog(line: String): StartupPhase? {
+    val text = line.lowercase()
+    return when {
+        text.contains("启动完成") || text.contains("server started") ||
+            text.contains("done (") || text.contains("done!") ||
+            text.contains("enabled bungeecord") || text.contains("velocity has started") -> StartupPhase.Ready
+        text.contains("listening on") || text.contains("starting minecraft server on") ||
+            text.contains("启动 gs4") || text.contains("query 运行") ||
+            text.contains("server bound") || text.contains("监听") -> StartupPhase.StartingNetwork
+        text.contains("preparing level") || text.contains("preparing start region") ||
+            text.contains("preparing spawn") || text.contains("preparing world") ||
+            text.contains("preparing spawn area") || text.contains("加载世界") ||
+            text.contains("创建世界") -> StartupPhase.CreatingWorld
+        text.contains("loading server") || text.contains("loading properties") ||
+            text.contains("loading nukkit") || text.contains("loading plugins") ||
+            text.contains("loading minecraft") || text.contains("mod loading") ||
+            text.contains("modlauncher") || text.contains("quilt loader") ||
+            text.contains("fabric loader") || text.contains("booting up velocity") ||
+            text.contains("starting bungeecord") || text.contains("正在启动 minecraft") -> StartupPhase.LoadingCore
+        text.contains("[startmc] java 路径") || text.contains("正在启动 java") ||
+            text.contains("starting java") || text.contains("java version") ||
+            text.contains("jvm") -> StartupPhase.StartingJava
+        text.contains("[download]") || text.contains("下载依赖") ||
+            text.contains("安装依赖") || text.contains("依赖包") ||
+            text.contains("downloading") || text.contains("downloaded") ||
+            text.contains("libraries") || text.contains("installer") -> StartupPhase.DownloadingDependencies
+        else -> null
+    }
 }

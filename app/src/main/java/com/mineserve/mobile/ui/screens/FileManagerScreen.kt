@@ -236,9 +236,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
 
                     Button(
                         onClick = {
-                            if (canGoUp && parentDir != null) {
-                                vm.loadFiles(parentDir!!)
-                            }
+                            parentDir?.let { if (canGoUp) vm.loadFiles(it) }
                         },
                         enabled = canGoUp,
                         colors = ButtonDefaults.buttonColors(containerColor = Indigo),
@@ -321,7 +319,7 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                                 exportLauncher.launch(if (entry.isDirectory) "${entry.name}.zip" else entry.name)
                             },
                             onEdit = { vm.openTextFile(File(entry.path)) },
-                            canEdit = vm.canEditTextFile(File(entry.path)),
+                            canEdit = entry.isEditable,
                             onDelete = {
                                 showDeleteConfirm = File(entry.path)
                             }

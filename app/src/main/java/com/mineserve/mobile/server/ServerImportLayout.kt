@@ -75,5 +75,9 @@ object ServerImportLayout {
         if (n.startsWith("$stripPrefix/")) return n.removePrefix("$stripPrefix/").ifEmpty { null }
         return n
     }
+
+    /** SAF providers should return a display name, but never let it create nested targets. */
+    fun importedJarFileName(displayName: String): String =
+        displayName.substringAfterLast('/').substringAfterLast('\\').ifBlank { "server.jar" }
 }
 

@@ -154,11 +154,9 @@ class McForegroundService : Service() {
                     if (!alive) {
                         it.copy(isRunning = false, runningSinceMs = 0L)
                     } else {
-                        it.copy(
-                            isRunning = true,
-                            runningSinceMs = it.runningSinceMs.takeIf { since -> since > 0L }
-                                ?: android.os.SystemClock.elapsedRealtime()
-                        )
+                        // A live Java process is not proof that the server has finished loading.
+                        // The console's ready signal sets runningSinceMs once the core is usable.
+                        it.copy(isRunning = true)
                     }
                 }
                 // 服务器运行时，每 60 秒（2 个 tick）发送一次查询命令获取真实数据

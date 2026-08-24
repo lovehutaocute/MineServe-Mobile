@@ -1,6 +1,6 @@
 package com.mineserve.mobile.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
@@ -40,17 +40,16 @@ val DarkFieldBg = Color(0xFF232936)
 val DarkTrackBg = Color(0xFF2A3140)
 val DarkFieldGray = Color(0xFF232936)
 
-// ── 主题感知 token（Composable getter，跟随系统深色模式） ─────────────
-// 组件内直接引用这些名字即可自动适配深色；纯色（Indigo/Mint/Coral/MintBright）
-// 深浅色下保持品牌色不变，仅容器/文字/背景色切换。
-val Bg: Color @Composable get() = if (isSystemInDarkTheme()) DarkBg else LightBg
-val Card: Color @Composable get() = if (isSystemInDarkTheme()) DarkCard else LightCard
-val Ink: Color @Composable get() = if (isSystemInDarkTheme()) DarkInk else LightInk
-val Muted: Color @Composable get() = if (isSystemInDarkTheme()) DarkMuted else LightMuted
-val Line: Color @Composable get() = if (isSystemInDarkTheme()) DarkLine else LightLine
-val IndigoSoft: Color @Composable get() = if (isSystemInDarkTheme()) DarkIndigoSoft else LightIndigoSoft
-val MintSoft: Color @Composable get() = if (isSystemInDarkTheme()) DarkMintSoft else LightMintSoft
-val CoralSoft: Color @Composable get() = if (isSystemInDarkTheme()) DarkCoralSoft else LightCoralSoft
-val FieldBg: Color @Composable get() = if (isSystemInDarkTheme()) DarkFieldBg else LightFieldBg
-val TrackBg: Color @Composable get() = if (isSystemInDarkTheme()) DarkTrackBg else LightTrackBg
-val FieldGray: Color @Composable get() = if (isSystemInDarkTheme()) DarkFieldGray else LightFieldGray
+// Theme tokens come from MaterialTheme, so previews and explicit theme overrides
+// remain consistent instead of silently reading the system theme again.
+val Bg: Color @Composable get() = MaterialTheme.colorScheme.background
+val Card: Color @Composable get() = MaterialTheme.colorScheme.surface
+val Ink: Color @Composable get() = MaterialTheme.colorScheme.onBackground
+val Muted: Color @Composable get() = MaterialTheme.colorScheme.onSurfaceVariant
+val Line: Color @Composable get() = MaterialTheme.colorScheme.outlineVariant
+val IndigoSoft: Color @Composable get() = MaterialTheme.colorScheme.primaryContainer
+val MintSoft: Color @Composable get() = MaterialTheme.colorScheme.secondaryContainer
+val CoralSoft: Color @Composable get() = MaterialTheme.colorScheme.tertiaryContainer
+val FieldBg: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+val TrackBg: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant
+val FieldGray: Color @Composable get() = MaterialTheme.colorScheme.surfaceVariant

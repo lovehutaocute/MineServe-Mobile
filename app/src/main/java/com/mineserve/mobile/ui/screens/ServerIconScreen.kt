@@ -20,6 +20,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
@@ -39,7 +40,18 @@ import kotlinx.coroutines.withContext
 fun ServerIconScreen(vm: McViewModel, onBack: () -> Unit) {
     val version by vm.serverIconVersion.collectAsState()
     val bitmap by produceState<Bitmap?>(null, version) {
-        value = withContext(Dispatchers.IO) { vm.serverIconFile()?.let { BitmapFactory.decodeFile(it.absolutePath) } }
+        value = null
+        value = withContext(Dispatchers.IO) {
+            vm.serverIconFile()?.let { file ->
+                BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply {
+                    inPreferredConfig = Bitmap.Config.ARGB_8888
+                    inSampleSize = 1
+                })
+            }
+        }
+    }
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.takeUnless { it.isRecycled }?.recycle() }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let(vm::setServerIcon) }
     Column(Modifier.fillMaxSize()) {

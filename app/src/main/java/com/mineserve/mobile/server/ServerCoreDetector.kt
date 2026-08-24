@@ -8,7 +8,7 @@ import java.util.jar.JarFile
  * 服务器核心与版本自动识别（启发式，不联网）：
  *
  * 依据服务器目录中的特征文件 / 目录结构 / 核心 jar 内容判断：
- *  - 核心类型：PowerNukkitX / Quilt / Fabric / Velocity / BungeeCord / Forge / NeoForge / Paper / Purpur / Vanilla
+ *  - 核心类型：PowerNukkitX / Quilt / Fabric / Velocity / BungeeCord / Forge / NeoForge / Leaves / Leaf / Purpur / Paper / Spigot / CraftBukkit / Vanilla
  *  - MC 版本：优先根目录 version.json（Vanilla/Paper 系首次启动生成），
  *    其次核心 jar 内嵌 version.json（Paper/Purpur），最后按目录布局推算（Forge/NeoForge）。
  *
@@ -16,7 +16,12 @@ import java.util.jar.JarFile
  */
 object ServerCoreDetector {
 
-    data class Detection(val core: ServerCore?, val version: String?)
+    data class Detection(
+        val core: ServerCore?,
+        val version: String?,
+        /** 根目录中实际可启动的核心 JAR；不会被改名为 server.jar。 */
+        val serverFile: String? = null
+    )
 
     fun detect(serverDir: File): Detection {
         if (!serverDir.isDirectory) return Detection(null, null)
@@ -36,25 +41,25 @@ object ServerCoreDetector {
                 rootJars.firstOrNull { it.name.equals("powernukkitx.jar", ignoreCase = true) },
                 "Implementation-Version"
             )
-            return Detection(ServerCore.PowerNukkitX, gameVersion ?: coreVersion ?: rootVersion)
+            return Detection(ServerCore.PowerNukkitX, gameVersion ?: coreVersion ?: rootVersion, entryJar(rootJars, "powernukkitx.jar")?.name)
         }
 
         // ── 2. Quilt ────────────────────────────────────────────────
         if (rootJars.any { it.name.equals("quilt-server-launch.jar", ignoreCase = true) }) {
-            return Detection(ServerCore.Quilt, rootVersion ?: jarVersionJson(rootJars))
+            return Detection(ServerCore.Quilt, rootVersion ?: jarVersionJson(rootJars), entryJar(rootJars, "quilt-server-launch.jar")?.name)
         }
 
         // ── 3. Fabric ───────────────────────────────────────────────
         if (rootJars.any { it.name.equals("fabric-server-launch.jar", ignoreCase = true) } ||
             File(serverDir, ".fabric").isDirectory
         ) {
-            return Detection(ServerCore.Fabric, rootVersion ?: jarVersionJson(rootJars))
+            return Detection(ServerCore.Fabric, rootVersion ?: jarVersionJson(rootJars), entryJar(rootJars, "fabric-server-launch.jar")?.name)
         }
 
         // ── 4. Velocity（代理端，版本从 jar 文件名读取） ──────────────
         rootJars.firstOrNull { it.name.startsWith("velocity-", ignoreCase = true) }?.let { jar ->
             val v = jar.name.removePrefix("velocity-").removeSuffix(".jar").ifBlank { null }
-            return Detection(ServerCore.Velocity, v)
+            return Detection(ServerCore.Velocity, v, jar.name)
         }
 
         // ── 5. BungeeCord（代理端） ─────────────────────────────────
@@ -62,12 +67,12 @@ object ServerCoreDetector {
             it.name.equals("BungeeCord.jar", ignoreCase = true) ||
                 it.name.equals("bungee.jar", ignoreCase = true)
         }?.let { jar ->
-            return Detection(ServerCore.BungeeCord, jarManifestValue(jar, "Implementation-Version"))
+            return Detection(ServerCore.BungeeCord, jarManifestValue(jar, "Implementation-Version"), jar.name)
         }
         if (hasManifestMain(rootJars, "net.md_5.bungee.BungeeCord")) {
             return Detection(ServerCore.BungeeCord, rootJars.firstNotNullOfOrNull {
                 jarManifestValue(it, "Implementation-Version")
-            })
+            }, rootJars.firstOrNull { hasManifestMain(listOf(it), "net.md_5.bungee.BungeeCord") }?.name)
         }
 
         // ── 6. Forge（libraries/net/minecraftforge/forge/<mc>-<fv>/） ──
@@ -75,7 +80,7 @@ object ServerCoreDetector {
         if (forgeRoot.isDirectory) {
             val firstDir = forgeRoot.listFiles { f -> f.isDirectory }?.firstOrNull()
             val mcVersion = firstDir?.name?.substringBefore("-")?.takeIf { it.isNotEmpty() }
-            return Detection(ServerCore.Forge, mcVersion ?: rootVersion)
+            return Detection(ServerCore.Forge, mcVersion ?: rootVersion, entryJar(rootJars)?.name)
         }
 
         // ── 7. NeoForge（libraries/net/neoforged/neoforge/<nv>/） ────
@@ -83,28 +88,68 @@ object ServerCoreDetector {
         if (neoRoot.isDirectory) {
             val nv = neoRoot.listFiles { f -> f.isDirectory }?.firstOrNull()?.name
             val mcVersion = nv?.let { neoForgeMcVersion(it) }
-            return Detection(ServerCore.NeoForge, mcVersion ?: rootVersion)
+            return Detection(ServerCore.NeoForge, mcVersion ?: rootVersion, entryJar(rootJars)?.name)
         }
 
-        // ── 8. Paper（核心 jar 内嵌 io/papermc/paper/ 或 paperclip 启动类） ──
+        // ── 8. Paper 分支（必须先于 Paper，避免被 Paper 共用类误判） ──
+        if (hasClassPrefix(rootJars, "org/leavesmc/leaves/") ||
+            hasClassPrefix(rootJars, "org/leavesmc/leaf/")
+        ) {
+            val jar = rootJars.firstOrNull { hasClassPrefix(listOf(it), "org/leavesmc/leaves/") || hasClassPrefix(listOf(it), "org/leavesmc/leaf/") }
+            val core = if (hasClassPrefix(rootJars, "org/leavesmc/leaves/")) ServerCore.Leaves else ServerCore.Leaf
+            return Detection(core, rootVersion ?: jarVersionJson(rootJars), jar?.name ?: entryJar(rootJars)?.name)
+        }
+
+        if (hasClassPrefix(rootJars, "org/purpurmc/")) {
+            val jar = rootJars.firstOrNull { hasClassPrefix(listOf(it), "org/purpurmc/") }
+            return Detection(ServerCore.Purpur, rootVersion ?: jarVersionJson(rootJars), jar?.name)
+        }
+
+        // ── 9. Paper（核心 jar 内嵌 io/papermc/paper/ 或 paperclip 启动类） ──
         if (hasClassPrefix(rootJars, "io/papermc/paper/") ||
             hasManifestMain(rootJars, "io.papermc.paperclip.Main")
         ) {
-            return Detection(ServerCore.Paper, rootVersion ?: jarVersionJson(rootJars))
+            val jar = rootJars.firstOrNull {
+                hasClassPrefix(listOf(it), "io/papermc/paper/") ||
+                    hasManifestMain(listOf(it), "io.papermc.paperclip.Main")
+            }
+            return Detection(ServerCore.Paper, rootVersion ?: jarVersionJson(rootJars), jar?.name)
         }
 
-        // ── 9. Purpur ──────────────────────────────────────────────
-        if (hasClassPrefix(rootJars, "org/purpurmc/")) {
-            return Detection(ServerCore.Purpur, rootVersion ?: jarVersionJson(rootJars))
+        // ── 10. Spigot / CraftBukkit（GetBukkit 核心） ───────────────
+        if (hasClassEntry(rootJars, "org/bukkit/Bukkit.class") ||
+            hasClassPrefix(rootJars, "org/bukkit/craftbukkit/")
+        ) {
+            val bukkitJar = rootJars.firstOrNull {
+                hasClassEntry(listOf(it), "org/bukkit/Bukkit.class") ||
+                    hasClassPrefix(listOf(it), "org/bukkit/craftbukkit/")
+            }
+            val name = bukkitJar?.name?.lowercase() ?: ""
+            val craft = name.startsWith("craftbukkit-") ||
+                (!name.startsWith("spigot-") && hasClassPrefix(rootJars, "org/bukkit/craftbukkit/"))
+            return Detection(
+                if (craft) ServerCore.CraftBukkit else ServerCore.Spigot,
+                rootVersion ?: jarManifestValue(bukkitJar, "Implementation-Version"),
+                bukkitJar?.name
+            )
         }
 
-        // ── 10. Vanilla（server.jar 且无其它特征） ───────────────────
+        // ── 11. Vanilla（server.jar 且无其它特征） ───────────────────
         if (rootJars.any { it.name.equals("server.jar", ignoreCase = true) }) {
-            return Detection(ServerCore.Vanilla, rootVersion)
+            return Detection(ServerCore.Vanilla, rootVersion, entryJar(rootJars, "server.jar")?.name)
         }
 
         // ── 兜底：核心未知，仍尝试给出版本 ───────────────────────────
-        return Detection(null, rootVersion ?: jarVersionJson(rootJars))
+        return Detection(null, rootVersion ?: jarVersionJson(rootJars), entryJar(rootJars)?.name)
+    }
+
+    /** 只返回唯一的根目录入口 JAR，绝不把 installer/client/library 当成启动文件。 */
+    private fun entryJar(jars: List<File>, vararg preferredNames: String): File? {
+        preferredNames.firstNotNullOfOrNull { name -> jars.firstOrNull { it.name.equals(name, true) } }?.let { return it }
+        return jars.filter { jar ->
+            val name = jar.name.lowercase()
+            !name.contains("installer") && !name.contains("client") && !name.contains("library")
+        }.singleOrNull()
     }
 
     /** NeoForge 版本号 → MC 版本：20.4.x → 1.20.4；21.0.x → 1.21；21.1.x → 1.21.1 … */

@@ -1900,7 +1900,7 @@ class TermuxRuntime(context: Context) {
             "-Djava.awt.headless=true -Djava.io.tmpdir=/tmp " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
-            "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
+            "-Dio.netty.transport.kqueue.enabled=false " +
             "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments" + if (appendNogui) " nogui" else ""
         val rootfs = java8Rootfs
         // PRoot creates glue files outside the guest rootfs. Keep this path in
@@ -2058,7 +2058,7 @@ class TermuxRuntime(context: Context) {
             "exec '$javaPath' $nativeAccessArg-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
-            "-Dio.netty.transport.kqueue.enabled=false -Djava.net.preferIPv4Stack=true " +
+            "-Dio.netty.transport.kqueue.enabled=false " +
             "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + if (appendNogui) " nogui" else ""
 
         Log.i(TAG, "startMc command: $javaCmd")

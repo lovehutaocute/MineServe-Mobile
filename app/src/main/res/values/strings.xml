@@ -1403,6 +1403,7 @@
     <string name="msg_core_repairing">核心文件缺失或损坏，正在重新下载修复: %1$s</string>
     <string name="msg_core_repaired">核心已重新下载完成: %1$s</string>
     <string name="err_core_repair_fail">校验/修复失败: %1$s</string>
+    <string name="err_core_unknown_no_repair">未知核心不会自动下载或覆盖文件，请检查入口文件: %1$s</string>
     
     <string name="mc_console_label">MC 控制台</string>
     <string name="term_exit_code">(退出码 %1$s)</string>
@@ -1436,6 +1437,7 @@
     <string name="diag_check_port">本地端口</string>
     <string name="diag_check_core_dir_bad">服务端目录不存在或不可读写</string>
     <string name="diag_check_core_jar_missing">server.jar 不存在，需要重新下载核心</string>
+    <string name="diag_check_core_entry_missing">入口文件 %1$s 不存在，请检查导入目录</string>
     <string name="diag_check_fonts">字体运行库</string>
     <string name="diag_check_fonts_not_needed">当前核心不需要 installer 字体运行库</string>
     <string name="diag_check_fonts_ready">fontconfig 与 fc-cache 已就绪</string>
@@ -1539,6 +1541,10 @@
     <string name="dl_folder">  ·  文件夹: %1$s</string>
     <string name="dl_desc_paper">PaperMC：高性能优化核心，兼容大部分插件，推荐用于生产环境</string>
     <string name="dl_desc_purpur">Purpur：Paper 分支，额外提供更多原版特性开关，插件兼容</string>
+    <string name="dl_desc_leaves">Leaves：Paper 分支，面向高版本生存服的性能优化核心</string>
+    <string name="dl_desc_leaf">Leaf：Paper 分支，兼容 Bukkit 插件并提供性能优化</string>
+    <string name="dl_desc_spigot">Spigot：经典 Bukkit 兼容核心，适合插件服务器</string>
+    <string name="dl_desc_craftbukkit">CraftBukkit：Bukkit 官方实现，兼容传统 Bukkit 插件</string>
     <string name="dl_desc_fabric">Fabric：轻量级模组加载器，支持最新版本快速更新</string>
     <string name="dl_desc_forge">Forge：老牌模组加载器，生态丰富，适合大型整合包</string>
     <string name="dl_desc_neoforge">NeoForge：Forge 继任者，模组生态活跃（下载后自动执行 installer）</string>

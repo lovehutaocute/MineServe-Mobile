@@ -27,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -82,7 +83,6 @@ fun HeaderBlock(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
             .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
         Text(
@@ -109,7 +109,6 @@ fun BackBar(title: String, onBack: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -145,7 +144,7 @@ fun EmptyHint(icon: ImageVector, text: String, modifier: Modifier = Modifier) {
  * Hero 卡片：渐变背景 + 状态行 + 紧凑指标行（TPS / 在线 / 进程内存 / 运行时长）
  */
 @Composable
-fun HeroBlock(state: ServerState, coreLabel: String, startupPhase: String = "准备环境", cpuPercent: Int? = null) {
+fun HeroBlock(state: ServerState, coreLabel: String, cpuPercent: Int? = null) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -212,10 +211,24 @@ fun HeroBlock(state: ServerState, coreLabel: String, startupPhase: String = "准
             // 启动中提示：适配启动耗时较长的场景
             if (isStarting) {
                 Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { state.startupPhase.progress },
+                    modifier = Modifier.fillMaxWidth(),
+                    color = Color(0xFFFFC857),
+                    trackColor = Color.White.copy(alpha = 0.2f)
+                )
+                Spacer(Modifier.height(5.dp))
                 Text(
-                    "启动阶段：$startupPhase",
+                    "启动阶段：${state.startupPhase.label}（${(state.startupPhase.progress * 100).toInt()}%）",
                     color = Color.White.copy(alpha = 0.7f),
                     fontSize = 10.sp
+                )
+                Text(
+                    "准备环境 · 下载依赖 · 启动 Java · 加载核心 · 创建世界 · 启动网络",
+                    color = Color.White.copy(alpha = 0.52f),
+                    fontSize = 9.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }

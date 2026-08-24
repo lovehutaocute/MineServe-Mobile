@@ -12,6 +12,20 @@ import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
 
+internal data class DownloadSpeedSample(val bytes: Long, val timestampMs: Long)
+
+/** EdgeCube-style recent-window rate; avoids startup spikes and long-term drag. */
+internal fun speedBytesPerSecond(samples: MutableList<DownloadSpeedSample>, nowMs: Long): Long {
+    val cutoff = nowMs - 3_000L
+    samples.removeAll { it.timestampMs < cutoff }
+    if (samples.size < 2) return 0L
+    val first = samples.first()
+    val last = samples.last()
+    val elapsed = last.timestampMs - first.timestampMs
+    val bytes = last.bytes - first.bytes
+    return if (elapsed > 0L && bytes > 0L) bytes * 1_000L / elapsed else 0L
+}
+
 /**
  * 内置多线程下载模块（基于 HTTP Range 分段并行，开源思路：分块下载 + 合并）。
  *
@@ -104,7 +118,7 @@ object MultiThreadDownloader {
         session?.setExecutor(pool)
         val done = AtomicLong(0L)
         val errors = java.util.concurrent.ConcurrentLinkedQueue<Exception>()
-        val started = System.currentTimeMillis()
+        val speedSamples = mutableListOf<DownloadSpeedSample>()
 
         try {
             ranges.forEach { range ->
@@ -121,7 +135,7 @@ object MultiThreadDownloader {
             pool.shutdown()
             while (!pool.awaitTermination(200, java.util.concurrent.TimeUnit.MILLISECONDS)) {
                 checkCancelled(session)
-                reportSpeed(done.get(), total, started, onProgress)
+                reportSpeed(done.get(), total, speedSamples, onProgress)
             }
             checkCancelled(session)
             if (!errors.isEmpty()) {
@@ -257,9 +271,10 @@ object MultiThreadDownloader {
     }
 
     /** 每 500ms 报告一次总进度与速度（total 用真实长度，避免进度无法计算） */
-    private fun reportSpeed(downloaded: Long, total: Long, started: Long, onProgress: (Long, Long, Long) -> Unit) {
-        val elapsed = (System.currentTimeMillis() - started) / 1000.0
-        val speed = if (elapsed > 0) (downloaded / elapsed).toLong() else 0L
+    private fun reportSpeed(downloaded: Long, total: Long, samples: MutableList<DownloadSpeedSample>, onProgress: (Long, Long, Long) -> Unit) {
+        val now = System.currentTimeMillis()
+        samples += DownloadSpeedSample(downloaded, now)
+        val speed = speedBytesPerSecond(samples, now)
         onProgress(downloaded, total, speed)
     }
 
@@ -277,8 +292,7 @@ object MultiThreadDownloader {
             val actualTotal = if (total > 0) total else conn.contentLengthLong
             target.parentFile?.mkdirs()
             var downloaded = 0L
-            var lastSpeedBytes = 0L
-            var lastSpeedTime = System.currentTimeMillis()
+            val speedSamples = mutableListOf<DownloadSpeedSample>()
             conn.inputStream.use { input ->
                 FileOutputStream(target).use { fos ->
                     val buffer = ByteArray(BUFFER)
@@ -289,12 +303,10 @@ object MultiThreadDownloader {
                         fos.write(buffer, 0, read)
                         downloaded += read
                         val now = System.currentTimeMillis()
-                        if (now - lastSpeedTime >= 500) {
-                            val elapsedSec = (now - lastSpeedTime) / 1000.0
-                            val speed = if (elapsedSec > 0) ((downloaded - lastSpeedBytes) / elapsedSec).toLong() else 0L
+                        if (speedSamples.isEmpty() || now - speedSamples.last().timestampMs >= 500) {
+                            speedSamples += DownloadSpeedSample(downloaded, now)
+                            val speed = speedBytesPerSecond(speedSamples, now)
                             onProgress(downloaded, actualTotal, speed)
-                            lastSpeedBytes = downloaded
-                            lastSpeedTime = now
                         }
                     }
                 }

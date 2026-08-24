@@ -6,9 +6,6 @@ import com.mineserve.mobile.R
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -284,11 +281,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = tr
             Spacer(Modifier.height(12.dp))
 
             // 根据穿透类型显示不同配置
-            AnimatedVisibility(
-                visible = config.tunnelType == TunnelType.Frp,
-                enter = expandVertically(),
-                exit = shrinkVertically()
-            ) {
+            if (config.tunnelType == TunnelType.Frp) {
                 Column {
                     Text(stringResource(R.string.s599), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
@@ -308,11 +301,7 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = tr
                 }
             }
 
-            AnimatedVisibility(
-                visible = config.tunnelType == TunnelType.Bore,
-                enter = expandVertically(),
-                exit = shrinkVertically()
-            ) {
+            if (config.tunnelType == TunnelType.Bore) {
                 Column {
                     Text(stringResource(R.string.s602), color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(6.dp))
@@ -569,7 +558,7 @@ private fun GuideSection(tunnelType: TunnelType) {
             )
         }
 
-        AnimatedVisibility(visible = expanded) {
+        if (expanded) {
             Column {
                 when (tunnelType) {
                     TunnelType.Frp -> FrpGuide()

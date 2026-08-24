@@ -10,6 +10,7 @@ import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.MinecraftVersionNormalizer
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.StepStatus
+import com.mineserve.mobile.data.StartupPhase
 import com.mineserve.mobile.runtime.TermuxRuntime
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -162,6 +163,7 @@ class McServerController(
             if (!termux.isReady()) {
                 throw RuntimeException("Termux 环境未初始化，请等待初始化完成")
             }
+            termux.fixRootfsPermissions()
             if (!termux.prepareAptPackages("wget", "fontconfig", "ttf-dejavu")) {
                 return@withContext false
             }
@@ -319,6 +321,10 @@ class McServerController(
         return when (core) {
             ServerCore.Paper -> resolvePaperUrl(version)
             ServerCore.Purpur -> resolvePurpurUrl(version)
+            ServerCore.Leaves -> resolveLeavesUrl(version)
+            ServerCore.Leaf -> resolveLeafUrl(version)
+            ServerCore.Spigot -> "https://cdn.getbukkit.org/spigot/spigot-$version.jar"
+            ServerCore.CraftBukkit -> "https://cdn.getbukkit.org/craftbukkit/craftbukkit-$version.jar"
             ServerCore.Fabric -> resolveFabricUrl(version)
             ServerCore.Forge -> resolveForgeUrl(version)
             ServerCore.NeoForge -> resolveNeoForgeUrl(version)
@@ -489,6 +495,29 @@ class McServerController(
         return "https://api.purpurmc.org/v2/purpur/$version/latest/download"
     }
 
+    private fun resolveLeavesUrl(version: String): String {
+        val build = fetchJson("https://api.leavesmc.org/v2/projects/leaves/versions/$version/builds/latest")
+        val buildNumber = build["build"]?.jsonPrimitive?.content
+            ?: throw RuntimeException("Leaves: no build for $version")
+        val name = build["downloads"]?.jsonObject?.get("application")?.jsonObject
+            ?.get("name")?.jsonPrimitive?.content
+            ?: throw RuntimeException("Leaves: no application download for $version")
+        return "https://api.leavesmc.org/v2/projects/leaves/versions/$version/builds/$buildNumber/downloads/$name"
+    }
+
+    private fun resolveLeafUrl(version: String): String {
+        val versions = fetchJson("https://api.leafmc.one/v2/projects/leaf/versions/$version")
+        val build = versions["builds"]?.jsonArray
+            ?.mapNotNull { it.jsonPrimitive.content.toIntOrNull() }
+            ?.maxOrNull()
+            ?: throw RuntimeException("Leaf: no build for $version")
+        val buildJson = fetchJson("https://api.leafmc.one/v2/projects/leaf/versions/$version/builds/$build")
+        val name = buildJson["downloads"]?.jsonObject?.get("primary")?.jsonObject
+            ?.get("name")?.jsonPrimitive?.content
+            ?: throw RuntimeException("Leaf: no primary download for $version")
+        return "https://api.leafmc.one/v2/projects/leaf/versions/$version/builds/$build/downloads/$name"
+    }
+
     // ── Velocity：PaperMC v3 API（取最新 build 的 application 下载） ──
 
     private fun resolveVelocityUrl(version: String): String {
@@ -589,6 +618,9 @@ class McServerController(
         when (core) {
             ServerCore.Paper -> fetchPaperVersions().map(::CoreVersionOption)
             ServerCore.Purpur -> fetchPurpurVersions().map(::CoreVersionOption)
+            ServerCore.Leaves -> fetchLeavesVersions().map(::CoreVersionOption)
+            ServerCore.Leaf -> fetchLeafVersions().map(::CoreVersionOption)
+            ServerCore.Spigot, ServerCore.CraftBukkit -> DEFAULT_MC_VERSIONS.map(::CoreVersionOption)
             ServerCore.Vanilla -> fetchVanillaVersions().map(::CoreVersionOption)
             ServerCore.Fabric -> fetchFabricVersions().map(::CoreVersionOption)
             ServerCore.Forge -> fetchForgeVersions().map(::CoreVersionOption)
@@ -609,6 +641,19 @@ class McServerController(
             ?.filter { !it.contains("rc") && !it.contains("pre") }
             ?.sortedDescending() ?: DEFAULT_MC_VERSIONS
     }
+
+    private fun fetchLeavesVersions(): List<String> = fetchProjectVersions("https://api.leavesmc.org/v2/projects/leaves")
+
+    private fun fetchLeafVersions(): List<String> = fetchProjectVersions("https://api.leafmc.one/v2/projects/leaf")
+
+    private fun fetchProjectVersions(url: String): List<String> = runCatching {
+        fetchJson(url)["versions"]?.jsonArray
+            ?.map { it.jsonPrimitive.content }
+            ?.filter { it.isNotBlank() }
+            ?.sortedDescending()
+            ?.take(30)
+            ?.takeIf { it.isNotEmpty() }
+    }.getOrNull() ?: DEFAULT_MC_VERSIONS
 
     private fun fetchVelocityVersions(): List<String> {
         // PaperMC v3：velocity versions 数组
@@ -949,6 +994,8 @@ class McServerController(
             if (!ok) {
                 throw RuntimeException("依赖安装失败，请先安装依赖后再启动服务器")
             }
+        } else {
+            termux.fixRootfsPermissions()
         }
         if (!termux.isJavaInstalled(config.selectedJavaVersion)) {
             throw RuntimeException("${config.selectedJavaVersion.displayName} 未安装，请先在 Java 管理卡片中安装")
@@ -956,16 +1003,51 @@ class McServerController(
         // 找到当前选用的核心
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
-        val jarFile = termux.serverJarFileFor(activeCore.dirName)
-        if (!jarFile.exists()) {
-            throw RuntimeException("核心 ${activeCore.name} 的 server.jar 不存在，请重新下载")
+        val (launchConfig, launchCore) = migrateToAsciiServerDir(config, activeCore)
+        val serverDir = File(termux.serversDir, launchCore.dirName)
+        val configuredEntry = launchCore.serverFile
+            ?.trim()
+            ?.substringAfterLast('/')
+            ?.substringAfterLast('\\')
+            ?.takeIf { it.isNotBlank() }
+        val jarFile = configuredEntry
+            ?.let { File(serverDir, it).takeIf(File::isFile) }
+            ?: ServerCoreDetector.detect(serverDir).serverFile
+                ?.let { File(serverDir, it).takeIf(File::isFile) }
+        if (jarFile == null && launchCore.core !in setOf(ServerCore.Forge, ServerCore.NeoForge)) {
+            throw RuntimeException("核心 ${launchCore.name} 未找到可启动的 JAR；导入内容未被修改，请在服务器目录中补充入口文件")
         }
-        if (activeCore.core == ServerCore.PowerNukkitX && isLegacyPowerNukkitXVersion(activeCore.version)) {
-            validateLegacyPowerNukkitXJar(jarFile)
+        if (launchCore.core == ServerCore.PowerNukkitX && isLegacyPowerNukkitXVersion(launchCore.version)) {
+            validateLegacyPowerNukkitXJar(jarFile ?: error("PowerNukkitX 核心入口缺失"))
         }
         // 启动时重置崩溃重试计数
         restartAttempts = 0
-        launchMc(config, activeCore.dirName, jarFile.absolutePath)
+        launchMc(launchConfig, launchCore.dirName, jarFile?.absolutePath)
+    }
+
+    /** Forge's ZipFileSystem cannot parse percent-encoded non-ASCII working paths on Java 25. */
+    private suspend fun migrateToAsciiServerDir(
+        config: McConfig,
+        activeCore: InstalledCore
+    ): Pair<McConfig, InstalledCore> {
+        val migratedDirName = sanitizeDirName(activeCore.dirName)
+        if (migratedDirName == activeCore.dirName) return config to activeCore
+
+        val source = File(termux.serversDir, activeCore.dirName)
+        val target = File(termux.serversDir, migratedDirName)
+        if (!source.isDirectory) throw RuntimeException("核心目录不存在：${source.absolutePath}")
+        if (target.exists()) throw RuntimeException("无法迁移核心目录，目标目录已存在：${target.name}")
+        if (!source.renameTo(target)) throw RuntimeException("无法迁移核心目录，请检查存储空间后重试")
+
+        val migratedCore = activeCore.copy(dirName = migratedDirName)
+        val migratedConfig = config.copy(
+            installedCores = config.installedCores.map {
+                if (it.name == activeCore.name && it.dirName == activeCore.dirName) migratedCore else it
+            }
+        )
+        repo.saveConfig(migratedConfig)
+        termux.emitLog("[startMc] 已迁移核心目录到 ASCII 名称：$migratedDirName")
+        return migratedConfig to migratedCore
     }
 
     /**
@@ -1014,12 +1096,8 @@ class McServerController(
         }
     }
 
-    private suspend fun launchMc(config: McConfig, dirName: String, jarPath: String) {
+    private suspend fun launchMc(config: McConfig, dirName: String, jarPath: String?) {
         val serverDir = termux.serverDirFor(dirName)
-        // 检查 server.jar 是否存在
-        if (!File(jarPath).exists()) {
-            throw RuntimeException("server.jar 不存在，请先在「下载」Tab 下载服务端核心")
-        }
         // NeoForge/Quilt：使用 installer 生成的启动方式（unix_args.txt / quilt-server-launch.jar），
         // 产物缺失时明确报错，避免回退到不可启动的 installer.jar。
         // 注意：必须按「实际激活核心」的类型判断——selectedCore 只是下载页的临时选择，
@@ -1064,16 +1142,21 @@ class McServerController(
                 else throw RuntimeException("Quilt 启动文件缺失，请重新下载安装核心")
             }
             ServerCore.PowerNukkitX -> {
-                val mainClass = powerNukkitXMainClass(File(jarPath))
+                val coreJar = jarPath?.let(::File)
+                    ?: throw RuntimeException("PowerNukkitX 核心入口缺失，请检查导入目录")
+                val mainClass = powerNukkitXMainClass(coreJar)
                     ?: throw RuntimeException("PowerNukkitX 核心缺少可识别的启动入口（org.powernukkitx.Server/cn.nukkit.Nukkit），请重新下载")
                 val languageArg = if (mainClass == "cn.nukkit.Nukkit") " --language=chs" else ""
-                "--add-opens=java.base/java.lang=ALL-UNNAMED -cp '${File(jarPath).absolutePath}:${File(serverDir, "libs").absolutePath}/*' $mainClass$languageArg"
+                "--add-opens=java.base/java.lang=ALL-UNNAMED -cp '${coreJar.absolutePath}:${File(serverDir, "libs").absolutePath}/*' $mainClass$languageArg"
             }
             else -> null
         }
+        if (launchArgs == null && jarPath == null) {
+            throw RuntimeException("未找到可启动的 JAR；导入内容未被修改，请检查服务器目录")
+        }
         startupDeadlineMs = System.currentTimeMillis() + 20_000L
         termux.startMc(
-            jarPath = jarPath,
+            jarPath = jarPath.orEmpty(),
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
             javaVersion = launchJava,
@@ -1081,7 +1164,12 @@ class McServerController(
             appendNogui = coreType != ServerCore.PowerNukkitX,
             onExit = { code ->
                 val failedDuringStartup = System.currentTimeMillis() <= startupDeadlineMs
-                repo.updateServerState { it.copy(isRunning = false) }
+                repo.updateServerState {
+                    it.copy(
+                        isRunning = false,
+                        startupPhase = if (code == 0) StartupPhase.Idle else StartupPhase.Failed
+                    )
+                }
                 Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
                 // 捕获崩溃报告（非正常退出时收集最近日志 + MC 原生崩溃报告）
                 if (code != 0) {
@@ -1107,7 +1195,15 @@ class McServerController(
                                 Thread.sleep(3000)
                                 kotlinx.coroutines.runBlocking {
                                     launchMc(config, dirName, jarPath)
-                                    repo.updateServerState { it.copy(isRunning = true, runningSinceMs = 0L) }
+                                    repo.updateServerState {
+                                        if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
+                                            it.copy(
+                                                isRunning = true,
+                                                runningSinceMs = 0L,
+                                                startupPhase = StartupPhase.PreparingEnvironment
+                                            )
+                                        } else it.copy(isRunning = true, runningSinceMs = 0L)
+                                    }
                                 }
                             } catch (e: Exception) {
                                 Log.e(TAG, "崩溃重启失败: ${e.message}", e)
@@ -1119,7 +1215,11 @@ class McServerController(
                 }
             }
         )
-        repo.updateServerState { it.copy(isRunning = true, runningSinceMs = 0L) }
+        repo.updateServerState {
+            if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
+                it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
+            } else it.copy(isRunning = true, runningSinceMs = 0L)
+        }
     }
 
     /**
@@ -1272,7 +1372,9 @@ class McServerController(
 
     suspend fun stop() = withContext(Dispatchers.IO) {
         termux.stopMc()
-        repo.updateServerState { it.copy(isRunning = false, runningSinceMs = 0L) }
+        repo.updateServerState {
+            it.copy(isRunning = false, runningSinceMs = 0L, startupPhase = StartupPhase.Idle)
+        }
     }
 
 
@@ -1288,13 +1390,20 @@ class McServerController(
             "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5"
         )
 
-        /** 将用户自定义名称转换为安全的文件夹名：只保留字母数字汉字和连字符，其余替换为下划线 */
+        /** 服务端工作目录必须是 ASCII，避免 Forge/Java 25 解析 file URI 时出现 Bad escape。 */
         fun sanitizeDirName(name: String): String {
-            return name
-                .replace(Regex("[^a-zA-Z0-9\\u4e00-\\u9fa5\\-]"), "_")
+            val normalized = name
+                .replace(Regex("[^a-zA-Z0-9_-]"), "_")
                 .replace(Regex("_+"), "_")
                 .trimEnd('_')
-                .ifEmpty { "default" }
+                .ifEmpty { "server" }
+            return if (normalized == name) normalized else {
+                val suffix = MessageDigest.getInstance("SHA-256")
+                    .digest(name.toByteArray(Charsets.UTF_8))
+                    .take(6)
+                    .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+                "$normalized-$suffix"
+            }
         }
     }
 }

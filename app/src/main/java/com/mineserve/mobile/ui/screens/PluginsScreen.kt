@@ -7,7 +7,6 @@ import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -80,7 +79,9 @@ import androidx.compose.ui.graphics.Color
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.graphics.ImageBitmap
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -1998,23 +1999,31 @@ private fun ModrinthDetailDialog(hit: PluginManager.ModrinthHit?, onDismiss: () 
 }
 
 @Composable
-private fun ModrinthIcon(url: String, size: Dp = 32.dp) {    var bitmap by remember { mutableStateOf<ImageBitmap?>(null) }
+private fun ModrinthIcon(url: String, size: Dp = 32.dp) {
+    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(url) {
+        bitmap = null
         if (url.isNotBlank()) {
             bitmap = withContext(Dispatchers.IO) {
+                var conn: java.net.HttpURLConnection? = null
                 try {
-                    val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                    conn.connectTimeout = 8000
-                    conn.readTimeout = 8000
-                    conn.setRequestProperty("User-Agent", "McServerManager/1.0 (mcserver-manager)")
-                    val bytes = conn.inputStream.use { it.readBytes() }
-                    conn.disconnect()
-                    android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+                    val connection = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                    conn = connection
+                    connection.connectTimeout = 8000
+                    connection.readTimeout = 8000
+                    connection.setRequestProperty("User-Agent", "McServerManager/1.0 (mcserver-manager)")
+                    val bytes = connection.inputStream.use { it.readBytes() }
+                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                 } catch (e: Exception) {
                     null
+                } finally {
+                    conn?.disconnect()
                 }
             }
         }
+    }
+    DisposableEffect(bitmap) {
+        onDispose { bitmap?.takeUnless { it.isRecycled }?.recycle() }
     }
     Box(
         modifier = Modifier
@@ -2026,7 +2035,7 @@ private fun ModrinthIcon(url: String, size: Dp = 32.dp) {    var bitmap by remem
         val bmp = bitmap
         if (bmp != null) {
             Image(
-                bitmap = bmp,
+                bitmap = bmp.asImageBitmap(),
                 contentDescription = null,
                 modifier = Modifier.size(size),
                 contentScale = ContentScale.Crop

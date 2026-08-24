@@ -263,6 +263,10 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     when (config.selectedCore) {
                         ServerCore.Paper -> stringResource(R.string.dl_desc_paper)
                         ServerCore.Purpur -> stringResource(R.string.dl_desc_purpur)
+                        ServerCore.Leaves -> stringResource(R.string.dl_desc_leaves)
+                        ServerCore.Leaf -> stringResource(R.string.dl_desc_leaf)
+                        ServerCore.Spigot -> stringResource(R.string.dl_desc_spigot)
+                        ServerCore.CraftBukkit -> stringResource(R.string.dl_desc_craftbukkit)
                         ServerCore.Fabric -> stringResource(R.string.dl_desc_fabric)
                         ServerCore.Forge -> stringResource(R.string.dl_desc_forge)
                         ServerCore.NeoForge -> stringResource(R.string.dl_desc_neoforge)

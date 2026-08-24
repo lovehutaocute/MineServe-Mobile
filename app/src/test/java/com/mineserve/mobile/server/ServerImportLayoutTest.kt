@@ -74,4 +74,10 @@ class ServerImportLayoutTest {
         assert(!ServerImportLayout.isJunkEntry("server.jar"))
         assert(!ServerImportLayout.isJunkEntry("world/level.dat"))
     }
+
+    @Test
+    fun jarImportKeepsSourceFileName() {
+        assertEquals("leaves-1.21.8.jar", ServerImportLayout.importedJarFileName("leaves-1.21.8.jar"))
+        assertEquals("unknown-core.jar", ServerImportLayout.importedJarFileName("folder\\unknown-core.jar"))
+    }
 }

@@ -2,14 +2,27 @@ package com.mineserve.mobile.server
 
 import com.mineserve.mobile.data.ServerCore
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 
 class ServerCoreDetectorTest {
+
+    @Test
+    fun serverDirectoryNamesAreAsciiAndUniqueForChineseNames() {
+        val chinese = McServerController.sanitizeDirName("服务器导出")
+        val otherChinese = McServerController.sanitizeDirName("服务器备份")
+
+        assertTrue(chinese.matches(Regex("[A-Za-z0-9_-]+")))
+        assertNotEquals(chinese, otherChinese)
+        assertEquals("paper-1_21_8", McServerController.sanitizeDirName("paper-1_21_8"))
+        assertTrue(McServerController.sanitizeDirName("forge 1.21.8/%").matches(Regex("[A-Za-z0-9_-]+")))
+    }
 
     private fun tempDir(name: String): File {
         val dir = java.nio.file.Files.createTempDirectory("mcs-detector-" + name).toFile()
@@ -39,6 +52,16 @@ class ServerCoreDetectorTest {
         val result = ServerCoreDetector.detect(dir)
         assertEquals(ServerCore.Paper, result.core)
         assertEquals("1.21.8", result.version)
+        assertEquals("server.jar", result.serverFile)
+    }
+
+    @Test
+    fun detectsLeavesAndKeepsImportedJarName() {
+        val dir = tempDir("leaves")
+        createJar(File(dir, "leaves-1.21.8.jar"), mapOf("org/leavesmc/leaves/LeavesConfig.class" to ByteArray(0)))
+        val result = ServerCoreDetector.detect(dir)
+        assertEquals(ServerCore.Leaves, result.core)
+        assertEquals("leaves-1.21.8.jar", result.serverFile)
     }
 
     @Test
@@ -120,6 +143,7 @@ class ServerCoreDetectorTest {
         val result = ServerCoreDetector.detect(dir)
         assertNull(result.core)
         assertEquals("1.19.2", result.version)
+        assertEquals("something.jar", result.serverFile)
     }
 
     @Test
@@ -128,6 +152,19 @@ class ServerCoreDetectorTest {
         val result = ServerCoreDetector.detect(dir)
         assertNull(result.core)
         assertNull(result.version)
+        assertNull(result.serverFile)
+    }
+
+    @Test
+    fun doesNotUseInstallerOrGuessBetweenUnknownJars() {
+        val installerOnly = tempDir("installer-only")
+        emptyJar(File(installerOnly, "forge-installer.jar"))
+        assertNull(ServerCoreDetector.detect(installerOnly).serverFile)
+
+        val multipleUnknown = tempDir("multiple-unknown")
+        emptyJar(File(multipleUnknown, "custom-a.jar"))
+        emptyJar(File(multipleUnknown, "custom-b.jar"))
+        assertNull(ServerCoreDetector.detect(multipleUnknown).serverFile)
     }
 
     @Test

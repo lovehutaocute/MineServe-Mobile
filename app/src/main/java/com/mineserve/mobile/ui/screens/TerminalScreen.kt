@@ -44,7 +44,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Context
 import com.mineserve.mobile.ui.McViewModel
-import com.mineserve.mobile.ui.TerminalLogTranslator
+import com.mineserve.mobile.ui.TerminalDisplayLine
+import com.mineserve.mobile.ui.TerminalLogTone
 import com.mineserve.mobile.ui.TerminalSessionType
 
 private data class QuickMcCommand(val emoji: String, val label: String, val command: String)
@@ -80,7 +81,7 @@ fun TerminalScreen(vm: McViewModel) {
     val sessions by vm.terminalSessions.collectAsState()
     val activeId by vm.activeTerminalSessionId.collectAsState()
     val active = sessions.firstOrNull { it.id == activeId } ?: sessions.first()
-    val mcLines by vm.consoleLines.collectAsState()
+    val mcLines by vm.terminalConsoleLines.collectAsState()
     val context = LocalContext.current
     var input by remember(activeId) { mutableStateOf("") }
     val logPrefs = remember { context.getSharedPreferences("log_prefs", Context.MODE_PRIVATE) }
@@ -90,9 +91,9 @@ fun TerminalScreen(vm: McViewModel) {
     var pendingDangerousCommand by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val rawLines = if (active.type == TerminalSessionType.Minecraft) mcLines else active.lines
-    val visibleLines = remember(rawLines, translateLogs, active.type) {
-        if (translateLogs && active.type == TerminalSessionType.Minecraft) rawLines.map(TerminalLogTranslator::translate) else rawLines
-    }
+    LaunchedEffect(Unit) { vm.setLogTranslationEnabled(translateLogs) }
+    // Keep the full session history for copy/export, but cap Compose nodes on low-end devices.
+    val renderedLines = remember(rawLines) { rawLines.takeLast(MAX_RENDERED_LINES) }
     // 追踪用户是否手动向上滚动；用户在底部附近时自动滚动跟随新日志
     var userScrolledUp by remember { mutableStateOf(false) }
     LaunchedEffect(listState) {
@@ -105,18 +106,18 @@ fun TerminalScreen(vm: McViewModel) {
     // 切换会话时重置滚动状态并跳到底部
     LaunchedEffect(activeId) {
         userScrolledUp = false
-        if (visibleLines.isNotEmpty()) listState.scrollToItem(visibleLines.lastIndex)
+        if (renderedLines.isNotEmpty()) listState.scrollToItem(renderedLines.lastIndex)
     }
     // 新日志到达时，若用户未手动上滑，自动滚动到底部
-    LaunchedEffect(visibleLines.lastOrNull()) {
-        if (visibleLines.isNotEmpty() && !userScrolledUp && !autoScrollPaused) {
-            listState.scrollToItem(visibleLines.lastIndex)
+    LaunchedEffect(rawLines.lastOrNull()) {
+        if (renderedLines.isNotEmpty() && !userScrolledUp && !autoScrollPaused) {
+            listState.scrollToItem(renderedLines.lastIndex, Int.MAX_VALUE)
         }
     }
 
     LaunchedEffect(autoScrollPaused) {
-        if (!autoScrollPaused && visibleLines.isNotEmpty()) {
-            listState.scrollToItem(visibleLines.lastIndex)
+        if (!autoScrollPaused && renderedLines.isNotEmpty()) {
+            listState.scrollToItem(renderedLines.lastIndex, Int.MAX_VALUE)
         }
     }
 
@@ -213,7 +214,7 @@ fun TerminalScreen(vm: McViewModel) {
                 }
                 IconButton(onClick = {
                     val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText(active.name, rawLines.joinToString("\n")))
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText(active.name, rawLines.joinToString("\n") { it.text }))
                     android.widget.Toast.makeText(context, "已复制当前日志", android.widget.Toast.LENGTH_SHORT).show()
                 }) { Icon(Icons.Outlined.ContentCopy, "复制当前日志", tint = Color.White) }
                 IconButton(onClick = vm::createTerminalSession) { Icon(Icons.Outlined.Add, "新建会话", tint = Color.White) }
@@ -239,17 +240,15 @@ fun TerminalScreen(vm: McViewModel) {
         }
         SelectionContainer {
             LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                itemsIndexed(visibleLines, key = { index, _ -> index }) { index, line ->
-                    val color = terminalLogColor(line)
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                        Text(
-                            line,
-                            color = color,
-                            fontSize = 11.sp,
-                            fontFamily = FontFamily.Monospace,
-                            softWrap = false
-                        )
-                    }
+                itemsIndexed(renderedLines, key = { _, line -> line.id }) { _, line ->
+                    val color = terminalLogColor(line.tone)
+                    Text(
+                        line.text,
+                        color = color,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        softWrap = true
+                    )
                 }
             }
         }
@@ -266,6 +265,7 @@ fun TerminalScreen(vm: McViewModel) {
                     onCheckedChange = {
                         translateLogs = it
                         logPrefs.edit().putBoolean("localize", it).apply()
+                        vm.setLogTranslationEnabled(it)
                     }
                 )
             }
@@ -293,14 +293,15 @@ fun TerminalScreen(vm: McViewModel) {
     }
 }
 
-private fun terminalLogColor(line: String): Color = when {
-    line.startsWith("$ ") || line.startsWith("> ") -> Color(0xFF57E357)
-    line.contains("错误：") || line.contains("[ERROR]", true) || line.contains("[FATAL]", true) ||
-        line.contains("Exception", true) || line.contains("failed", true) -> Color(0xFFFF7B72)
-    line.contains("警告：") || line.contains("[WARN]", true) || line.contains("warning", true) -> Color(0xFFE3B341)
-    line.contains("[INFO]", true) || line.contains("信息：") -> Color(0xFF8BD5CA)
-    line.contains("[DEBUG]", true) || line.contains("调试：") -> Color(0xFF82AAFF)
-    line.contains("[bootstrap]", true) || line.contains("[download]", true) -> Color(0xFF89B4FA)
-    line.contains("启动完成") || line.contains("已启动") || line.contains("下载完成") -> Color(0xFFA6E3A1)
-    else -> Color(0xFFE8E8E8)
+private const val MAX_RENDERED_LINES = 300
+
+private fun terminalLogColor(tone: TerminalLogTone): Color = when (tone) {
+    TerminalLogTone.Command -> Color(0xFF57E357)
+    TerminalLogTone.Error -> Color(0xFFFF7B72)
+    TerminalLogTone.Warning -> Color(0xFFE3B341)
+    TerminalLogTone.Info -> Color(0xFF8BD5CA)
+    TerminalLogTone.Debug -> Color(0xFF82AAFF)
+    TerminalLogTone.Download -> Color(0xFF89B4FA)
+    TerminalLogTone.Success -> Color(0xFFA6E3A1)
+    TerminalLogTone.Default -> Color(0xFFE8E8E8)
 }

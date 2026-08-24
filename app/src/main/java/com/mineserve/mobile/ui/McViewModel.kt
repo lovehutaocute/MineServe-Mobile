@@ -17,6 +17,8 @@ import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.MinecraftVersionNormalizer
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.ServerState
+import com.mineserve.mobile.data.StartupPhase
+import com.mineserve.mobile.data.startupPhaseForLog
 import com.mineserve.mobile.data.TunnelState
 import com.mineserve.mobile.data.TunnelStatus
 import com.mineserve.mobile.data.TunnelType
@@ -83,12 +85,12 @@ import java.io.File
  *  - 所有操作捕获异常，通过 errorFlow 传递给 UI，不崩溃
  */
 class McViewModel(
+    private val app: McApplication,
     private val repo: ServerRepository,
     private val controller: McServerController,
     private val pluginManager: PluginManager,
     private val tunnelManager: TunnelManager
 ) : ViewModel() {
-
     val config: StateFlow<McConfig> = repo.configFlow.stateIn(
         viewModelScope, SharingStarted.WhileSubscribed(5_000), McConfig()
     )
@@ -96,24 +98,24 @@ class McViewModel(
     val serverState: StateFlow<ServerState> = repo.serverState
 
     /** Termux 环境是否初始化完成 */
-    val isBootstrapped: StateFlow<Boolean> = McApplication.get().isBootstrapped
+    val isBootstrapped: StateFlow<Boolean> = app.isBootstrapped
 
     /** Termux 环境初始化错误信息 */
-    val bootstrapError: StateFlow<String?> = McApplication.get().bootstrapError
+    val bootstrapError: StateFlow<String?> = app.bootstrapError
 
     /** bootstrap 下载速度（bytes/s） */
-    val bootstrapSpeed: StateFlow<Long> = McApplication.get().bootstrapSpeed
+    val bootstrapSpeed: StateFlow<Long> = app.bootstrapSpeed
 
     /** bootstrap 当前镜像源索引 */
-    val currentMirrorIndex: StateFlow<Int> = McApplication.get().currentMirrorIndex
+    val currentMirrorIndex: StateFlow<Int> = app.currentMirrorIndex
 
     /** 镜像源名称列表 */
-    val mirrorSources: List<String> get() = McApplication.get().mirrorSources
+    val mirrorSources: List<String> get() = app.mirrorSources
 
     /** 请求切换到下一个镜像源 */
     fun switchBootstrapMirror() {
         android.util.Log.i("McViewModel", "[切换] switchBootstrapMirror 调用, 线程=${Thread.currentThread().name}")
-        McApplication.get().switchBootstrapMirror()
+        app.switchBootstrapMirror()
     }
 
     /** apt 安装下载速度（bytes/s） */
@@ -122,21 +124,27 @@ class McViewModel(
 
     /** 重试 Termux 环境初始化 */
     fun retryBootstrap() {
-        McApplication.get().startBootstrap()
+        app.startBootstrap()
     }
 
     /** 删除 Termux 运行环境（会自动重新初始化） */
     fun deleteBootstrap() {
-        McApplication.get().deleteBootstrap()
+        app.deleteBootstrap()
     }
 
     /** 强制删除 Termux 依赖：彻底卸载，删除后不自动重新初始化（需手动安装） */
     fun forceDeleteBootstrap() {
-        McApplication.get().forceDeleteBootstrap()
+        app.forceDeleteBootstrap()
     }
 
     private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
     val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
+
+    /** 终端专用的后台预处理日志，避免 Compose 主线程翻译和关键词扫描。 */
+    private val _terminalConsoleLines = MutableStateFlow<List<TerminalDisplayLine>>(emptyList())
+    val terminalConsoleLines: StateFlow<List<TerminalDisplayLine>> = _terminalConsoleLines.asStateFlow()
+    private val _logTranslationEnabled = MutableStateFlow(true)
+    val logTranslationEnabled: StateFlow<Boolean> = _logTranslationEnabled.asStateFlow()
 
     /** Small, stable preview for cards that only show the latest few server messages. */
     private val _consolePreviewLines = MutableStateFlow<List<String>>(emptyList())
@@ -171,6 +179,11 @@ class McViewModel(
 
     fun selectTerminalSession(id: String) { _activeTerminalSessionId.value = id }
 
+    fun setLogTranslationEnabled(enabled: Boolean) {
+        _logTranslationEnabled.value = enabled
+        terminalDisplayDirty = true
+    }
+
     fun closeTerminalSession(id: String) {
         val session = _terminalSessions.value.firstOrNull { it.id == id } ?: return
         if (session.type == TerminalSessionType.Minecraft) return
@@ -191,16 +204,17 @@ class McViewModel(
         if (session.type != TerminalSessionType.Termux || !isBootstrapped.value) return
         viewModelScope.launch {
             terminalMutex.withLock {
-                updateTerminalSession(id) { it.copy(busy = true).append("$ $command") }
+                updateTerminalSession(id) { it.copy(busy = true) }
+                enqueueTerminalLine(id, "$ $command")
                 interactiveTerminalSessionId = id
                 try {
                     withContext(Dispatchers.IO) { repo.termuxRuntime.refreshTermux() }
                     val exit = withContext(Dispatchers.IO) {
-                        repo.termuxRuntime.execTermux(command) { line -> updateTerminalSession(id) { it.append(line) } }
+                        repo.termuxRuntime.execTermux(command) { line -> enqueueTerminalLine(id, line) }
                     }
-                    if (exit != 0) updateTerminalSession(id) { it.append(str(R.string.term_exit_code, exit)) }
+                    if (exit != 0) enqueueTerminalLine(id, str(R.string.term_exit_code, exit))
                 } catch (e: Exception) {
-                    updateTerminalSession(id) { it.append(str(R.string.term_exec_error, e.message)) }
+                    enqueueTerminalLine(id, str(R.string.term_exec_error, e.message))
                 } finally {
                     interactiveTerminalSessionId = null
                     updateTerminalSession(id) { it.copy(busy = false) }
@@ -213,27 +227,42 @@ class McViewModel(
     fun sendTerminalInput(id: String, input: String) {
         if (input.isBlank() || interactiveTerminalSessionId != id) return
         if (repo.termuxRuntime.sendTermuxInput(input)) {
-            updateTerminalSession(id) { it.append("> $input") }
+            enqueueTerminalLine(id, "> $input")
         }
     }
 
     /** 清空指定终端会话的显示行（保留会话本身） */
     fun clearTerminalSession(id: String) {
+        synchronized(terminalOutputBuffers) { terminalOutputBuffers.remove(id) }
         updateTerminalSession(id) { it.copy(lines = emptyList()) }
     }
 
     /** 清空 MC 控制台缓冲 */
     fun clearConsole() {
+        consoleBuffer.clear()
+        pendingConsoleBuffer.clear()
+        terminalConsoleBuffer.clear()
+        consoleGeneration++
+        terminalGeneration++
+        consoleUiGeneration = consoleGeneration
+        terminalUiGeneration = terminalGeneration
+        previewUiGeneration = consoleGeneration
         _consoleLines.value = emptyList()
         _consolePreviewLines.value = emptyList()
+        _terminalConsoleLines.value = emptyList()
     }
 
     private fun updateTerminalSession(id: String, transform: (TerminalSession) -> TerminalSession) {
         _terminalSessions.value = _terminalSessions.value.map { if (it.id == id) transform(it) else it }
     }
 
-    private fun TerminalSession.append(line: String): TerminalSession =
-        copy(lines = (lines + line).takeLast(500))
+    private val terminalOutputBuffers = mutableMapOf<String, LogBuffer<String>>()
+
+    private fun enqueueTerminalLine(id: String, line: String) {
+        synchronized(terminalOutputBuffers) {
+            terminalOutputBuffers.getOrPut(id) { LogBuffer(MAX_LOG_LINES) }.add(line)
+        }
+    }
 
     /** 执行 Termux shell 命令（IO 线程，输出实时追加到 termuxLines，命令回显 $ cmd） */
     fun execTermuxCommand(command: String) {
@@ -274,10 +303,11 @@ class McViewModel(
         }
     }
 
-    /** 追加一行到 termuxLines（500 行环形缓冲） */
+    private val legacyTermuxBuffer = LogBuffer<String>(MAX_LOG_LINES)
+
+    /** 追加到旧版日志缓冲，由后台批处理协程发布，避免逐行触发重组。 */
     private fun appendTermux(line: String) {
-        val cur = _termuxLines.value
-        _termuxLines.value = if (cur.size >= 500) cur.drop(cur.size - 499) + line else cur + line
+        legacyTermuxBuffer.add(line)
     }
 
     // ── 服务器图标（server-icon.png） ────────────────────────
@@ -312,24 +342,33 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val app = McApplication.get()
                     val input = app.contentResolver.openInputStream(uri)
                         ?: throw RuntimeException(str(R.string.err_read_image))
                     val src = input.use { android.graphics.BitmapFactory.decodeStream(it) }
                         ?: throw RuntimeException(str(R.string.err_parse_image))
-                    // 居中裁剪为正方形后缩放到 64×64
-                    val size = minOf(src.width, src.height)
-                    val x = (src.width - size) / 2
-                    val y = (src.height - size) / 2
-                    val square = android.graphics.Bitmap.createBitmap(src, x, y, size, size)
-                    val icon = android.graphics.Bitmap.createScaledBitmap(square, 64, 64, true)
-                    val target = File(repo.termuxRuntime.serverDirFor(dirName), "server-icon.png")
-                    target.parentFile?.mkdirs()
-                    java.io.FileOutputStream(target).use { fos ->
-                        icon.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos)
+                    try {
+                        // 居中裁剪为正方形后缩放到 64×64
+                        val size = minOf(src.width, src.height)
+                        val x = (src.width - size) / 2
+                        val y = (src.height - size) / 2
+                        val square = android.graphics.Bitmap.createBitmap(src, x, y, size, size)
+                        try {
+                            val icon = android.graphics.Bitmap.createScaledBitmap(square, 64, 64, true)
+                            try {
+                                val target = File(repo.termuxRuntime.serverDirFor(dirName), "server-icon.png")
+                                target.parentFile?.mkdirs()
+                                java.io.FileOutputStream(target).use { fos ->
+                                    icon.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos)
+                                }
+                            } finally {
+                                if (!icon.isRecycled) icon.recycle()
+                            }
+                        } finally {
+                            if (square !== src && !square.isRecycled) square.recycle()
+                        }
+                    } finally {
+                        if (!src.isRecycled) src.recycle()
                     }
-                    if (square !== icon) square.recycle()
-                    icon.recycle()
                 }
                 _messageFlow.tryEmit(str(R.string.ui_server_icon_updated))
                 _serverIconVersion.value++
@@ -367,8 +406,16 @@ class McViewModel(
     }
 
     /** 控制台行环形缓冲，避免每行 O(n) 拷贝 */
-    private val consoleBuffer = ArrayDeque<String>(1000)
-    private var consoleDirty = false
+    private val consoleBuffer = LogBuffer<String>(MAX_LOG_LINES)
+    private val pendingConsoleBuffer = LogBuffer<String>(MAX_LOG_LINES)
+    private val terminalConsoleBuffer = LogBuffer<TerminalDisplayLine>(MAX_LOG_LINES)
+    @Volatile private var terminalDisplayDirty = false
+    private var consoleGeneration = 0L
+    private var terminalGeneration = 0L
+    private var consoleUiGeneration = -1L
+    private var terminalUiGeneration = -1L
+    private var previewUiGeneration = -1L
+    private var lastPreviewPublishedAtMs = 0L
 
     /** 错误消息流，UI 层收集后用 Snackbar 显示 */
     private val _errorFlow = MutableSharedFlow<String>(extraBufferCapacity = 16)
@@ -391,7 +438,6 @@ class McViewModel(
     /** 局域网 IP（IPv4，非 loopback），用于 Network Tab 展示和一键复制 */
     private val _lanIp = MutableStateFlow("--")
     val lanIp: StateFlow<String> = _lanIp.asStateFlow()
-
     /** 隧道运行状态，UI 层订阅展示 */
     val tunnelState: StateFlow<TunnelState> = tunnelManager.state
 
@@ -424,7 +470,6 @@ class McViewModel(
     /** 检查更新：manual=true 来自设置页（显示检查进度 + 失败提示）；auto=true 启动检查（失败静默 + 有新版发通知） */
     fun checkForUpdate(manual: Boolean = false) {
         if (_updateState.value is UpdateUiState.Checking) return
-        val app = McApplication.get()
         _updateState.value = UpdateUiState.Checking
         if (manual) _updateDialogVisible.value = true // 手动检查：立即显示检查中对话框
         viewModelScope.launch {
@@ -481,7 +526,7 @@ class McViewModel(
                 android.content.Intent.ACTION_VIEW,
                 android.net.Uri.parse(url)
             ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            McApplication.get().startActivity(intent)
+            app.startActivity(intent)
         } catch (e: Exception) {
             _messageFlow.tryEmit(str(R.string.msg_open_browser_fail, e.message))
         }
@@ -495,7 +540,6 @@ class McViewModel(
             is UpdateUiState.Failed -> state.release
             else -> null
         } ?: return
-        val app = McApplication.get()
         _updateState.value = UpdateUiState.Downloading(0f, release)
         viewModelScope.launch {
             try {
@@ -560,7 +604,7 @@ class McViewModel(
         }
     }
 
-    fun installDownloadedUpdate(path: String) = installApk(McApplication.get(), File(path))
+    fun installDownloadedUpdate(path: String) = installApk(app, File(path))
 
     /** 自动检查发现新版时发系统通知，点击进入更新对话框 */
     private fun showUpdateNotification(app: Context, info: AppRelease) {
@@ -596,6 +640,8 @@ class McViewModel(
     /** Samples only values that belong to the selected server or its process. */
     private fun startServerResourceCollection() {
         viewModelScope.launch {
+            // Defer the first recursive server-directory scan until the first screen settles.
+            delay(10_000)
             while (true) {
                 withContext(Dispatchers.IO) { collectServerResourcesOnce() }
                 delay(10000)
@@ -610,7 +656,8 @@ class McViewModel(
             val dir = active?.let { File(repo.termuxRuntime.installer.rootDir, "home/servers/${it.dirName}") }
             val available = dir?.takeIf { it.exists() }?.let { android.os.StatFs(it.path).availableBytes }
             val now = System.currentTimeMillis()
-            val directoryBytes = dir?.takeIf { it.exists() }?.let { serverDir ->
+            val running = repo.termuxRuntime.isMcRunning()
+            val directoryBytes = dir?.takeIf { running && it.exists() }?.let { serverDir ->
                 if (cachedResourceDir != serverDir.path || now - cachedDirectoryBytesAtMs >= 60_000L) {
                     cachedResourceDir = serverDir.path
                     cachedDirectoryBytes = serverDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
@@ -618,7 +665,6 @@ class McViewModel(
                 }
                 cachedDirectoryBytes
             }
-            val running = repo.termuxRuntime.isMcRunning()
             val memory = repo.termuxRuntime.mcProcessMemoryMb().takeIf { running && it > 0L }
             val cpu = readMcCpuPercent()
             _serverResources.value = ServerResourceStats(
@@ -757,12 +803,13 @@ class McViewModel(
             )
         } else {
             val dir = File(runtime.installer.rootDir, "home/servers/${active.dirName}")
-            val jar = File(dir, "server.jar")
+            val entryName = active.serverFile?.trim()?.substringAfterLast('/')?.substringAfterLast('\\')?.takeIf { it.isNotBlank() }
+            val jar = entryName?.let { File(dir, it) }
             val dirReady = dir.isDirectory && dir.canRead() && dir.canWrite()
             checks += DiagnosticCheck(
                 "core", str(R.string.diag_check_core),
-                if (!dirReady) str(R.string.diag_check_core_dir_bad) else if (!jar.isFile) str(R.string.diag_check_core_jar_missing) else str(R.string.diag_check_core_ok, active.name),
-                if (dirReady && jar.isFile) DiagnosticStatus.Pass else DiagnosticStatus.Failed
+                if (!dirReady) str(R.string.diag_check_core_dir_bad) else if (jar?.isFile != true) str(R.string.diag_check_core_entry_missing, entryName ?: "未指定") else str(R.string.diag_check_core_ok, active.name),
+                if (dirReady && jar?.isFile == true) DiagnosticStatus.Pass else DiagnosticStatus.Failed
             )
             val fontNeeded = runtime.needsFontRuntime(active.core)
             val fontsReady = fontNeeded && runtime.fontRuntimeReady(cfg.selectedJavaVersion)
@@ -874,6 +921,9 @@ class McViewModel(
     }
 
     companion object {
+        private const val MAX_LOG_LINES = 1500
+        private const val LOG_FLUSH_MS = 200L
+        private const val CONSOLE_PREVIEW_FLUSH_MS = 750L
         // 预编译正则，避免每行重新编译
         private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
         private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")
@@ -881,14 +931,7 @@ class McViewModel(
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {
-                val app = McApplication.get()
-                val repo = app.repository
-                return McViewModel(
-                    repo = repo,
-                    controller = McServerController(repo.termuxRuntime, repo),
-                    pluginManager = PluginManager(repo.termuxRuntime, app),
-                    tunnelManager = TunnelManager(repo.termuxRuntime)
-                ) as T
+                return McApplication.get().container.viewModelFactory.create(modelClass)
             }
         }
     }
@@ -901,6 +944,7 @@ class McViewModel(
 
     private fun parseConsoleLine(line: String) {
         try {
+            updateStartupPhaseFromLog(line)
             val requiredJava = CrashReportAnalyzer.requiredJavaVersion(line)
             if (requiredJava != null) {
                 val selected = when (config.value.selectedJavaVersion) {
@@ -971,7 +1015,8 @@ class McViewModel(
                     repo.updateServerState {
                         it.copy(tps = 20.0, healthPercent = 100,
                             maxMemoryMb = config.value.maxHeapMb.toLong(),
-                            runningSinceMs = android.os.SystemClock.elapsedRealtime())
+                            runningSinceMs = android.os.SystemClock.elapsedRealtime(),
+                            startupPhase = StartupPhase.Ready)
                     }
                     // 启动完成：主动请求一次 list，全量校正在线玩家名单
                     if (repo.termuxRuntime.isMcRunning()) playerManager.requestOnlineList()
@@ -979,6 +1024,17 @@ class McViewModel(
             }
         } catch (e: Exception) {
             // 解析失败不影响正常运行
+        }
+    }
+
+    /** 在后台日志解析线程推进启动阶段，UI 不扫描原始日志。 */
+    private fun updateStartupPhaseFromLog(line: String) {
+        val phase = startupPhaseForLog(line) ?: return
+        repo.updateServerState { state ->
+            if (state.isRunning && state.startupPhase != StartupPhase.Ready &&
+                phase.progress >= state.startupPhase.progress) {
+                state.copy(startupPhase = phase)
+            } else state
         }
     }
 
@@ -1149,10 +1205,16 @@ class McViewModel(
                 lastJavaCompatibilityWarning = null
                 val current = config.value
                 val startConfig = current
+                repo.updateServerState {
+                    it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
+                }
                 _messageFlow.tryEmit(str(R.string.s196))
                 controller.start(startConfig)
                 startKeepAliveService()
             } catch (e: Exception) {
+                repo.updateServerState {
+                    it.copy(isRunning = false, runningSinceMs = 0L, startupPhase = StartupPhase.Failed)
+                }
                 repo.termuxRuntime.emitLog("[startMc] 启动失败: ${e.message}")
                 showStartupFailureReport(e)
                 _errorFlow.tryEmit(str(R.string.s197, e.message))
@@ -1981,7 +2043,6 @@ class McViewModel(
                     _errorFlow.tryEmit(str(R.string.err_ext_dir_unavailable))
                     return@launch
                 }
-                val app = McApplication.get()
                 val fileName = withContext(Dispatchers.IO) {
                     app.contentResolver.query(
                         uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
@@ -2118,7 +2179,7 @@ class McViewModel(
 
     // ── 导入服务器（文件夹 / 压缩包 / JAR） ────────────────────────
 
-    private val serverImporter = ServerImporter(McApplication.get(), repo.termuxRuntime)
+    private val serverImporter = ServerImporter(app, repo.termuxRuntime)
 
     private val _isImportingServer = MutableStateFlow(false)
     val isImportingServer: StateFlow<Boolean> = _isImportingServer.asStateFlow()
@@ -2217,7 +2278,8 @@ class McViewModel(
                         name = imported.displayName,
                         core = core,
                         version = imported.version ?: str(R.string.ver_imported),
-                        dirName = imported.dirName
+                        dirName = imported.dirName,
+                        serverFile = imported.serverFile
                     ),
                 activeCoreName = imported.displayName
             )
@@ -2321,7 +2383,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val output = McApplication.get().contentResolver.openOutputStream(uri)
+                    val output = app.contentResolver.openOutputStream(uri)
                         ?: throw RuntimeException(str(R.string.err_open_export))
                     output.use { os -> src.inputStream().use { it.copyTo(os) } }
                 }
@@ -2464,8 +2526,8 @@ class McViewModel(
     private val _playerHistory: MutableStateFlow<List<PlayerHistoryEntry>> by lazy { MutableStateFlow(emptyList()) }
     val playerHistory: StateFlow<List<PlayerHistoryEntry>> by lazy { _playerHistory.asStateFlow() }
 
-    private val legacyPlayerHistoryFile: java.io.File get() = java.io.File(McApplication.get().filesDir, "player_history.json")
-    private fun playerHistoryFile() = java.io.File(McApplication.get().filesDir, "player-history/${activeDirName() ?: "unselected"}.json")
+    private val legacyPlayerHistoryFile: java.io.File get() = java.io.File(app.filesDir, "player_history.json")
+    private fun playerHistoryFile() = java.io.File(app.filesDir, "player-history/${activeDirName() ?: "unselected"}.json")
 
     private val historyJson: Json by lazy { Json { ignoreUnknownKeys = true } }
 
@@ -2565,7 +2627,7 @@ class McViewModel(
     fun exportPlayerHistory(uri: android.net.Uri) = viewModelScope.launch {
         try {
             withContext(Dispatchers.IO) {
-                McApplication.get().contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { out ->
+                app.contentResolver.openOutputStream(uri)?.bufferedWriter()?.use { out ->
                     out.appendLine("player,event,time,session_start,session_end,duration_seconds,interrupted")
                     _playerHistory.value.forEach { row ->
                         fun csv(v: String) = "\"${v.replace("\"", "\"\"")}\""
@@ -2861,7 +2923,7 @@ class McViewModel(
     /** 清空所有崩溃报告 */
     /** 读取应用自身崩溃日志（全局 uncaught handler 写入），无则返回 null */
     fun appCrashLog(): String? {
-        val dir = java.io.File(McApplication.get().filesDir, "home")
+        val dir = java.io.File(app.filesDir, "home")
         val candidates = listOf(
             java.io.File(dir, "crash_log.txt"),
             java.io.File(dir, "crash_log_read.txt")
@@ -2878,7 +2940,7 @@ class McViewModel(
     /** 清空应用崩溃日志文件 */
     fun clearAppCrashLog() {
         try {
-            val dir = java.io.File(McApplication.get().filesDir, "home")
+            val dir = java.io.File(app.filesDir, "home")
             java.io.File(dir, "crash_log.txt").delete()
             java.io.File(dir, "crash_log_read.txt").delete()
         } catch (_: Exception) {
@@ -3035,23 +3097,33 @@ class McViewModel(
     }
 
     /** 删除一个已安装的核心（按名称） */
-    /**
-     * 校验已安装核心的 server.jar；缺失或损坏时自动重新下载修复（保留目录与配置）。
-     */
+    /** 校验已安装核心；未知核心只检查原文件，绝不自动下载或覆盖。 */
     fun verifyOrRepairCore(dirName: String) {
         val cfg = config.value
         val core = cfg.installedCores.firstOrNull { it.dirName == dirName } ?: return
         if (!isBootstrapped.value) { _errorFlow.tryEmit(str(R.string.s192)); return }
         viewModelScope.launch {
             try {
-                val jar = java.io.File(repo.termuxRuntime.installer.rootDir, "home/servers/$dirName/server.jar")
+                val serverDir = repo.termuxRuntime.serverDirFor(dirName)
+                val entryName = core.serverFile?.trim()?.substringAfterLast('/')?.substringAfterLast('\\')?.takeIf { it.isNotBlank() }
+                if (entryName == null) {
+                    _errorFlow.tryEmit(str(R.string.err_core_unknown_no_repair, "未指定启动文件"))
+                    return@launch
+                }
+                val jar = java.io.File(serverDir, entryName)
                 val valid = withContext(Dispatchers.IO) {
-                    jar.isFile && runCatching {
+                    if (!jar.isFile) false
+                    else if (core.core == com.mineserve.mobile.data.ServerCore.Unknown) true
+                    else runCatching {
                         java.util.jar.JarFile(jar).use { jf -> jf.manifest != null }
                     }.getOrDefault(false)
                 }
                 if (valid) {
                     _messageFlow.tryEmit(str(R.string.msg_core_verify_ok, core.name, formatCoreSize(jar.length())))
+                    return@launch
+                }
+                if (core.core == com.mineserve.mobile.data.ServerCore.Unknown) {
+                    _errorFlow.tryEmit(str(R.string.err_core_unknown_no_repair, entryName))
                     return@launch
                 }
                 _messageFlow.tryEmit(str(R.string.msg_core_repairing, core.name))
@@ -3108,6 +3180,7 @@ class McViewModel(
         val name: String,
         val path: String,
         val isDirectory: Boolean,
+        val isEditable: Boolean,
         val sizeBytes: Long,
         val sizeText: String,
         val lastModified: Long,
@@ -3141,6 +3214,7 @@ class McViewModel(
                                 name = f.name,
                                 path = f.absolutePath,
                                 isDirectory = f.isDirectory,
+                                isEditable = f.isFile && SafeTextFile.isSupported(f),
                                 sizeBytes = if (f.isFile) f.length() else 0L,
                                 sizeText = if (f.isFile) formatBytes(f.length()) else "",
                                 lastModified = f.lastModified(),
@@ -3216,7 +3290,6 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val app = McApplication.get()
                     val input = app.contentResolver.openInputStream(uri)
                         ?: throw RuntimeException(str(R.string.err_open_file))
                     val fileName = queryFileName(uri) ?: "uploaded_${System.currentTimeMillis()}"
@@ -3240,7 +3313,6 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 withContext(Dispatchers.IO) {
-                    val app = McApplication.get()
                     val output = app.contentResolver.openOutputStream(uri)
                         ?: throw RuntimeException(str(R.string.err_open_export))
                     output.use { os ->
@@ -3280,7 +3352,6 @@ class McViewModel(
     /** 从 Uri 查询文件名 */
     private fun queryFileName(uri: android.net.Uri): String? {
         return try {
-            val app = McApplication.get()
             val cursor = app.contentResolver.query(uri, null, null, null, null)
             cursor?.use {
                 val nameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
@@ -3335,30 +3406,78 @@ class McViewModel(
         }
         viewModelScope.launch(Dispatchers.Default) {
             repo.termuxRuntime.consoleFlow.collect { line ->
-                synchronized(consoleBuffer) {
-                    if (consoleBuffer.size >= 1000) consoleBuffer.removeFirst()
-                    consoleBuffer.addLast(line)
-                    consoleDirty = true
-                }
+                consoleBuffer.add(line)
+                pendingConsoleBuffer.add(line)
                 parseConsoleLine(line)
             }
         }
-        // 定时将脏标记的缓冲区快照推送到 StateFlow（批量刷新，减少 UI 重组）
+        // Process only newly received lines. Older terminal rows keep their identity across UI flushes.
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
                 // 无 UI 订阅时（后台/无页面）长睡，控制台可见时以帧友好的频率刷新。
-                if (_consoleLines.subscriptionCount.value <= 0 && _consolePreviewLines.subscriptionCount.value <= 0) {
+                if (_consoleLines.subscriptionCount.value <= 0 &&
+                    _consolePreviewLines.subscriptionCount.value <= 0 &&
+                    _terminalConsoleLines.subscriptionCount.value <= 0
+                ) {
                     delay(2000)
                     continue
                 }
                 delay(200)
-                if (consoleDirty) {
-                    val snapshot: List<String> = synchronized(consoleBuffer) {
-                        consoleDirty = false
-                        consoleBuffer.toList()
+                val batch = pendingConsoleBuffer.snapshotAndClear()
+                if (batch.isNotEmpty()) {
+                    consoleGeneration++
+                }
+                if (terminalDisplayDirty) {
+                    terminalConsoleBuffer.replace(
+                        consoleBuffer.snapshot().map { TerminalLogProcessor.process(it, _logTranslationEnabled.value) }
+                    )
+                    terminalDisplayDirty = false
+                    terminalGeneration++
+                } else if (batch.isNotEmpty()) {
+                    batch.forEach { terminalConsoleBuffer.add(TerminalLogProcessor.process(it, _logTranslationEnabled.value)) }
+                    terminalGeneration++
+                }
+                if (_consoleLines.subscriptionCount.value > 0 && consoleUiGeneration != consoleGeneration) {
+                    _consoleLines.value = consoleBuffer.snapshot()
+                    consoleUiGeneration = consoleGeneration
+                }
+                if (_terminalConsoleLines.subscriptionCount.value > 0 && terminalUiGeneration != terminalGeneration) {
+                    _terminalConsoleLines.value = terminalConsoleBuffer.snapshot()
+                    terminalUiGeneration = terminalGeneration
+                }
+                val now = System.currentTimeMillis()
+                if (_consolePreviewLines.subscriptionCount.value > 0 &&
+                    previewUiGeneration != consoleGeneration &&
+                    now - lastPreviewPublishedAtMs >= CONSOLE_PREVIEW_FLUSH_MS
+                ) {
+                    _consolePreviewLines.value = consoleBuffer.last(8)
+                    previewUiGeneration = consoleGeneration
+                    lastPreviewPublishedAtMs = now
+                }
+            }
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(LOG_FLUSH_MS)
+                val batch = legacyTermuxBuffer.snapshotAndClear()
+                if (batch.isNotEmpty()) {
+                    val current = _termuxLines.value
+                    _termuxLines.value = (current + batch).takeLast(MAX_LOG_LINES)
+                }
+            }
+        }
+        viewModelScope.launch(Dispatchers.Default) {
+            while (true) {
+                delay(LOG_FLUSH_MS)
+                val batch = synchronized(terminalOutputBuffers) {
+                    terminalOutputBuffers.mapValues { (_, buffer) -> buffer.snapshotAndClear() }
+                        .filterValues { it.isNotEmpty() }
+                }
+                batch.forEach { (id, lines) ->
+                    updateTerminalSession(id) { session ->
+                        val additions = lines.map { TerminalLogProcessor.process(it, false) }
+                        session.copy(lines = (session.lines + additions).takeLast(MAX_LOG_LINES))
                     }
-                    _consoleLines.value = snapshot
-                    _consolePreviewLines.value = snapshot.takeLast(8)
                 }
             }
         }
@@ -3368,10 +3487,10 @@ class McViewModel(
 
     /** 本地化字符串（ViewModel 中获取资源） */
     private fun str(id: Int, vararg args: Any?): String =
-        McApplication.get().getString(id, *args)
+        app.getString(id, *args)
 
     private fun metaPrefs() =
-        McApplication.get().getSharedPreferences(BootReceiver.META_PREFS, android.content.Context.MODE_PRIVATE)
+        app.getSharedPreferences(BootReceiver.META_PREFS, android.content.Context.MODE_PRIVATE)
 
     /** 开机自启动开关状态 */
     fun isBootAutoStart(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_BOOT_AUTO_START, false)
@@ -3394,9 +3513,9 @@ class McViewModel(
     /** 拉起前台保活服务 */
     fun startKeepAliveService() {
         try {
-            val intent = android.content.Intent(McApplication.get(), McForegroundService::class.java)
+            val intent = android.content.Intent(app, McForegroundService::class.java)
                 .apply { action = McForegroundService.ACTION_START }
-            McApplication.get().startForegroundService(intent)
+            app.startForegroundService(intent)
         } catch (e: Exception) {
             _errorFlow.tryEmit(str(R.string.s314, e.message))
         }
@@ -3405,9 +3524,9 @@ class McViewModel(
     /** 停止前台保活服务 */
     fun stopKeepAliveService() {
         try {
-            val intent = android.content.Intent(McApplication.get(), McForegroundService::class.java)
+            val intent = android.content.Intent(app, McForegroundService::class.java)
                 .apply { action = McForegroundService.ACTION_STOP }
-            McApplication.get().startService(intent)
+            app.startService(intent)
         } catch (e: Exception) {
             // 忽略
         }
@@ -3415,12 +3534,12 @@ class McViewModel(
 
     private fun scheduleKeepAlive() {
         val request = androidx.work.PeriodicWorkRequestBuilder<KeepAliveWorker>(15, java.util.concurrent.TimeUnit.MINUTES).build()
-        androidx.work.WorkManager.getInstance(McApplication.get()).enqueueUniquePeriodicWork(
+        androidx.work.WorkManager.getInstance(app).enqueueUniquePeriodicWork(
             "keep_alive", androidx.work.ExistingPeriodicWorkPolicy.UPDATE, request
         )
     }
 
     private fun cancelKeepAlive() {
-        androidx.work.WorkManager.getInstance(McApplication.get()).cancelUniqueWork("keep_alive")
+        androidx.work.WorkManager.getInstance(app).cancelUniqueWork("keep_alive")
     }
 }

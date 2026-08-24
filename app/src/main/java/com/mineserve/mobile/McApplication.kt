@@ -34,6 +34,10 @@ class McApplication : Application(), Configuration.Provider {
     lateinit var repository: ServerRepository
         private set
 
+    /** Manual dependency graph shared by UI entry points. */
+    lateinit var container: AppContainer
+        private set
+
     /** Termux 环境初始化完成标志，UI 层可观察 */
     private val _isBootstrapped = MutableStateFlow(false)
     val isBootstrapped: StateFlow<Boolean> = _isBootstrapped.asStateFlow()
@@ -137,16 +141,6 @@ class McApplication : Application(), Configuration.Provider {
 
         termuxRuntime = TermuxRuntime(this)
 
-        // 启动时修复 rootfs：命令可执行权限 + 脚本 shebang 解释器路径（幂等：
-        // 解决 usr/bin 下命令 Permission denied / 退出码 126 的问题）
-        scope().launch {
-            try {
-                termuxRuntime.fixRootfsPermissions()
-            } catch (e: Exception) {
-                android.util.Log.w("McApplication", "fixRootfsPermissions failed: ${e.message}")
-            }
-        }
-
         // 启动时推送上次崩溃日志到控制台（IO 线程，不阻塞主线程启动）
         if (crashLogFile.exists() && crashLogFile.length() > 0) {
             scope().launch {
@@ -158,6 +152,7 @@ class McApplication : Application(), Configuration.Provider {
             }
         }
         repository = ServerRepository(this, termuxRuntime)
+        container = AppContainer(this)
         createNotificationChannel()
         WorkManager.initialize(this, workManagerConfiguration)
 
@@ -175,8 +170,8 @@ class McApplication : Application(), Configuration.Provider {
         }
 
         // 异步初始化 Termux 环境
-        // 环境已就绪：跳过 bootstrap 安装流程（避免每次启动都触发"安装依赖"UI），
-        // 仅由上方 fixRootfsPermissions 后台轻量自愈；未就绪才走完整安装
+        // 环境已就绪：跳过 bootstrap 安装流程。全量修复推迟到安装依赖或启动服务端前，
+        // 避免首次页面渲染与大量文件访问竞争 CPU 和存储。
         if (termuxRuntime.isReady()) {
             _isBootstrapped.value = true
             repository.updateServerState {
