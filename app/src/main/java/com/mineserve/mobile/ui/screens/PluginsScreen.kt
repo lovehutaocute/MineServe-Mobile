@@ -81,7 +81,6 @@ import kotlinx.coroutines.withContext
 import androidx.compose.ui.platform.LocalContext
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -2013,7 +2012,7 @@ private fun ModrinthIcon(url: String, size: Dp = 32.dp) {
                     connection.readTimeout = 8000
                     connection.setRequestProperty("User-Agent", "McServerManager/1.0 (mcserver-manager)")
                     val bytes = connection.inputStream.use { it.readBytes() }
-                    BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    decodeModrinthIcon(bytes)
                 } catch (e: Exception) {
                     null
                 } finally {
@@ -2021,9 +2020,6 @@ private fun ModrinthIcon(url: String, size: Dp = 32.dp) {
                 }
             }
         }
-    }
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.takeUnless { it.isRecycled }?.recycle() }
     }
     Box(
         modifier = Modifier
@@ -2044,6 +2040,24 @@ private fun ModrinthIcon(url: String, size: Dp = 32.dp) {
             Text("🟦", fontSize = 14.sp)
         }
     }
+}
+
+/** Plugin cards render icons at 32dp, so retaining full-size remote artwork only wastes memory. */
+private fun decodeModrinthIcon(bytes: ByteArray): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    var sample = 1
+    while (bounds.outWidth / sample > 96 || bounds.outHeight / sample > 96) sample *= 2
+    return BitmapFactory.decodeByteArray(
+        bytes,
+        0,
+        bytes.size,
+        BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+    )
 }
 
 /** 字节数格式化（进度对话框使用） */

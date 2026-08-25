@@ -20,7 +20,6 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
@@ -49,9 +48,6 @@ fun ServerIconScreen(vm: McViewModel, onBack: () -> Unit) {
                 })
             }
         }
-    }
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.takeUnless { it.isRecycled }?.recycle() }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { it?.let(vm::setServerIcon) }
     Column(Modifier.fillMaxSize()) {

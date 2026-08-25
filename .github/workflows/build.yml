@@ -117,8 +117,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: MineServe Mobile 1.2.2
-          body_path: RELEASE_NOTES_1.2.2.md
+          name: MineServe Mobile 1.2.3
+          body_path: RELEASE_NOTES_1.2.3.md
           fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/release/*.apk
