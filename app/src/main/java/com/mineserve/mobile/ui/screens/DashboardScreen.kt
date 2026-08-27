@@ -199,32 +199,43 @@ fun DashboardScreen(
                 .imePadding()
         ) {
             item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-            HeaderBlock(eyebrow = stringResource(R.string.eyebrow_dashboard), title = stringResource(R.string.s340))
-            val activeCore = config.installedCores.find { it.name == config.activeCoreName }
-            val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
-                ?: "${config.selectedCore.displayName} ${config.mcVersion}"
-            val onlineModeEnabled = serverProperties["online-mode"]
-                ?.trim()
-                ?.equals("true", ignoreCase = true) == true
-            DashboardHeroBlock(
-                vm = vm,
-                state = state,
-                coreLabel = coreLabel,
-                onlineModeEnabled = onlineModeEnabled
-            )
-            if (!javaCardAtBottom) {
-                JavaManagementCard(
-                    vm = vm,
-                    installed = installedJava,
-                    busy = isInstalling,
-                    operation = javaOperation,
-                    atBottom = false,
-                    allInstalled = false
+                HeaderBlock(
+                    eyebrow = stringResource(R.string.eyebrow_dashboard),
+                    title = stringResource(R.string.s340)
                 )
             }
 
-            McCard(title = stringResource(R.string.dash_diag_title), compact = true) {
+            item {
+                val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+                val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
+                    ?: "${config.selectedCore.displayName} ${config.mcVersion}"
+                val onlineModeEnabled = serverProperties["online-mode"]
+                    ?.trim()
+                    ?.equals("true", ignoreCase = true) == true
+                DashboardHeroBlock(
+                    vm = vm,
+                    state = state,
+                    coreLabel = coreLabel,
+                    onlineModeEnabled = onlineModeEnabled
+                )
+            }
+
+            item {
+                if (!javaCardAtBottom) {
+                    JavaManagementCard(
+                        vm = vm,
+                        installed = installedJava,
+                        busy = isInstalling,
+                        operation = javaOperation,
+                        atBottom = false,
+                        allInstalled = false
+                    )
+                }
+            }
+
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    McCard(title = stringResource(R.string.dash_diag_title), compact = true) {
                 val issues = diagnosticReport.issueCount
                 Text(
                     when {
