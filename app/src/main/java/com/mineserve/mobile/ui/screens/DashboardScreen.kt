@@ -35,9 +35,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -193,13 +192,14 @@ fun DashboardScreen(
         // 嵌套在外层 McApp Scaffold 内：insets 已由外层消费，这里不再重复应用，避免顶部空白/白色遮挡
         contentWindowInsets = WindowInsets(0.dp)
     ) { paddingValues ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
                 .imePadding()
-                .verticalScroll(rememberScrollState())
         ) {
+            item {
+                Column(modifier = Modifier.fillMaxWidth()) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_dashboard), title = stringResource(R.string.s340))
             val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             val coreLabel = activeCore?.let { "${it.name} (${it.core.displayName} ${it.version})" }
@@ -722,7 +722,8 @@ fun DashboardScreen(
                 )
             }
             QqGroupCard()
-            Spacer(Modifier.height(16.dp))
+                }
+            }
         }
 
         // 服务器启动设置弹窗
