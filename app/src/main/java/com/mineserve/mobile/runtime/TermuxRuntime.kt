@@ -59,6 +59,10 @@ class TermuxRuntime(context: Context) {
     @Volatile
     private var mcProcess: Process? = null
     @Volatile private var mcPid: Int? = null
+    /** Java PID identified for this launch; never rescan into an installer or older server. */
+    @Volatile private var mcServerPid: Int? = null
+    @Volatile private var mcServerDir: File? = null
+    private val mcProcessLock = Any()
 
     /** MC 进程的 stdin，用于发送命令 */
     @Volatile
@@ -1832,9 +1836,11 @@ class TermuxRuntime(context: Context) {
                 val cmdline = try {
                     File(f, "cmdline").readText().replace('\u0000', ' ')
                 } catch (_: Exception) { return@forEach }
-                val isMc = cmdline.contains("java") &&
-                    ((target != null && cmdline.contains(target)) ||
-                        (cmdline.contains(".jar") && cmdline.contains("nogui")))
+                val isMc = cmdline.contains("java") && if (target != null) {
+                    cmdline.contains(target)
+                } else {
+                    cmdline.contains(".jar") && cmdline.contains("nogui")
+                }
                 if (isMc) {
                     val pid = name.toIntOrNull() ?: return@forEach
                     Log.w(TAG, "killOrphanMcProcess: killing orphan pid=$pid (${cmdline.take(140)})")
@@ -1901,7 +1907,7 @@ class TermuxRuntime(context: Context) {
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false " +
-            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m $javaArguments" + if (appendNogui) " nogui" else ""
+            "-Xmx${maxHeapMb}m $javaArguments" + if (appendNogui) " nogui" else ""
         val rootfs = java8Rootfs
         // PRoot creates glue files outside the guest rootfs. Keep this path in
         // the app-owned prefix; Termux's compatibility /usr/tmp may be absent
@@ -1954,9 +1960,7 @@ class TermuxRuntime(context: Context) {
         }
         emitLog("[startMc] java 路径: Ubuntu:/usr/bin/java (openjdk-8-jdk)")
         emitLog("[startMc] 正在启动 Java 8 服务端...")
-        mcProcess = process
-        mcPid = processPid(process) ?: findMcChildPid()
-        mcStdin = process.outputStream
+        trackMcProcess(process, serverDir)
         Thread({
             try {
                 val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(
@@ -1980,10 +1984,7 @@ class TermuxRuntime(context: Context) {
             val code = process.waitFor()
             Log.w(TAG, "Ubuntu Java 8 MC process exited code=$code")
             emitLog("[startMc] Java 8 服务端已退出 (exit=$code)")
-            mcProcess = null
-            mcPid = null
-            mcStdin = null
-            onExit(code)
+            if (clearMcProcessIfCurrent(process)) onExit(code)
         }, "mc-ubuntu-watch").start()
         return process
     }
@@ -2059,7 +2060,7 @@ class TermuxRuntime(context: Context) {
             "-Doshi.util.use.jna=false -Djna.nosys=true " +
             "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
             "-Dio.netty.transport.kqueue.enabled=false " +
-            "-Xmx${maxHeapMb}m -Xms${maxHeapMb / 2}m " + (launchArgs ?: "-jar $jarPath") + if (appendNogui) " nogui" else ""
+            "-Xmx${maxHeapMb}m " + (launchArgs ?: "-jar $jarPath") + if (appendNogui) " nogui" else ""
 
         Log.i(TAG, "startMc command: $javaCmd")
 
@@ -2070,9 +2071,7 @@ class TermuxRuntime(context: Context) {
             environment().putAll(executor.termuxEnv())
         }
         val process = pb.start()
-        mcProcess = process
-        mcPid = processPid(process) ?: findMcChildPid()
-        mcStdin = process.outputStream
+        trackMcProcess(process, serverDir)
 
         // 后台线程读取 stdout，推送到 consoleFlow 并写入日志文件
         Thread({
@@ -2100,10 +2099,83 @@ class TermuxRuntime(context: Context) {
         Thread({
             val code = process.waitFor()
             Log.w(TAG, "MC process exited code=$code")
-            mcProcess = null
-            mcPid = null
-            mcStdin = null
-            onExit(code)
+            if (clearMcProcessIfCurrent(process)) onExit(code)
+        }, "mc-watch").start()
+
+        return process
+    }
+
+    /**
+     * 使用完全自定义命令启动 MC 服务端（高级选项：完全自定义启动命令模式）。
+     * 直接执行用户提供的完整 shell 命令，不进行任何自动拼接。
+     */
+    fun startMcCustom(
+        command: String,
+        dirName: String,
+        onExit: (Int) -> Unit
+    ): Process {
+        Log.i(TAG, "startMcCustom: command=$command dirName=$dirName")
+
+        mcProcess?.let { if (it.isAlive) return it }
+
+        val prefix = installer.rootDir.absolutePath
+        val serverDir = serverDirFor(dirName)
+        val logFile = File(serverDir, "logs/latest.log")
+        logFile.parentFile?.mkdirs()
+        logFile.createNewFile()
+
+        killOrphanMcProcess(serverDir)
+
+        val compatUsr = "$prefix/data/data/com.termux/files/usr"
+        val allJvmLibs = JavaVersion.values().flatMap { version ->
+            javaCandidates(version).flatMap { candidate ->
+                listOf("$candidate/lib", "$candidate/lib/server")
+            }
+        }.joinToString(":")
+        val fullCmd = "export PATH='$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/libexec:/system/bin:/system/xbin'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$allJvmLibs:/system/lib64'; " +
+            "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
+            "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
+            "export PREFIX='$prefix'; " +
+            "export HOME='$prefix/home'; " +
+            "export TMPDIR='$prefix/tmp'; " +
+            "cd '$serverDir' && $command"
+
+        Log.i(TAG, "startMcCustom full command: $fullCmd")
+        emitLog("[startMc] 自定义启动命令: $command")
+
+        val pb = ProcessBuilder("/system/bin/sh", "-c", fullCmd).apply {
+            redirectErrorStream(true)
+            directory(serverDir)
+            environment().putAll(executor.termuxEnv())
+        }
+        val process = pb.start()
+        trackMcProcess(process, serverDir)
+
+        Thread({
+            try {
+                val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(
+                    java.io.FileOutputStream(logFile, true), Charsets.UTF_8), 8192)
+                val reader = process.inputStream.bufferedReader()
+                var line = reader.readLine()
+                var lineCount = 0
+                while (line != null) {
+                    executor.emit(line)
+                    writer.appendLine(line)
+                    if (++lineCount % 50 == 0) writer.flush()
+                    line = reader.readLine()
+                }
+                writer.flush()
+                writer.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "mc stdout reader error: ${e.message}")
+            }
+        }, "mc-stdout-reader").start()
+
+        Thread({
+            val code = process.waitFor()
+            Log.w(TAG, "MC process exited code=$code")
+            if (clearMcProcessIfCurrent(process)) onExit(code)
         }, "mc-watch").start()
 
         return process
@@ -2112,9 +2184,11 @@ class TermuxRuntime(context: Context) {
     /** 停止 MC：向 stdin 发送 stop 命令，等待最多 5 秒后强制 destroy */
     suspend fun stopMc(): Boolean = withContext(Dispatchers.IO) {
         val proc = mcProcess ?: return@withContext true
+        val serverDir = mcServerDir
         if (!proc.isAlive) {
-            mcProcess = null
-            mcPid = null
+            // The shell/PRoot wrapper may have exited while its Java child survived.
+            killOrphanMcProcess(serverDir)
+            clearMcProcessIfCurrent(proc)
             return@withContext true
         }
         try {
@@ -2133,8 +2207,30 @@ class TermuxRuntime(context: Context) {
             proc.destroyForcibly()
             withTimeoutOrNull(3000) { while (proc.isAlive) delay(50) }
         }
+        // PRoot can leave its Java child alive after its outer process exits.
+        // Clear it before returning so a subsequent start never doubles servers.
+        killOrphanMcProcess(serverDir)
+        clearMcProcessIfCurrent(proc)
+        true
+    }
+
+    private fun trackMcProcess(process: Process, serverDir: File) {
+        synchronized(mcProcessLock) {
+            mcProcess = process
+            mcPid = processPid(process) ?: findMcChildPid()
+            mcServerPid = null
+            mcServerDir = serverDir
+            mcStdin = process.outputStream
+        }
+    }
+
+    /** A late watcher from an older start must not clear a newer server process. */
+    private fun clearMcProcessIfCurrent(process: Process): Boolean = synchronized(mcProcessLock) {
+        if (mcProcess !== process) return@synchronized false
         mcProcess = null
         mcPid = null
+        mcServerPid = null
+        mcServerDir = null
         mcStdin = null
         true
     }
@@ -2158,68 +2254,55 @@ class TermuxRuntime(context: Context) {
     /**
      * 读取 MC 进程当前真实内存占用（RSS，单位 MB）。
      * Android 的 java.lang.Process 无公开 pid()，改为遍历 /proc 查找
-     * java 进程，优先匹配 cmdline 含 ".jar" 的 MC 服务端进程，否则取第一个
-     * java 进程兜底；读取其 stat 中 rss 字段（剥离 comm 后 0-based 索引 21）。
+     * Java 子进程，读取其 stat 中 rss 字段（剥离 comm 后 0-based 索引 21）。
      * 常规权限即可读取（app 自有子进程），兼容性好。
-     * @return MB 值；未找到/读取失败时返回 0
+     * @return MB 值；服务进程未创建或读取失败时返回 0
      */
     fun mcProcessMemoryMb(): Long {
         return try {
+            // 启动器/安装器也可能是 Java 进程，不能在 MC 尚未创建时全局兜底扫描。
+            if (mcProcess?.isAlive != true) return 0L
             processStat(mcProcess)?.let { stat ->
                 val rssPages = stat.getOrNull(21)?.toLongOrNull() ?: 0L
                 if (rssPages > 0) return rssPages * 4096 / (1024 * 1024)
             }
-            val procDir = java.io.File("/proc")
-            var fallbackRss = 0L
-            procDir.listFiles()?.forEach { f ->
-                val name = f.name
-                if (name.isEmpty() || !name.all { it.isDigit() }) return@forEach
-                val statFile = java.io.File(f, "stat")
-                if (!statFile.exists()) return@forEach
-                val content = statFile.readText()
-                // /proc/pid/stat 格式：pid (comm) state ...；comm 可能含空格/括号
-                val openParen = content.indexOf('(')
-                val closeParen = content.indexOf(')', openParen + 1)
-                if (openParen <= 0 || closeParen <= openParen) return@forEach
-                val comm = content.substring(openParen + 1, closeParen)
-                if (comm != "java") return@forEach
-                // closeParen 后从 state 开始：state(1) ... vsize(23) rss(24)，rss 0-based 索引 21
-                val rssPages = content.substring(closeParen + 1)
-                    .trim().split(Regex("\\s+")).getOrNull(21)?.toLongOrNull() ?: 0L
-                if (rssPages <= 0) return@forEach
-                // 优先匹配 MC 服务端进程（cmdline 含 .jar），否则记录首个 java 进程兜底
-                val cmdlineFile = java.io.File(f, "cmdline")
-                val isMcJar = cmdlineFile.exists() && cmdlineFile.readText().contains(".jar")
-                if (isMcJar) return rssPages * 4096 / (1024 * 1024)
-                if (fallbackRss == 0L) fallbackRss = rssPages * 4096 / (1024 * 1024)
-            }
-            fallbackRss
+            0L
         } catch (e: Exception) {
             0L
         }
-    }
-
-    /** MC Java 进程的 utime + stime ticks；用于跨采样周期计算 CPU 占用。 */
-    fun mcProcessCpuTicks(): Long? = processStat(mcProcess)?.let { fields ->
-        val user = fields.getOrNull(11)?.toLongOrNull()
-        val system = fields.getOrNull(12)?.toLongOrNull()
-        if (user != null && system != null) user + system else null
     }
 
     /** Read the launched Java process, which may be several layers below shell/proot. */
     private fun processStat(process: Process?): List<String>? {
         if (process?.isAlive != true) return null
         return try {
-            val rootPid = mcPid ?: processPid(process)?.also { mcPid = it }
-                ?: findMcChildPid()?.also { mcPid = it } ?: return null
-            val pid = findServerPid(rootPid) ?: rootPid
-            mcPid = pid
-            val stat = File("/proc/$pid/stat").readText()
-            val end = stat.lastIndexOf(')')
-            if (end < 0) null else stat.substring(end + 1).trim().split(Regex("\\s+"))
+            val knownServerPid = mcServerPid
+            if (knownServerPid != null && File("/proc/$knownServerPid/stat").isFile) {
+                readProcStat(knownServerPid)
+            } else {
+                val rootPid = mcPid ?: processPid(process)?.also { mcPid = it }
+                    ?: findMcChildPid()?.also { mcPid = it }
+                if (rootPid == null) {
+                    null
+                } else {
+                    // Only measure the Java server descendant. The shell/PRoot wrapper
+                    // is not the server and must not be reported as server memory.
+                    val pid = findServerPid(rootPid)
+                    if (pid == null) null else {
+                        mcServerPid = pid
+                        readProcStat(pid)
+                    }
+                }
+            }
         } catch (_: Exception) {
             null
         }
+    }
+
+    private fun readProcStat(pid: Int): List<String>? {
+        val stat = File("/proc/$pid/stat").readText()
+        val end = stat.lastIndexOf(')')
+        return if (end < 0) null else stat.substring(end + 1).trim().split(Regex("\\s+"))
     }
 
     private data class ProcEntry(val pid: Int, val parentPid: Int, val comm: String, val cmdline: String)

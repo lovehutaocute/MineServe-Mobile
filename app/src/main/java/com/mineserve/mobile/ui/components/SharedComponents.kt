@@ -1,10 +1,12 @@
 package com.mineserve.mobile.ui
 
+// 性能修改理由：输入过程使用本地状态，避免异步保存回读打断输入法的光标位置。
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.res.stringResource
 import com.mineserve.mobile.R
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +18,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,6 +53,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -452,6 +457,7 @@ private fun formatMemory(mb: Long): String =
  * @param sanitize 可选输入清洗函数（如数字框只保留数字），每次输入后应用
  */
 @Composable
+@OptIn(ExperimentalFoundationApi::class)
 fun DebouncedTextField(
     value: String,
     onValueChange: (String) -> Unit,
@@ -464,11 +470,13 @@ fun DebouncedTextField(
     minLines: Int = 1,
     maxLines: Int = Int.MAX_VALUE,
     keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    textStyle: TextStyle = TextStyle.Default,
     shape: Shape = OutlinedTextFieldDefaults.shape
 ) {
     var text by remember { mutableStateOf(value) }
     var isFocused by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
 
     // 外部值同步：仅在非编辑状态时同步到本地。
     // 关键：防抖写回后外部 value 的回显更新有延迟，若此时用户已继续输入，
@@ -493,6 +501,10 @@ fun DebouncedTextField(
             onValueChange(text)
             editing = false
         }
+        if (isFocused) {
+            delay(100)
+            bringIntoViewRequester.bringIntoView()
+        }
     }
 
     // 组合移除（切页/销毁）时立即回传未写回内容，避免防抖窗口内输入丢失
@@ -508,7 +520,9 @@ fun DebouncedTextField(
             text = sanitize?.invoke(newText) ?: newText
             editing = true
         },
-        modifier = modifier.onFocusChanged { isFocused = it.isFocused },
+        modifier = modifier
+            .bringIntoViewRequester(bringIntoViewRequester)
+            .onFocusChanged { isFocused = it.isFocused },
         enabled = enabled,
         singleLine = singleLine,
         label = label,
@@ -516,6 +530,7 @@ fun DebouncedTextField(
         minLines = minLines,
         maxLines = maxLines,
         keyboardOptions = keyboardOptions,
+        textStyle = textStyle,
         shape = shape
     )
 }

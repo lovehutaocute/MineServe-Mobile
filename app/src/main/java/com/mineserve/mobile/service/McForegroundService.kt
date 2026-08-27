@@ -128,6 +128,9 @@ class McForegroundService : Service() {
         if (running) {
             Log.i(TAG, "Detected surviving MC process, will reattach to log stream")
             McApplication.get(this).repository.updateServerState {
+                // A user-triggered start already owns the startup state. Do not
+                // turn it into "running" before the console reports readiness.
+                if (it.isRunning && it.runningSinceMs == 0L) return@updateServerState it
                 // The original launch log is not replayed after an app restart.
                 // Restore the timestamp so the dashboard cannot remain in the
                 // perpetual "starting" state after reattaching.

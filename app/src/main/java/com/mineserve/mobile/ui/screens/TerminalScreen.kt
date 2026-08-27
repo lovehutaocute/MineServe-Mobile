@@ -1,5 +1,6 @@
 package com.mineserve.mobile.ui.screens
 
+// 性能修改理由：终端列表保留复用能力，并缓存行样式和截断超长显示文本以降低测量开销。
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -10,7 +11,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Close
@@ -238,22 +238,21 @@ fun TerminalScreen(vm: McViewModel) {
                 }
             }
         }
-        SelectionContainer {
-            LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                itemsIndexed(
-                    renderedLines,
-                    key = { _, line -> line.id },
-                    contentType = { _, _ -> "terminal-log" }
-                ) { _, line ->
-                    val color = terminalLogColor(line.tone)
-                    Text(
-                        line.text,
-                        color = color,
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.Monospace,
-                        softWrap = true
-                    )
-                }
+        LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            itemsIndexed(
+                renderedLines,
+                key = { _, line -> line.id },
+                contentType = { _, _ -> "terminal-log" }
+            ) { _, line ->
+                val style = terminalLogStyles.getValue(line.tone)
+                val displayText = remember(line.text) { line.text.forTerminalDisplay() }
+                Text(
+                    displayText,
+                    color = style.color,
+                    fontSize = 11.sp,
+                    fontFamily = terminalLogFontFamily,
+                    softWrap = true
+                )
             }
         }
     }
@@ -298,14 +297,21 @@ fun TerminalScreen(vm: McViewModel) {
 }
 
 private const val MAX_RENDERED_LINES = 300
+private const val MAX_DISPLAY_LOG_CHARS = 400
 
-private fun terminalLogColor(tone: TerminalLogTone): Color = when (tone) {
-    TerminalLogTone.Command -> Color(0xFF57E357)
-    TerminalLogTone.Error -> Color(0xFFFF7B72)
-    TerminalLogTone.Warning -> Color(0xFFE3B341)
-    TerminalLogTone.Info -> Color(0xFF8BD5CA)
-    TerminalLogTone.Debug -> Color(0xFF82AAFF)
-    TerminalLogTone.Download -> Color(0xFF89B4FA)
-    TerminalLogTone.Success -> Color(0xFFA6E3A1)
-    TerminalLogTone.Default -> Color(0xFFE8E8E8)
-}
+private data class TerminalLogStyle(val color: Color)
+
+private val terminalLogFontFamily = FontFamily.Monospace
+private val terminalLogStyles = mapOf(
+    TerminalLogTone.Command to TerminalLogStyle(Color(0xFF57E357)),
+    TerminalLogTone.Error to TerminalLogStyle(Color(0xFFFF7B72)),
+    TerminalLogTone.Warning to TerminalLogStyle(Color(0xFFE3B341)),
+    TerminalLogTone.Info to TerminalLogStyle(Color(0xFF8BD5CA)),
+    TerminalLogTone.Debug to TerminalLogStyle(Color(0xFF82AAFF)),
+    TerminalLogTone.Download to TerminalLogStyle(Color(0xFF89B4FA)),
+    TerminalLogTone.Success to TerminalLogStyle(Color(0xFFA6E3A1)),
+    TerminalLogTone.Default to TerminalLogStyle(Color(0xFFE8E8E8))
+)
+
+private fun String.forTerminalDisplay(): String =
+    if (length > MAX_DISPLAY_LOG_CHARS) take(MAX_DISPLAY_LOG_CHARS) + "..." else this

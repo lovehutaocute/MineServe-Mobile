@@ -1,5 +1,9 @@
 package com.mineserve.mobile.ui
 
+// 性能修改理由：只在批量刷新时创建不可变快照，供 Compose 安全跳过未变化的日志列表。
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+
 /** Bounded O(1) append buffer; copying happens only when a UI batch is flushed. */
 internal class LogBuffer<T>(private val capacity: Int) {
     private val values = ArrayDeque<T>(capacity)
@@ -11,19 +15,19 @@ internal class LogBuffer<T>(private val capacity: Int) {
     }
 
     @Synchronized
-    fun snapshotAndClear(): List<T> {
-        val result = values.toList()
+    fun snapshotAndClear(): ImmutableList<T> {
+        val result = values.toImmutableList()
         values.clear()
         return result
     }
 
     @Synchronized
-    fun snapshot(): List<T> = values.toList()
+    fun snapshot(): ImmutableList<T> = values.toImmutableList()
 
     @Synchronized
-    fun last(count: Int): List<T> = values.asSequence()
+    fun last(count: Int): ImmutableList<T> = values.asSequence()
         .drop((values.size - count).coerceAtLeast(0))
-        .toList()
+        .toImmutableList()
 
     @Synchronized
     fun replace(newValues: List<T>) {

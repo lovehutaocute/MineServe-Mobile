@@ -1,5 +1,6 @@
 package com.mineserve.mobile.data
 
+// 性能修改理由：移动网络断流时自动重试，并在分片下载失败后回退单流，避免误判整源不可用。
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
@@ -104,7 +105,7 @@ object MultiThreadDownloader {
         if (!enabled || threadCount <= 1 || total <= 0 || total < MIN_MULTI_BYTES) {
             if (!enabled) onLog?.invoke("多线程下载未启用，使用单流下载")
             if (total in 1 until MIN_MULTI_BYTES) onLog?.invoke("文件较小，使用单流下载")
-            singleStream(url, target, total, onProgress, session)
+            singleStreamWithRetry(url, target, total, onProgress, onLog, session)
             return
         }
 
@@ -139,11 +140,18 @@ object MultiThreadDownloader {
             }
             checkCancelled(session)
             if (!errors.isEmpty()) {
-                throw RuntimeException("多线程分片下载失败: ${errors.peek()?.message ?: "未知错误"}")
+                val reason = errors.peek()?.message ?: "未知错误"
+                onLog?.invoke("多线程下载中断，改用单流下载：$reason")
+                target.delete()
+                singleStreamWithRetry(url, target, total, onProgress, onLog, session)
+                return
             }
 
             // 合并分片为最终文件
             mergeRanges(target, ranges)
+            if (target.length() != total) {
+                throw RuntimeException("多线程下载文件不完整: ${target.length()}/$total 字节")
+            }
             onProgress(target.length(), total, 0L)
         } finally {
             pool.shutdownNow()
@@ -244,6 +252,10 @@ object MultiThreadDownloader {
             } finally {
                 output.close()
             }
+            val expectedLength = end - start + 1
+            if (part.length() != expectedLength) {
+                throw RuntimeException("分片大小不完整: ${part.length()}/$expectedLength 字节")
+            }
         } finally {
             conn?.let { session?.unregister(it) }
             conn?.disconnect()
@@ -318,6 +330,32 @@ object MultiThreadDownloader {
         }
     }
 
+    private fun singleStreamWithRetry(
+        urlStr: String,
+        target: File,
+        total: Long,
+        onProgress: (Long, Long, Long) -> Unit,
+        onLog: ((String) -> Unit)?,
+        session: DownloadSession?
+    ) {
+        var lastError: Exception? = null
+        repeat(SINGLE_STREAM_RETRIES) { attempt ->
+            try {
+                if (attempt > 0) onLog?.invoke("单流下载重试 ${attempt + 1}/$SINGLE_STREAM_RETRIES")
+                target.delete()
+                singleStream(urlStr, target, total, onProgress, session)
+                if (total <= 0L || target.length() == total) return
+                throw RuntimeException("文件大小不完整: ${target.length()}/$total 字节")
+            } catch (e: java.util.concurrent.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                lastError = e
+                Log.w(TAG, "single stream attempt ${attempt + 1} failed: ${e.message}")
+            }
+        }
+        throw RuntimeException("单流下载失败: ${lastError?.message ?: "未知错误"}", lastError)
+    }
+
     private fun checkCancelled(session: DownloadSession?) {
         if (session?.isCancelled() == true) throw java.util.concurrent.CancellationException("Download cancelled")
     }
@@ -325,10 +363,12 @@ object MultiThreadDownloader {
     private fun openConn(urlStr: String): HttpURLConnection {
         return (URL(urlStr).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = true
-            // 快速失败：连接 8s、读间隔 20s，挂梯子/镜像异常时快速切源
-            connectTimeout = 8_000
-            readTimeout = 20_000
+            // 移动网络可能短暂无数据，避免正常的 CDN 停顿被误判为断流。
+            connectTimeout = 15_000
+            readTimeout = 60_000
             setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
         }
     }
+
+    private const val SINGLE_STREAM_RETRIES = 2
 }

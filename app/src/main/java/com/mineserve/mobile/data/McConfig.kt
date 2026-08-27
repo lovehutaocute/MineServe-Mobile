@@ -1,6 +1,7 @@
 package com.mineserve.mobile.data
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
  * 服务端核心类型：Paper / Purpur / Leaves / Leaf / Spigot / CraftBukkit / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
@@ -213,7 +214,12 @@ data class McConfig(
     /** @deprecated 旧版兼容字段，由 installedCores 替代 */
     val downloadedCore: ServerCore? = null,
     /** @deprecated 旧版兼容字段 */
-    val downloadedVersion: String? = null
+    val downloadedVersion: String? = null,
+    // ── 高级启动选项 ──────────────────────────────────────────
+    /** 完全自定义启动命令开关：开启后直接执行整条命令，忽略自动拼接 */
+    val advancedCustomCommandEnabled: Boolean = false,
+    /** 完全自定义启动命令（整条 Java 启动指令） */
+    val advancedCustomCommand: String = ""
 )
 
 /**
@@ -225,7 +231,7 @@ data class ServerState(
     val onlinePlayers: Int = 0,
     val maxPlayers: Int = 20,
     val usedMemoryMb: Long = 0L,
-    /** MC Java 进程 CPU 占用；首次采样或不可用时为 null。 */
+    /** 整机系统 CPU 总占用率；首次采样或不可用时为 null。 */
     val cpuPercent: Int? = null,
     val maxMemoryMb: Long = 0L,
     val healthPercent: Int = 0,            // 0-100，综合健康度
@@ -236,7 +242,10 @@ data class ServerState(
     val installSteps: List<StepState> = InstallStep.values().map {
         StepState(it, StepStatus.Wait)
     },
-    val currentProgress: Int = 0           // 0-100 安装进度
+    val currentProgress: Int = 0,           // 0-100 安装进度
+    /** 最近一次检测到下载日志的 SystemClock.elapsedRealtime 时间戳，用于下载冷却期保护 */
+    @Transient
+    val lastDownloadActivityMs: Long = 0L
 ) {
     val isInstallComplete: Boolean get() = installSteps.filter { it.step != InstallStep.Jdk }.isNotEmpty() &&
         installSteps.filter { it.step != InstallStep.Jdk }.all { it.status == StepStatus.Done }
@@ -244,9 +253,9 @@ data class ServerState(
 
 enum class StartupPhase(val label: String, val progress: Float) {
     Idle("未启动", 0f),
-    PreparingEnvironment("准备环境", 0.10f),
-    DownloadingDependencies("下载依赖", 0.28f),
-    StartingJava("启动 Java", 0.46f),
+    PreparingEnvironment("准备环境", 0.07f),
+    StartingJava("启动 Java", 0.20f),
+    DownloadingDependencies("下载依赖", 0.40f),
     LoadingCore("加载核心", 0.62f),
     CreatingWorld("创建世界", 0.80f),
     StartingNetwork("启动网络", 0.92f),
@@ -273,14 +282,17 @@ fun startupPhaseForLog(line: String): StartupPhase? {
             text.contains("loading minecraft") || text.contains("mod loading") ||
             text.contains("modlauncher") || text.contains("quilt loader") ||
             text.contains("fabric loader") || text.contains("booting up velocity") ||
-            text.contains("starting bungeecord") || text.contains("正在启动 minecraft") -> StartupPhase.LoadingCore
+            text.contains("starting bungeecord") || text.contains("正在启动 minecraft") ||
+            text.contains("applying patches") || text.contains("remapping") ||
+            text.contains("starting org.bukkit") -> StartupPhase.LoadingCore
         text.contains("[startmc] java 路径") || text.contains("正在启动 java") ||
             text.contains("starting java") || text.contains("java version") ||
             text.contains("jvm") -> StartupPhase.StartingJava
         text.contains("[download]") || text.contains("下载依赖") ||
             text.contains("安装依赖") || text.contains("依赖包") ||
             text.contains("downloading") || text.contains("downloaded") ||
-            text.contains("libraries") || text.contains("installer") -> StartupPhase.DownloadingDependencies
+            text.contains("libraries") || text.contains("installer") ||
+            text.contains("mojang_") || text.contains("正在加载") -> StartupPhase.DownloadingDependencies
         else -> null
     }
 }

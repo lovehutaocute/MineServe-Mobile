@@ -1,5 +1,6 @@
 package com.mineserve.mobile.ui
 
+// 性能修改理由：日志只在有新增内容时发布不可变快照，并降低资源采样频率以减少界面重组。
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -57,6 +58,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
@@ -77,6 +80,7 @@ import android.content.ClipData
 import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.content.FileProvider
+import android.os.SystemClock
 import java.io.File
 
 /**
@@ -138,23 +142,23 @@ class McViewModel(
         app.forceDeleteBootstrap()
     }
 
-    private val _consoleLines = MutableStateFlow<List<String>>(emptyList())
-    val consoleLines: StateFlow<List<String>> = _consoleLines.asStateFlow()
+    private val _consoleLines = MutableStateFlow<ImmutableList<String>>(persistentListOf())
+    val consoleLines: StateFlow<ImmutableList<String>> = _consoleLines.asStateFlow()
 
     /** 终端专用的后台预处理日志，避免 Compose 主线程翻译和关键词扫描。 */
-    private val _terminalConsoleLines = MutableStateFlow<List<TerminalDisplayLine>>(emptyList())
-    val terminalConsoleLines: StateFlow<List<TerminalDisplayLine>> = _terminalConsoleLines.asStateFlow()
+    private val _terminalConsoleLines = MutableStateFlow<ImmutableList<TerminalDisplayLine>>(persistentListOf())
+    val terminalConsoleLines: StateFlow<ImmutableList<TerminalDisplayLine>> = _terminalConsoleLines.asStateFlow()
     private val _logTranslationEnabled = MutableStateFlow(true)
     val logTranslationEnabled: StateFlow<Boolean> = _logTranslationEnabled.asStateFlow()
 
     /** Small, stable preview for cards that only show the latest few server messages. */
-    private val _consolePreviewLines = MutableStateFlow<List<String>>(emptyList())
-    val consolePreviewLines: StateFlow<List<String>> = _consolePreviewLines.asStateFlow()
+    private val _consolePreviewLines = MutableStateFlow<ImmutableList<String>>(persistentListOf())
+    val consolePreviewLines: StateFlow<ImmutableList<String>> = _consolePreviewLines.asStateFlow()
 
     // ── Termux 终端（会话面板） ─────────────────────────────
 
-    private val _termuxLines = MutableStateFlow<List<String>>(emptyList())
-    val termuxLines: StateFlow<List<String>> = _termuxLines.asStateFlow()
+    private val _termuxLines = MutableStateFlow<ImmutableList<String>>(persistentListOf())
+    val termuxLines: StateFlow<ImmutableList<String>> = _termuxLines.asStateFlow()
 
     private val _termuxBusy = MutableStateFlow(false)
     val termuxBusy: StateFlow<Boolean> = _termuxBusy.asStateFlow()
@@ -248,9 +252,9 @@ class McViewModel(
         consoleUiGeneration = consoleGeneration
         terminalUiGeneration = terminalGeneration
         previewUiGeneration = consoleGeneration
-        _consoleLines.value = emptyList()
-        _consolePreviewLines.value = emptyList()
-        _terminalConsoleLines.value = emptyList()
+        _consoleLines.value = persistentListOf()
+        _consolePreviewLines.value = persistentListOf()
+        _terminalConsoleLines.value = persistentListOf()
     }
 
     private fun updateTerminalSession(id: String, transform: (TerminalSession) -> TerminalSession) {
@@ -635,17 +639,17 @@ class McViewModel(
     private var cachedResourceDir: String? = null
     private var cachedDirectoryBytes: Long? = null
     private var cachedDirectoryBytesAtMs = 0L
-    private var previousCpuTicks = 0L
-    private var previousTotalTicks = 0L
+    private var previousCpuTotalTicks = 0L
+    private var previousCpuIdleTicks = 0L
 
-    /** Samples only values that belong to the selected server or its process. */
+    /** Samples global system CPU plus values that belong to the selected server. */
     private fun startServerResourceCollection() {
         viewModelScope.launch {
             // Defer the first recursive server-directory scan until the first screen settles.
-            delay(10_000)
+            delay(15_000)
             while (true) {
                 withContext(Dispatchers.IO) { collectServerResourcesOnce() }
-                delay(10000)
+                delay(15_000)
             }
         }
     }
@@ -667,11 +671,8 @@ class McViewModel(
                 cachedDirectoryBytes
             }
             val memory = repo.termuxRuntime.mcProcessMemoryMb().takeIf { running && it > 0L }
-            val cpu = if (running) readMcCpuPercent() else {
-                previousCpuTicks = 0L
-                previousTotalTicks = 0L
-                null
-            }
+            // CPU is the whole device's usage and remains available even when the server is stopped.
+            val cpu = readSystemCpuPercent()
             _serverResources.value = ServerResourceStats(
                 processMemoryMb = memory,
                 cpuPercent = cpu,
@@ -686,22 +687,41 @@ class McViewModel(
         }
     }
 
-    /** Linux procfs 轻量采样，复用现有资源轮询，不新增线程或依赖。 */
-    private fun readMcCpuPercent(): Int? = runCatching {
-        val processTicks = repo.termuxRuntime.mcProcessCpuTicks() ?: return null
-        val totalTicks = File("/proc/stat").useLines { lines ->
-            lines.firstOrNull { it.startsWith("cpu ") }
-                ?.trim()?.split(Regex("\\s+"))?.drop(1)?.sumOf { it.toLong() } ?: 0L
-        }
-        val percent = if (previousTotalTicks > 0L && totalTicks > previousTotalTicks && processTicks >= previousCpuTicks) {
-            ((processTicks - previousCpuTicks).toDouble() /
-                (totalTicks - previousTotalTicks) * 100.0 * Runtime.getRuntime().availableProcessors())
+    /** Linux procfs 轻量采样：计算整机系统总 CPU 占用，不依赖 MC 进程。 */
+    private fun readSystemCpuPercent(): Int? = runCatching {
+        val sample = File("/proc/stat").useLines { lines ->
+            val fields = lines.firstOrNull { it.startsWith("cpu ") }
+                ?.trim()?.split(Regex("\\s+")) ?: return@useLines null
+            val values = fields.drop(1).map { token ->
+                val value = token.toLongOrNull()
+                if (value == null || value < 0L) return@useLines null
+                value
+            }
+            if (values.size < 5) return@useLines null
+
+            // /proc/stat: user, nice, system, idle, iowait, irq, softirq, steal...
+            val totalTicks = values.sum()
+            val idleTicks = values[3] + values[4]
+            if (totalTicks <= 0L || idleTicks > totalTicks) return@useLines null
+            CpuTicks(totalTicks, idleTicks)
+        } ?: return@runCatching null
+
+        val totalDelta = sample.totalTicks - previousCpuTotalTicks
+        val idleDelta = sample.idleTicks - previousCpuIdleTicks
+        val percent = if (previousCpuTotalTicks > 0L &&
+            totalDelta > 0L && idleDelta in 0L..totalDelta
+        ) {
+            ((totalDelta - idleDelta).toDouble() / totalDelta * 100.0)
                 .toInt().coerceIn(0, 100)
         } else null
-        previousCpuTicks = processTicks
-        previousTotalTicks = totalTicks
+
+        // Always advance the baseline so a counter reset or malformed interval can resync next time.
+        previousCpuTotalTicks = sample.totalTicks
+        previousCpuIdleTicks = sample.idleTicks
         percent
     }.getOrNull()
+
+    private data class CpuTicks(val totalTicks: Long, val idleTicks: Long)
 
     private val _diagnosticReport = MutableStateFlow(DiagnosticReport())
     val diagnosticReport: StateFlow<DiagnosticReport> = _diagnosticReport.asStateFlow()
@@ -929,6 +949,8 @@ class McViewModel(
         private const val MAX_LOG_LINES = 1500
         private const val LOG_FLUSH_MS = 200L
         private const val CONSOLE_PREVIEW_FLUSH_MS = 750L
+        /** 下载阶段锁定超时：60 秒无 post-download 消息则强制解锁 */
+        private const val DOWNLOAD_LOCK_TIMEOUT_MS = 60_000L
         // 预编译正则，避免每行重新编译
         private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
         private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")
@@ -949,7 +971,8 @@ class McViewModel(
 
     private fun parseConsoleLine(line: String) {
         try {
-            updateStartupPhaseFromLog(line)
+            val startupPhase = startupPhaseForLog(line)
+            updateStartupPhaseFromLog(startupPhase)
             val requiredJava = CrashReportAnalyzer.requiredJavaVersion(line)
             if (requiredJava != null) {
                 val selected = when (config.value.selectedJavaVersion) {
@@ -997,6 +1020,8 @@ class McViewModel(
                         val online = m.groupValues[1].toIntOrNull() ?: return
                         val max = m.groupValues[2].toIntOrNull() ?: return
                         repo.updateServerState { it.copy(onlinePlayers = online, maxPlayers = max) }
+                        // A valid list response proves the server is already accepting commands.
+                        markServerReady()
                         // 全量校正在线玩家名单（list 命令响应）
                         playerManager.parseOnlinePlayers(line)?.let { names ->
                             _onlinePlayerNames.value = names
@@ -1014,30 +1039,66 @@ class McViewModel(
                         }
                     }
                 }
-                (line.contains("Done (") && line.contains("For help")) ||
-                    (line.contains("启动完成") && line.contains("如需帮助")) ||
-                    line.contains("Server started", ignoreCase = true) -> {
-                    repo.updateServerState {
-                        it.copy(tps = 20.0, healthPercent = 100,
-                            maxMemoryMb = config.value.maxHeapMb.toLong(),
-                            runningSinceMs = android.os.SystemClock.elapsedRealtime(),
-                            startupPhase = StartupPhase.Ready)
-                    }
-                    // 启动完成：主动请求一次 list，全量校正在线玩家名单
-                    if (repo.termuxRuntime.isMcRunning()) playerManager.requestOnlineList()
-                }
+                startupPhase == StartupPhase.Ready -> markServerReady()
             }
         } catch (e: Exception) {
             // 解析失败不影响正常运行
         }
     }
 
-    /** 在后台日志解析线程推进启动阶段，UI 不扫描原始日志。 */
-    private fun updateStartupPhaseFromLog(line: String) {
-        val phase = startupPhaseForLog(line) ?: return
+    /** 将控制台明确的就绪信号统一转换为运行中。 */
+    private fun markServerReady() {
+        var becameReady = false
         repo.updateServerState { state ->
-            if (state.isRunning && state.startupPhase != StartupPhase.Ready &&
-                phase.progress >= state.startupPhase.progress) {
+            if (!state.isRunning) return@updateServerState state
+            becameReady = state.runningSinceMs == 0L
+            state.copy(
+                tps = 20.0,
+                healthPercent = 100,
+                maxMemoryMb = config.value.maxHeapMb.toLong(),
+                startupPhase = StartupPhase.Ready,
+                runningSinceMs = state.runningSinceMs.takeIf { it > 0L }
+                    ?: SystemClock.elapsedRealtime()
+            )
+        }
+        // 启动完成时主动请求一次 list，全量校正在线玩家名单。
+        if (becameReady && repo.termuxRuntime.isMcRunning()) playerManager.requestOnlineList()
+    }
+
+    /** 在后台日志解析线程推进启动阶段，UI 不扫描原始日志。
+     * 下载阶段锁定：检测到下载日志后锁定在 DownloadingDependencies，
+     * 直到出现明确的 post-download 消息（LoadingCore 及以上）才解锁；
+     * 若 60 秒内无 post-download 消息则超时强制解锁。 */
+    private fun updateStartupPhaseFromLog(phase: StartupPhase?) {
+        phase ?: return
+        repo.updateServerState { state ->
+            if (!state.isRunning || state.startupPhase == StartupPhase.Ready) return@updateServerState state
+
+            // 下载活动检测：无条件更新阶段并记录时间戳
+            if (phase == StartupPhase.DownloadingDependencies) {
+                return@updateServerState state.copy(
+                    startupPhase = phase,
+                    lastDownloadActivityMs = SystemClock.elapsedRealtime()
+                )
+            }
+
+            // 下载阶段锁定：当前处于 DownloadingDependencies 时
+            if (state.startupPhase == StartupPhase.DownloadingDependencies) {
+                // post-download 消息（LoadingCore / CreatingWorld / StartingNetwork）→ 解锁
+                if (phase == StartupPhase.LoadingCore ||
+                    phase == StartupPhase.CreatingWorld ||
+                    phase == StartupPhase.StartingNetwork ||
+                    phase == StartupPhase.Ready
+                ) {
+                    return@updateServerState state.copy(startupPhase = phase)
+                }
+                // 超时保护：60 秒无 post-download 消息则强制解锁
+                val elapsed = SystemClock.elapsedRealtime() - state.lastDownloadActivityMs
+                if (elapsed < DOWNLOAD_LOCK_TIMEOUT_MS) return@updateServerState state
+                // 超时后允许 Ready 跃升
+            }
+
+            if (phase.progress >= state.startupPhase.progress) {
                 state.copy(startupPhase = phase)
             } else state
         }
@@ -1211,7 +1272,12 @@ class McViewModel(
                 val current = config.value
                 val startConfig = current
                 repo.updateServerState {
-                    it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
+                    it.copy(
+                        isRunning = true,
+                        runningSinceMs = 0L,
+                        startupPhase = StartupPhase.PreparingEnvironment,
+                        lastDownloadActivityMs = 0L
+                    )
                 }
                 _messageFlow.tryEmit(str(R.string.s196))
                 controller.start(startConfig)
@@ -3211,6 +3277,9 @@ class McViewModel(
                     if (!path.exists() || !path.isDirectory) {
                         emptyList()
                     } else {
+                        // SimpleDateFormat 创建较贵，且非线程安全；在单线程的 map 内复用一个实例，
+                        // 避免大目录（成百上千文件）下每个文件都 new 一次带来的 GC 与构造开销。
+                        val formatter = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US)
                         path.listFiles()?.sortedWith(
                             compareByDescending<java.io.File> { it.isDirectory }
                                 .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name }
@@ -3223,7 +3292,11 @@ class McViewModel(
                                 sizeBytes = if (f.isFile) f.length() else 0L,
                                 sizeText = if (f.isFile) formatBytes(f.length()) else "",
                                 lastModified = f.lastModified(),
-                                modifiedText = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(java.util.Date(f.lastModified()))
+                                modifiedText = formatter.format(java.util.Date(f.lastModified()))
+                            )
+                        } ?: emptyList()
+                    }
+                }a.util.Date(f.lastModified()))
                             )
                         } ?: emptyList()
                     }
@@ -3467,7 +3540,7 @@ class McViewModel(
                 val batch = legacyTermuxBuffer.snapshotAndClear()
                 if (batch.isNotEmpty()) {
                     val current = _termuxLines.value
-                    _termuxLines.value = (current + batch).takeLast(MAX_LOG_LINES)
+                    _termuxLines.value = (current + batch).takeLast(MAX_LOG_LINES).toImmutableList()
                 }
             }
         }

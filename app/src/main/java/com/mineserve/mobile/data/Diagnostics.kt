@@ -22,6 +22,7 @@ data class DiagnosticReport(
 
 data class ServerResourceStats(
     val processMemoryMb: Long? = null,
+    /** 整机系统 CPU 总占用率；首次采样或不可用时为 null。 */
     val cpuPercent: Int? = null,
     val availableBytes: Long? = null,
     val directoryBytes: Long? = null,

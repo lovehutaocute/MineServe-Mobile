@@ -70,6 +70,8 @@ import com.mineserve.mobile.ui.theme.Card
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Ink
 import com.mineserve.mobile.ui.theme.Muted
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * 日志页：只读可视化反馈（不是交互入口）。
@@ -96,19 +98,19 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     var showLogSettings by remember { mutableStateOf(false) }
     val isChineseLocale = java.util.Locale.getDefault().language == "zh"
 
-    // 日志每 200ms 批量刷新一次；预计算显示文本和颜色，避免每次重组对可见行重复执行正则。
-    val displayLines = remember(lines, logLocalized, isChineseLocale) {
-        lines.map { line ->
-            val color = when {
-                line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
-                line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
-                line.contains("[tunnel]") -> Color(0xFF89B4FA)
-                line.contains("[crash]") -> Color(0xFFFAB387)
-                line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
-                else -> Color(0xFFCDD6F4)
+    // 日志每 200ms 批量刷新一次。显示文本和颜色的计算放到后台线程完成，
+    // 避免每次刷新都在主线程对全量行做汉化映射，导致触摸输入/滚动掉帧。
+    var displayLines by remember { mutableStateOf(emptyList<Pair<String, Color>>()) }
+    LaunchedEffect(lines, logLocalized, isChineseLocale) {
+        if (lines.isEmpty()) {
+            displayLines = emptyList()
+        } else {
+            displayLines = withContext(Dispatchers.Default) {
+                lines.map { line ->
+                    val text = if (logLocalized && isChineseLocale) localizeLogLine(line) else line
+                    text to consoleLineColor(line)
+                }
             }
-            val text = if (logLocalized && isChineseLocale) localizeLogLine(line) else line
-            text to color
         }
     }
 
@@ -386,16 +388,32 @@ fun LogsScreen(vm: McViewModel, onBack: () -> Unit) {
     }
 }
 
+/** 日志行颜色（纯主线程判断，开销很小） */
+private fun consoleLineColor(line: String): Color = when {
+    line.contains("[ERROR]") || line.contains("ERROR") || line.contains("FATAL") -> Color(0xFFF38BA8)
+    line.contains("[WARN]") || line.contains("WARN") -> Color(0xFFF9E2AF)
+    line.contains("[tunnel]") -> Color(0xFF89B4FA)
+    line.contains("[crash]") -> Color(0xFFFAB387)
+    line.contains("[bootstrap]") -> Color(0xFFA6E3A1)
+    else -> Color(0xFFCDD6F4)
+}
+
+// 正则只在进程生命周期内编译一次（原先每次 localizeLogLine 都重新编译）。
+private val JOINED_RE = Regex("(\\w+) joined the game")
+private val LEFT_RE = Regex("(\\w+) left the game")
+private val ONLINE_RE = Regex("There are (\\d+) of a max of (\\d+) players online")
+private val DONE_RE = Regex("Done \\(([\\d.]+)s\\)!.*")
+
 /** 日志行部分汉化：进服/离服/在线人数/世界保存/启动完成（仅显示层，不改原始数据） */
 private fun localizeLogLine(line: String): String {
     return line
-        .replace(Regex("(\\w+) joined the game"), "玩家 $1 加入了游戏")
-        .replace(Regex("(\\w+) left the game"), "玩家 $1 离开了游戏")
-        .replace(Regex("There are (\\d+) of a max of (\\d+) players online"), "当前在线 $1/$2 人")
+        .replace(JOINED_RE, "玩家 $1 加入了游戏")
+        .replace(LEFT_RE, "玩家 $1 离开了游戏")
+        .replace(ONLINE_RE, "当前在线 $1/$2 人")
         .replace("Saving worlds", "正在保存世界")
         .replace("Saved the game", "世界已保存")
         .replace("Saved the world", "世界已保存")
-        .replace(Regex("Done \\(([\\d.]+)s\\)!.*"), "服务器启动完成（$1s）")
+        .replace(DONE_RE, "服务器启动完成（$1s）")
         .replace("You need to agree to the EULA", "未接受 EULA，无法启动")
         .replace("Address already in use", "端口被占用")
         .replace("BindException", "端口绑定失败")

@@ -1,10 +1,16 @@
 package com.mineserve.mobile.ui.screens
 
+// 性能修改理由：资源订阅保持局部化，输入框使用本地编辑状态，并让概览内容避让输入法。
 import androidx.compose.ui.res.stringResource
 import com.mineserve.mobile.R
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.BorderStroke
@@ -26,6 +32,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -70,10 +77,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.InstalledCore
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.ui.HeaderBlock
 import com.mineserve.mobile.ui.HeroBlock
+import com.mineserve.mobile.ui.DebouncedTextField
 import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.PillButton
@@ -105,7 +114,6 @@ fun DashboardScreen(
     val config by vm.config.collectAsState()
     val state by vm.serverState.collectAsState()
     val serverProperties by vm.serverProperties.collectAsState()
-    val resources by vm.serverResources.collectAsState()
     val diagnosticReport by vm.diagnosticReport.collectAsState()
     val isDiagnosing by vm.isDiagnosing.collectAsState()
     val isRepairingRuntime by vm.isRepairingRuntime.collectAsState()
@@ -115,7 +123,6 @@ fun DashboardScreen(
     val tunnelState by vm.tunnelState.collectAsState()
     val lanIp by vm.lanIp.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
-    val consoleLines by vm.consolePreviewLines.collectAsState()
     LaunchedEffect(Unit) { vm.refreshLanIp() }
     val isInstalling by vm.isInstalling.collectAsState()
     val installedJava by vm.installedJava.collectAsState()
@@ -190,6 +197,7 @@ fun DashboardScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_dashboard), title = stringResource(R.string.s340))
@@ -199,10 +207,10 @@ fun DashboardScreen(
             val onlineModeEnabled = serverProperties["online-mode"]
                 ?.trim()
                 ?.equals("true", ignoreCase = true) == true
-            HeroBlock(
+            DashboardHeroBlock(
+                vm = vm,
                 state = state,
                 coreLabel = coreLabel,
-                cpuPercent = resources.cpuPercent,
                 onlineModeEnabled = onlineModeEnabled
             )
             if (!javaCardAtBottom) {
@@ -243,30 +251,11 @@ fun DashboardScreen(
                 }
             }
 
-            McCard(title = stringResource(R.string.dash_res_title), compact = true) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    DeviceStatCell(
-                        label = stringResource(R.string.dash_res_mem),
-                        value = resources.processMemoryMb?.let { "${it} MB / ${config.maxHeapMb} MB" } ?: stringResource(R.string.dash_res_not_running),
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = stringResource(R.string.dash_res_space),
-                        value = resources.availableBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na),
-                        modifier = Modifier.weight(1f)
-                    )
-                    DeviceStatCell(
-                        label = "Java",
-                        value = if (resources.javaAvailable) stringResource(R.string.dash_res_java_ready, config.selectedJavaVersion.displayName) else stringResource(R.string.dash_res_java_unavail, config.selectedJavaVersion.displayName),
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(stringResource(R.string.dash_res_dir_usage, resources.directoryBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na)), color = Muted, fontSize = 11.sp)
-            }
+            DashboardResourceCard(
+                vm = vm,
+                maxHeapMb = config.maxHeapMb,
+                javaVersionName = config.selectedJavaVersion.displayName
+            )
 
             // ── MC 终端入口（设备状态卡片下方） ──
             // bootstrap 初始化进度（未完成时显示）
@@ -297,13 +286,7 @@ fun DashboardScreen(
                         )
                         Spacer(Modifier.height(8.dp))
                         // 显示最近的 bootstrap 日志
-                        consoleLines.takeLast(3).forEach { line ->
-                            Text(
-                                line,
-                                color = Muted.copy(alpha = 0.7f),
-                                fontSize = 10.sp
-                            )
-                        }
+                        DashboardConsolePreview(vm = vm, maxLines = 3)
                         Spacer(Modifier.height(12.dp))
                         Button(
                             onClick = { vm.retryBootstrap() },
@@ -372,13 +355,7 @@ fun DashboardScreen(
                         }
                         // 显示实时日志
                         Spacer(Modifier.height(8.dp))
-                        consoleLines.takeLast(5).forEach { line ->
-                            Text(
-                                line,
-                                color = Muted.copy(alpha = 0.7f),
-                                fontSize = 10.sp
-                            )
-                        }
+                        DashboardConsolePreview(vm = vm, maxLines = 5)
                     }
                 }
             }
@@ -650,6 +627,8 @@ fun DashboardScreen(
                     )
                 }
             }
+
+            AdvancedStartupCard(vm = vm, config = config)
 
             // ── 服务器图标（server-icon.png，玩家在多人游戏列表看到的图标） ──
             // ── 服务器地址 ──
@@ -935,6 +914,146 @@ private fun JavaManagementCard(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun AdvancedStartupCard(vm: McViewModel, config: McConfig) {
+    var showAdvanced by remember { mutableStateOf(false) }
+    McCard(
+        title = "高级启动选项",
+        compact = true,
+        trailing = {
+            Icon(
+                if (showAdvanced) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                contentDescription = if (showAdvanced) "收起" else "展开",
+                tint = Indigo,
+                modifier = Modifier
+                    .size(20.dp)
+                    .clickable { showAdvanced = !showAdvanced }
+            )
+        }
+    ) {
+        AnimatedVisibility(
+            visible = showAdvanced,
+            enter = expandVertically(),
+            exit = shrinkVertically()
+        ) {
+            Column {
+                Text("开启后使用手动输入的完整命令；关闭后由应用自动生成启动命令", color = Muted, fontSize = 11.sp)
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "完全自定义启动命令",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text("关闭时使用应用默认启动命令", color = Muted, fontSize = 10.sp)
+                    }
+                    Switch(
+                        checked = config.advancedCustomCommandEnabled,
+                        onCheckedChange = { enabled ->
+                            vm.updateConfig { it.copy(advancedCustomCommandEnabled = enabled) }
+                        }
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                if (config.advancedCustomCommandEnabled) {
+                    DebouncedTextField(
+                        value = config.advancedCustomCommand,
+                        onValueChange = { value ->
+                            vm.updateConfig { it.copy(advancedCustomCommand = value) }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("完整启动命令", fontSize = 11.sp) },
+                        placeholder = {
+                            Text("java -Xmx1024M -jar server.jar nogui", fontSize = 11.sp, color = Muted)
+                        },
+                        minLines = 3,
+                        maxLines = 6,
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardHeroBlock(
+    vm: McViewModel,
+    state: ServerState,
+    coreLabel: String,
+    onlineModeEnabled: Boolean
+) {
+    val resources by vm.serverResources.collectAsState()
+    HeroBlock(
+        state = state,
+        coreLabel = coreLabel,
+        cpuPercent = resources.cpuPercent,
+        onlineModeEnabled = onlineModeEnabled
+    )
+}
+
+@Composable
+private fun DashboardResourceCard(
+    vm: McViewModel,
+    maxHeapMb: Int,
+    javaVersionName: String
+) {
+    val resources by vm.serverResources.collectAsState()
+    McCard(title = stringResource(R.string.dash_res_title), compact = true) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            DeviceStatCell(
+                label = stringResource(R.string.dash_res_mem),
+                value = resources.processMemoryMb?.let { "${it} MB / $maxHeapMb MB" }
+                    ?: stringResource(R.string.dash_res_not_running),
+                modifier = Modifier.weight(1f)
+            )
+            DeviceStatCell(
+                label = stringResource(R.string.dash_res_space),
+                value = resources.availableBytes?.let(::formatServerBytes)
+                    ?: stringResource(R.string.dash_res_na),
+                modifier = Modifier.weight(1f)
+            )
+            DeviceStatCell(
+                label = "Java",
+                value = if (resources.javaAvailable) {
+                    stringResource(R.string.dash_res_java_ready, javaVersionName)
+                } else {
+                    stringResource(R.string.dash_res_java_unavail, javaVersionName)
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text(
+            stringResource(
+                R.string.dash_res_dir_usage,
+                resources.directoryBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na)
+            ),
+            color = Muted,
+            fontSize = 11.sp
+        )
+    }
+}
+
+@Composable
+private fun DashboardConsolePreview(vm: McViewModel, maxLines: Int) {
+    val consoleLines by vm.consolePreviewLines.collectAsState()
+    consoleLines.takeLast(maxLines).forEach { line ->
+        Text(
+            line,
+            color = Muted.copy(alpha = 0.7f),
+            fontSize = 10.sp
+        )
     }
 }
 

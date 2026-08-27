@@ -1,5 +1,6 @@
 package com.mineserve.mobile.runtime
 
+// 性能修改理由：汇总每个镜像的真实失败原因，并对移动网络短暂断流进行有限重试。
 import android.content.Context
 import android.util.Log
 import com.mineserve.mobile.data.DownloadPrefs
@@ -446,6 +447,7 @@ class BootstrapInstaller(private val context: Context) {
         log("下载 Termux 运行环境 (~30MB)...")
         Log.i(TAG, "[下载] 开始 downloadBootstrap, 共 ${mirrorUrls.size} 个镜像源, arch=$arch, 线程=${Thread.currentThread().name}")
         var lastError: Exception? = null
+        val failures = mutableListOf<String>()
         for ((idx, mirror) in mirrorUrls.withIndex()) {
             _currentMirrorIndex.value = idx
             val url = "$mirror/$version/$fileName"
@@ -453,33 +455,47 @@ class BootstrapInstaller(private val context: Context) {
             Log.i(TAG, "[下载] === 尝试镜像源 $idx/$label ===")
             log("尝试 $label: ${url.take(80)}...")
             try {
-                rootfsFile.delete()
-                val downloadSession = MultiThreadDownloader.DownloadSession()
-                activeDownloadSession = downloadSession
-                Log.i(TAG, "[下载] 开始下载（多线程=${DownloadPrefs.isEnabled()}），url=${url.take(100)}")
-                if (DownloadPrefs.isEnabled()) {
-                    // 多线程分片下载（内置模块），保留镜像源切换与 SHA256 校验
-                    kotlinx.coroutines.runBlocking {
-                        MultiThreadDownloader.download(
-                            url = url,
-                            target = rootfsFile,
-                            onProgress = { downloaded, total, speedBps ->
-                                if (total > 0) {
-                                    // 将 0-100% 映射到整体进度的 15..45 区间（与单流保持一致）
-                                    val pct = 15 + (30 * downloaded / total).toInt()
-                                    onProgress(pct.coerceIn(15, 45))
-                                }
-                                onSpeed?.invoke(downloaded, speedBps)
-                            },
-                            onLog = ::log,
-                            session = downloadSession
-                        )
-                    }
-                } else {
-                    httpDownload(url, rootfsFile, 15..45, onProgress) { msg ->
-                        log(msg)
+                var attemptError: Exception? = null
+                for (attempt in 0 until DOWNLOAD_RETRIES) {
+                    try {
+                        rootfsFile.delete()
+                        val downloadSession = MultiThreadDownloader.DownloadSession()
+                        activeDownloadSession = downloadSession
+                        if (attempt > 0) log("$label 第 ${attempt + 1}/$DOWNLOAD_RETRIES 次重试")
+                        Log.i(TAG, "[下载] 开始下载（多线程=${DownloadPrefs.isEnabled()}），url=${url.take(100)}")
+                        if (DownloadPrefs.isEnabled()) {
+                            // 多线程失败时由下载器自动回退单流，仍保留镜像源切换与 SHA256 校验。
+                            kotlinx.coroutines.runBlocking {
+                                MultiThreadDownloader.download(
+                                    url = url,
+                                    target = rootfsFile,
+                                    onProgress = { downloaded, total, speedBps ->
+                                        if (total > 0) {
+                                            val pct = 15 + (30 * downloaded / total).toInt()
+                                            onProgress(pct.coerceIn(15, 45))
+                                        }
+                                        onSpeed?.invoke(downloaded, speedBps)
+                                    },
+                                    onLog = ::log,
+                                    session = downloadSession
+                                )
+                            }
+                        } else {
+                            httpDownload(url, rootfsFile, 15..45, onProgress) { msg -> log(msg) }
+                        }
+                        if (rootfsFile.length() <= 0L) throw RuntimeException("下载结果为空")
+                        attemptError = null
+                        break
+                    } catch (e: Exception) {
+                        attemptError = e
+                        if (attempt < DOWNLOAD_RETRIES - 1) {
+                            log("$label 本次连接中断，准备重试：${describeError(e)}")
+                        }
+                    } finally {
+                        activeDownloadSession = null
                     }
                 }
+                attemptError?.let { throw it }
                 Log.i(TAG, "[下载] 下载返回, 已下载 ${rootfsFile.length()} 字节")
                 // 检查是否被用户请求停止切换
                 if (stopAndSwitchRequested) {
@@ -507,7 +523,9 @@ class BootstrapInstaller(private val context: Context) {
                 return
             } catch (e: Exception) {
                 Log.e(TAG, "[下载] 镜像源 $label 异常: ${e.javaClass.simpleName}: ${e.message}", e)
-                log("$label 失败: ${e.message}")
+                val detail = describeError(e)
+                log("$label 失败: $detail")
+                failures += "$label：$detail"
                 lastError = e
                 rootfsFile.delete()
                 // 如果是用户主动请求切换，重置标志继续下一个
@@ -515,14 +533,16 @@ class BootstrapInstaller(private val context: Context) {
                     Log.i(TAG, "[切换] catch 块检测到 stopAndSwitchRequested=true, 重置标志继续下一个镜像源")
                     stopAndSwitchRequested = false
                 }
-            } finally {
-                activeDownloadSession = null
             }
         }
         Log.e(TAG, "[下载] 所有 ${mirrorUrls.size} 个镜像源均失败, lastError=${lastError?.message}")
         _currentMirrorIndex.value = -1
-        throw RuntimeException("所有镜像源均下载失败: ${lastError?.message}")
+        val summary = failures.joinToString("；").take(900)
+        throw RuntimeException("所有镜像源均下载失败：$summary")
     }
+
+    private fun describeError(error: Throwable): String =
+        "${error.javaClass.simpleName}: ${error.message ?: "无详细信息"}"
 
     private fun sha256Hex(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
@@ -1021,8 +1041,8 @@ esac
         target.parentFile?.mkdirs()
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         activeConn = conn // 注册活动连接，供切换请求立即中断
-        conn.connectTimeout = 10_000
-        conn.readTimeout = 15_000
+        conn.connectTimeout = 15_000
+        conn.readTimeout = 60_000
         conn.instanceFollowRedirects = true
         conn.setRequestProperty("User-Agent", "MineServeMobile/1.0")
         // 支持断点续传
@@ -1057,7 +1077,8 @@ esac
         var lastSpeedCalcBytes = downloaded
         var loopCount = 0
         val loopStart = System.currentTimeMillis()
-        while (input.read(buf).also { read = it } != -1) {
+        try {
+            while (input.read(buf).also { read = it } != -1) {
             loopCount++
             // 响应用户请求切换镜像源：立即中断当前下载
             if (stopAndSwitchRequested) {
@@ -1106,12 +1127,14 @@ esac
                     }
                 }
             }
+            }
+        } finally {
+            output.close()
+            input.close()
+            conn.disconnect()
+            activeConn = null
         }
         Log.i(TAG, "[HTTP] 下载循环正常结束: loopCount=$loopCount, downloaded=$downloaded 字节, 总耗时=${System.currentTimeMillis() - loopStart}ms")
-        output.close()
-        input.close()
-        conn.disconnect()
-        activeConn = null // 清理活动连接
         // 下载结束清零速度
         onSpeed?.invoke(downloaded, 0L)
     }
@@ -1123,5 +1146,8 @@ esac
         DONE(R.string.s73)
     }
 
-    companion object { private const val TAG = "BootstrapInstaller" }
+    companion object {
+        private const val TAG = "BootstrapInstaller"
+        private const val DOWNLOAD_RETRIES = 2
+    }
 }

@@ -174,4 +174,42 @@ class ServerCoreDetectorTest {
         val result = ServerCoreDetector.detect(dir)
         assertEquals(ServerCore.Quilt, result.core)
     }
+
+    @Test
+    fun bundledBukkitCoreUsesItsNormalJarLaunch() {
+        val dir = tempDir("bukkit-bundled")
+        val core = File(dir, "craftbukkit.jar")
+        createJar(core, mapOf(
+            "org/bukkit/craftbukkit/Main.class" to ByteArray(0),
+            "joptsimple/OptionException.class" to ByteArray(0)
+        ))
+
+        assertNull(bukkitLaunchArguments(dir, core))
+    }
+
+    @Test
+    fun importedBukkitDirectoryUsesBundledLibrariesClasspath() {
+        val dir = tempDir("bukkit-libraries")
+        val core = File(dir, "craftbukkit.jar")
+        createJar(core, mapOf("org/bukkit/craftbukkit/Main.class" to ByteArray(0)))
+        val dependency = File(dir, "libraries/jopt-simple.jar").apply { parentFile!!.mkdirs() }
+        createJar(dependency, mapOf("joptsimple/OptionException.class" to ByteArray(0)))
+
+        val arguments = bukkitLaunchArguments(dir, core)
+        assertTrue(arguments!!.contains("-cp"))
+        assertTrue(arguments.contains(core.absolutePath))
+        assertTrue(arguments.contains(dependency.absolutePath))
+        assertTrue(arguments.endsWith("org.bukkit.craftbukkit.Main"))
+    }
+
+    @Test
+    fun incompleteBukkitImportFailsBeforeStartingJava() {
+        val dir = tempDir("bukkit-incomplete")
+        val core = File(dir, "craftbukkit.jar")
+        createJar(core, mapOf("org/bukkit/craftbukkit/Main.class" to ByteArray(0)))
+
+        val error = runCatching { bukkitLaunchArguments(dir, core) }.exceptionOrNull()
+        assertNotNull(error)
+        assertTrue(error!!.message!!.contains("jopt-simple"))
+    }
 }

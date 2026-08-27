@@ -58,6 +58,31 @@ internal fun powerNukkitXMainClass(jarFile: File): String? = runCatching {
     }
 }.getOrNull()
 
+/** Uses imported Bukkit dependencies when the core JAR is not self-contained. */
+internal fun bukkitLaunchArguments(serverDir: File, coreJar: File): String? {
+    fun hasClass(jar: File, entry: String): Boolean = runCatching {
+        JarFile(jar).use { it.getEntry(entry) != null }
+    }.getOrDefault(false)
+
+    if (hasClass(coreJar, "joptsimple/OptionException.class")) return null
+
+    val libraries = listOf("libraries", "lib", "libs")
+        .map { File(serverDir, it) }
+        .filter(File::isDirectory)
+        .flatMap { root -> root.walkTopDown().filter { it.isFile && it.extension.equals("jar", true) }.toList() }
+        .distinct()
+    if (libraries.none { hasClass(it, "joptsimple/OptionException.class") }) {
+        throw RuntimeException("导入的 ${coreJar.name} 缺少 jopt-simple 依赖；请导入包含 libraries 或 lib 目录的完整服务端文件夹")
+    }
+    val mainClass = runCatching {
+        JarFile(coreJar).use { it.manifest?.mainAttributes?.getValue("Main-Class") }
+    }.getOrNull()?.takeIf { it.startsWith("org.bukkit.craftbukkit.") }
+        ?: "org.bukkit.craftbukkit.Main".takeIf { hasClass(coreJar, "org/bukkit/craftbukkit/Main.class") }
+        ?: throw RuntimeException("导入的 ${coreJar.name} 没有可识别的 CraftBukkit 启动入口")
+    fun quote(value: String) = "'${value.replace("'", "'\\''")}'"
+    return "-cp ${listOf(coreJar).plus(libraries).joinToString(":") { quote(it.absolutePath) }} $mainClass"
+}
+
 /**
  * MC 服务控制器（生产化）：
  *  - 一键安装依赖（JDK/tmux/wget 等）
@@ -1098,12 +1123,26 @@ class McServerController(
 
     private suspend fun launchMc(config: McConfig, dirName: String, jarPath: String?) {
         val serverDir = termux.serverDirFor(dirName)
-        // NeoForge/Quilt：使用 installer 生成的启动方式（unix_args.txt / quilt-server-launch.jar），
-        // 产物缺失时明确报错，避免回退到不可启动的 installer.jar。
-        // 注意：必须按「实际激活核心」的类型判断——selectedCore 只是下载页的临时选择，
-        // 若用户在下载页选过 Quilt 后切到 Paper 启动，会误判启动方式导致失败。
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
         val coreType = activeCore?.core ?: config.selectedCore
+
+        // ── 完全自定义启动命令模式 ──
+        if (config.advancedCustomCommandEnabled && config.advancedCustomCommand.isNotBlank()) {
+            termux.emitLog("[startMc] 使用完全自定义启动命令")
+            startupDeadlineMs = System.currentTimeMillis() + 20_000L
+            termux.startMcCustom(
+                command = config.advancedCustomCommand,
+                dirName = dirName,
+                onExit = createExitHandler(config, dirName, jarPath)
+            )
+            repo.updateServerState {
+                if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
+                    it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
+                } else it.copy(isRunning = true, runningSinceMs = 0L)
+            }
+            return
+        }
+
         if (coreType == ServerCore.PowerNukkitX) {
             val properties = File(serverDir, "server.properties")
             val current = if (properties.exists()) properties.readText() else ""
@@ -1131,6 +1170,11 @@ class McServerController(
             termux.emitLog("[startMc] 字体运行库仍未通过校验；已保留无图形模式启动参数")
         }
         val launchArgs = when (coreType) {
+            ServerCore.Spigot, ServerCore.CraftBukkit -> {
+                val coreJar = jarPath?.let(::File)
+                    ?: throw RuntimeException("${coreType.displayName} 核心入口缺失，请检查导入目录")
+                bukkitLaunchArguments(serverDir, coreJar)
+            }
             ServerCore.Forge -> forgeLaunchArguments(serverDir, config.selectedJavaVersion)
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
@@ -1162,63 +1206,59 @@ class McServerController(
             javaVersion = launchJava,
             launchArgs = launchArgs,
             appendNogui = coreType != ServerCore.PowerNukkitX,
-            onExit = { code ->
-                val failedDuringStartup = System.currentTimeMillis() <= startupDeadlineMs
-                repo.updateServerState {
-                    it.copy(
-                        isRunning = false,
-                        startupPhase = if (code == 0) StartupPhase.Idle else StartupPhase.Failed
-                    )
-                }
-                Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
-                // 捕获崩溃报告（非正常退出时收集最近日志 + MC 原生崩溃报告）
-                if (code != 0) {
-                    try {
-                        val reportPath = crashReportManager.captureCrash(code, wasRunningBefore = true, dirName = dirName)
-                        if (reportPath != null) {
-                            Log.i(TAG, "崩溃报告已保存: $reportPath")
-                            termux.emitLog("[crash] 检测到异常退出(exit=$code)，崩溃报告已保存: ${File(reportPath).name}")
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "捕获崩溃报告失败: ${e.message}", e)
-                    }
-                    if (failedDuringStartup) _startupFailures.tryEmit(StartupFailure(code, null, "服务端启动后立即退出"))
-                }
-                // 崩溃自动重启（exit code 非 0 且用户开启）
-                if (config.autoRestartOnCrash && code != 0) {
-                    if (restartAttempts < maxRestartAttempts) {
-                        restartAttempts++
-                        Log.i(TAG, "崩溃自动重启中... (attempt $restartAttempts/$maxRestartAttempts)")
-                        // 延迟 3 秒后重启，避免快速崩溃循环
-                        Thread {
-                            try {
-                                Thread.sleep(3000)
-                                kotlinx.coroutines.runBlocking {
-                                    launchMc(config, dirName, jarPath)
-                                    repo.updateServerState {
-                                        if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
-                                            it.copy(
-                                                isRunning = true,
-                                                runningSinceMs = 0L,
-                                                startupPhase = StartupPhase.PreparingEnvironment
-                                            )
-                                        } else it.copy(isRunning = true, runningSinceMs = 0L)
-                                    }
-                                }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "崩溃重启失败: ${e.message}", e)
-                            }
-                        }.start()
-                    } else {
-                        Log.e(TAG, "已达到最大重试次数($maxRestartAttempts)，停止重启")
-                    }
-                }
-            }
+            onExit = createExitHandler(config, dirName, jarPath)
         )
         repo.updateServerState {
             if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
                 it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
             } else it.copy(isRunning = true, runningSinceMs = 0L)
+        }
+    }
+
+    /** 提取 onExit 处理器，供 launchMc 和 startMcCustom 共用。 */
+    private fun createExitHandler(config: McConfig, dirName: String, jarPath: String?): (Int) -> Unit = { code ->
+        val failedDuringStartup = System.currentTimeMillis() <= startupDeadlineMs
+        repo.updateServerState {
+            it.copy(
+                isRunning = false,
+                startupPhase = if (code == 0) StartupPhase.Idle else StartupPhase.Failed
+            )
+        }
+        Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
+        if (code != 0) {
+            try {
+                val reportPath = crashReportManager.captureCrash(code, wasRunningBefore = true, dirName = dirName)
+                if (reportPath != null) {
+                    Log.i(TAG, "崩溃报告已保存: $reportPath")
+                    termux.emitLog("[crash] 检测到异常退出(exit=$code)，崩溃报告已保存: ${File(reportPath).name}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "捕获崩溃报告失败: ${e.message}", e)
+            }
+            if (failedDuringStartup) _startupFailures.tryEmit(StartupFailure(code, null, "服务端启动后立即退出"))
+        }
+        if (config.autoRestartOnCrash && code != 0) {
+            if (restartAttempts < maxRestartAttempts) {
+                restartAttempts++
+                Log.i(TAG, "崩溃自动重启中... (attempt $restartAttempts/$maxRestartAttempts)")
+                Thread {
+                    try {
+                        Thread.sleep(3000)
+                        kotlinx.coroutines.runBlocking {
+                            launchMc(config, dirName, jarPath)
+                            repo.updateServerState {
+                                if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
+                                    it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
+                                } else it.copy(isRunning = true, runningSinceMs = 0L)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "崩溃重启失败: ${e.message}", e)
+                    }
+                }.start()
+            } else {
+                Log.e(TAG, "已达到最大重试次数($maxRestartAttempts)，停止重启")
+            }
         }
     }
 
