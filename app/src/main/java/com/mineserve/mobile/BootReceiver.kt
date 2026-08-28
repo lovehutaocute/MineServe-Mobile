@@ -4,16 +4,35 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.util.Log
+import com.mineserve.mobile.data.ScheduleManager
 import com.mineserve.mobile.service.McForegroundService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
- * 开机自启动：设备开机完成后，若开启「开机自启」开关，拉起前台保活服务。
+ * 开机自启动：设备开机完成后，若开启「开机自启」开关，拉起前台保活服务；
+ * 同时按配置重注册每日定时开/停服闹钟（进程与闹钟在重启后不会保留）。
  * 开关状态存于 SharedPreferences（mc_config_meta），由保活页面设置。
  */
 class BootReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_BOOT_COMPLETED) return
+
+        // 重新注册每日定时开/停服闹钟
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                runCatching { McApplication.get(context).repository.configFlow.first() }
+                    .getOrNull()
+                    ?.let { ScheduleManager.register(context, it) }
+            } finally {
+                pending.finish()
+            }
+        }
+
         val bootAuto = context.getSharedPreferences(META_PREFS, Context.MODE_PRIVATE)
             .getBoolean(KEY_BOOT_AUTO_START, false)
         if (bootAuto) {

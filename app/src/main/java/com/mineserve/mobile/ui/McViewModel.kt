@@ -1266,6 +1266,35 @@ class McViewModel(
     fun setTunnelType(type: TunnelType) = updateConfig { it.copy(tunnelType = type) }
     fun setMaxHeap(mb: Int) = updateConfig { it.copy(maxHeapMb = mb) }
     fun setAutoRestart(v: Boolean) = updateConfig { it.copy(autoRestartOnCrash = v) }
+
+    // ── 定时开/停服与停止备份 ───────────────────────────────────
+
+    fun setDailyStartEnabled(v: Boolean) = updateScheduleConfig { it.copy(dailyStartEnabled = v) }
+
+    fun setDailyStartTime(hour: Int, minute: Int) = updateScheduleConfig {
+        it.copy(dailyStartHour = hour.coerceIn(0, 23), dailyStartMinute = minute.coerceIn(0, 59))
+    }
+
+    fun setDailyStopEnabled(v: Boolean) = updateScheduleConfig { it.copy(dailyStopEnabled = v) }
+
+    fun setDailyStopTime(hour: Int, minute: Int) = updateScheduleConfig {
+        it.copy(dailyStopHour = hour.coerceIn(0, 23), dailyStopMinute = minute.coerceIn(0, 59))
+    }
+
+    fun setStopAutoBackup(v: Boolean) = updateConfig { it.copy(stopAutoBackup = v) }
+
+    /** 变更定时计划时同步保存并重注册下一次闹钟。 */
+    private fun updateScheduleConfig(transform: (McConfig) -> McConfig) {
+        val updated = transform(config.value)
+        com.mineserve.mobile.data.ScheduleManager.register(app, updated)
+        viewModelScope.launch {
+            try {
+                repo.saveConfig(updated)
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.s191, e.message))
+            }
+        }
+    }
     fun setKeepWifiLock(v: Boolean) = updateConfig { it.copy(keepWifiLock = v) }
     fun setKeepCpuWakelock(v: Boolean) = updateConfig { it.copy(keepCpuWakelock = v) }
     fun setKeepScreenOnWhileRunning(v: Boolean) = updateConfig { it.copy(keepScreenOnWhileRunning = v) }
@@ -1363,6 +1392,15 @@ class McViewModel(
             try {
                 controller.stop()
                 _messageFlow.tryEmit(str(R.string.s198))
+                if (config.value.stopAutoBackup) {
+                    val dirName = activeDirName() ?: return@launch
+                    val path = withContext(Dispatchers.IO) {
+                        backupManager.backupWorldToExternal(
+                            dirName, BackupManager.BackupOrigin.Automatic, config.value.maxSnapshots
+                        )
+                    }
+                    if (path != null) _messageFlow.tryEmit(str(R.string.msg_stop_backup_done))
+                }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s199, e.message))
             }

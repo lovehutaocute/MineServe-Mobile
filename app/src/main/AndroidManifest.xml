@@ -122,6 +122,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".service.ScheduleAlarmReceiver"
+            android:exported="false" />
+
         <activity
             android:name="bin.mt.file.content.MTDataFilesWakeUpActivity"
             android:taskAffinity="${applicationId}.MTDataFilesWakeUp"

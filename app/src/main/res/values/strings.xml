@@ -1674,4 +1674,19 @@
     <string name="set_notify_off">关闭</string>
     <string name="set_notify_important">仅重要</string>
     <string name="set_notify_all">全部</string>
+
+    <!-- 设置页：自动化（定时开/停服与停止备份） -->
+    <string name="set_schedule_title">自动化</string>
+    <string name="set_schedule_hint">每天到点自动启动/停止服务器；触发失败会收到事件通知。</string>
+    <string name="set_daily_start">每日定时开服</string>
+    <string name="set_daily_start_hint">到点自动启动当前选中的服务器。</string>
+    <string name="set_daily_stop">每日定时关服</string>
+    <string name="set_daily_stop_hint">到点自动关闭服务器（无运行则跳过）。</string>
+    <string name="set_schedule_start_time">开服时间</string>
+    <string name="set_schedule_stop_time">关服时间</string>
+    <string name="set_stop_backup">停止时自动备份</string>
+    <string name="set_stop_backup_hint">服务器停止后自动保存一份世界快照（按自动备份保留数量轮换）。</string>
+    <string name="msg_stop_backup_done">服务器已停止，世界快照已自动备份。</string>
+    <string name="notif_schedule_start_fail_title">定时开服失败</string>
+    <string name="notif_schedule_start_fail_text">原因：%1$s，请在应用内检查服务器配置。</string>
 </resources>

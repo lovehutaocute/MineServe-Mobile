@@ -219,7 +219,22 @@ data class McConfig(
     /** 完全自定义启动命令开关：开启后直接执行整条命令，忽略自动拼接 */
     val advancedCustomCommandEnabled: Boolean = false,
     /** 完全自定义启动命令（整条 Java 启动指令） */
-    val advancedCustomCommand: String = ""
+    val advancedCustomCommand: String = "",
+    // ── 定时任务与停止备份 ────────────────────────────────────
+    /** 每日定时开服开关 */
+    val dailyStartEnabled: Boolean = false,
+    /** 每日定时开服时间（小时，0-23） */
+    val dailyStartHour: Int = 8,
+    /** 每日定时开服时间（分钟，0-59） */
+    val dailyStartMinute: Int = 0,
+    /** 每日定时关服开关 */
+    val dailyStopEnabled: Boolean = false,
+    /** 每日定时关服时间（小时，0-23） */
+    val dailyStopHour: Int = 23,
+    /** 每日定时关服时间（分钟，0-59） */
+    val dailyStopMinute: Int = 0,
+    /** 服务器停止后自动备份一份世界快照（服从 maxSnapshots 保留策略） */
+    val stopAutoBackup: Boolean = false
 )
 
 /**

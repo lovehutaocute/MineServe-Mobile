@@ -19,6 +19,7 @@ object ServerEventNotifier {
     const val ID_PLAYER = 2102
     const val ID_CRASH = 2103
     const val ID_STOPPED = 2104
+    const val ID_SCHEDULE_FAIL = 2105
 
     fun level(context: Context): Int =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_LEVEL, 1)

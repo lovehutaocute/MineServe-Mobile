@@ -1219,4 +1219,19 @@
     <string name="set_notify_off">Off</string>
     <string name="set_notify_important">Important</string>
     <string name="set_notify_all">All</string>
+
+    <!-- Settings: automation (daily schedule & stop backup) -->
+    <string name="set_schedule_title">Automation</string>
+    <string name="set_schedule_hint">Start/stop the server automatically every day at the set time; failures raise an event notification.</string>
+    <string name="set_daily_start">Daily auto start</string>
+    <string name="set_daily_start_hint">Starts the selected server automatically.</string>
+    <string name="set_daily_stop">Daily auto stop</string>
+    <string name="set_daily_stop_hint">Stops the server automatically (skipped when not running).</string>
+    <string name="set_schedule_start_time">Start time</string>
+    <string name="set_schedule_stop_time">Stop time</string>
+    <string name="set_stop_backup">Backup on stop</string>
+    <string name="set_stop_backup_hint">Saves a world snapshot after the server stops (respects the automatic backup retention count).</string>
+    <string name="msg_stop_backup_done">Server stopped and the world snapshot was backed up automatically.</string>
+    <string name="notif_schedule_start_fail_title">Scheduled start failed</string>
+    <string name="notif_schedule_start_fail_text">Reason: %1$s. Check the server configuration in the app.</string>
 </resources>
