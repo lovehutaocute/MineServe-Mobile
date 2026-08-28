@@ -1176,17 +1176,21 @@ class McServerController(
             runCatching { repo.saveConfig(config.copy(selectedJavaVersion = recommended)) }
             recommended
         } else config.selectedJavaVersion
-        // Forge ≤1.16 的 FML 只支持 Java 8/11，Termux 无 Java 11 前用户只能用 PRoot Java 8；
-        // 现优先选已安装的 Java 11（TUR 原生，性能优于 PRoot），其次 Java 8，均未安装时明确提示。
+        // Forge ≤1.16 的 FML 只支持 Java 8/11。实测 Termux Bionic 版 openjdk-11（TUR）
+        // 在 modlauncher 的 Worker-Bootstrap 线程上 libjvm.so 段错误（SIGSEGV），
+        // 因此优先 Ubuntu glibc 的 Java 8；Java 11 仅作最后备选并在日志注明风险。
         val effectiveLaunchJava = if (coreType == ServerCore.Forge && isLegacyForgeMcVersion(mcVersion) &&
             launchJava != JavaVersion.Java8 && launchJava != JavaVersion.Java11
         ) {
             val fallback = when {
-                termux.isJavaInstalled(JavaVersion.Java11) -> JavaVersion.Java11
                 termux.isJavaInstalled(JavaVersion.Java8) -> JavaVersion.Java8
+                termux.isJavaInstalled(JavaVersion.Java11) -> {
+                    termux.emitLog("[startMc] 警告：TUR Java 11 为 Bionic 构建，运行 Forge ≤1.16 可能触发 libjvm 段错误；建议安装 Java 8（Ubuntu）")
+                    JavaVersion.Java11
+                }
                 else -> throw RuntimeException(
-                    "Forge $mcVersion 需要 Java 11 或 Java 8 运行（不支持 ${launchJava.displayName}），" +
-                        "请在「Java 管理」卡片安装 Java 11（推荐，TUR 源）或 Java 8 后重试"
+                    "Forge $mcVersion 需要 Java 8 或 Java 11 运行（不支持 ${launchJava.displayName}），" +
+                        "请在「Java 管理」卡片安装 Java 8（推荐，Ubuntu 环境稳定）后重试"
                 )
             }
             termux.emitLog("[startMc] Forge $mcVersion 不支持 ${launchJava.displayName} 运行，已自动切换 ${fallback.displayName}")
