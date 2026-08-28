@@ -27,6 +27,11 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 提高 UI 线程调度优先级：后台大游戏（如原神）会把 CPU 吃满，
+        // 默认优先级下主线程时间片被挤占导致页面卡顿；与前台游戏体验保持一致的提权。
+        try {
+            android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DISPLAY)
+        } catch (_: Exception) {}
         lifecycleScope.launch {
             val repo = McApplication.get(this@MainActivity).repository
             combine(repo.configFlow, repo.serverState) { config, server ->
