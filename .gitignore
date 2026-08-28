@@ -30,3 +30,9 @@ phone-*.png
 crash_error.log
 crash_log.txt
 .reasonix/
+
+# 性能诊断产物（工作区临时文件）
+.device-*.png
+mineserve-*.txt
+perf-diagnostics/
+.gradle-user/
