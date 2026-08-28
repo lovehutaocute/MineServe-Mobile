@@ -3519,6 +3519,8 @@ class McViewModel(
             }
         }
         startServerResourceCollection()
+        // 订阅 serverExitFailures 前先补弹最近的失败（覆盖 App 重启/ViewModel 重建时已错过的事件）
+        controller.recentStartupFailure()?.let { showStartupFailureReport(it) }
         // 订阅 consoleFlow，使用环形缓冲 + 批量刷新，避免每行 O(n) 拷贝。
         viewModelScope.launch(Dispatchers.Default) {
             controller.startupFailures.collect { showStartupFailureReport(it) }

@@ -157,6 +157,16 @@ class McServerController(
     private var restartAttempts = 0
     @Volatile
     private var startupDeadlineMs = 0L
+    @Volatile
+    private var lastStartupFailure: StartupFailure? = null
+    @Volatile
+    private var lastStartupFailureAtMs = 0L
+
+    /** 最近一次非零退出的失败信息：App 重启/ViewModel 重建后仍可补弹，maxAgeMs 内有效。 */
+    fun recentStartupFailure(maxAgeMs: Long = 5 * 60_000L): StartupFailure? {
+        val failure = lastStartupFailure ?: return null
+        return if (System.currentTimeMillis() - lastStartupFailureAtMs <= maxAgeMs) failure else null
+    }
 
     /**
      * 一键安装依赖
@@ -1135,11 +1145,7 @@ class McServerController(
                 dirName = dirName,
                 onExit = createExitHandler(config, dirName, jarPath)
             )
-            repo.updateServerState {
-                if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
-                    it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
-                } else it.copy(isRunning = true, runningSinceMs = 0L)
-            }
+            repo.updateServerState { markRunningIfAlive(it) }
             return
         }
 
@@ -1208,11 +1214,18 @@ class McServerController(
             appendNogui = coreType != ServerCore.PowerNukkitX,
             onExit = createExitHandler(config, dirName, jarPath)
         )
-        repo.updateServerState {
-            if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
-                it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
-            } else it.copy(isRunning = true, runningSinceMs = 0L)
-        }
+        repo.updateServerState { markRunningIfAlive(it) }
+    }
+
+    /**
+     * 启动返回的瞬间进程可能已退出：此时退出回调的停止/失败状态优先，
+     * 不能在这里把 ServerState 覆盖回“运行中”。
+     */
+    private fun markRunningIfAlive(state: com.mineserve.mobile.data.ServerState): com.mineserve.mobile.data.ServerState {
+        if (!termux.isMcRunning()) return state
+        return if (state.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
+            state.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
+        } else state.copy(isRunning = true, runningSinceMs = 0L)
     }
 
     /** 提取 onExit 处理器，供 launchMc 和 startMcCustom 共用。 */
@@ -1246,7 +1259,10 @@ class McServerController(
             } else {
                 "服务端异常退出 (exit=$code)"
             }
-            _startupFailures.tryEmit(StartupFailure(code, reportPath, detail))
+            val failure = StartupFailure(code, reportPath, detail)
+            lastStartupFailure = failure
+            lastStartupFailureAtMs = System.currentTimeMillis()
+            _startupFailures.tryEmit(failure)
         }
         if (config.autoRestartOnCrash && code != 0) {
             if (restartAttempts < maxRestartAttempts) {
@@ -1257,11 +1273,7 @@ class McServerController(
                         Thread.sleep(3000)
                         kotlinx.coroutines.runBlocking {
                             launchMc(config, dirName, jarPath)
-                            repo.updateServerState {
-                                if (it.startupPhase.progress <= StartupPhase.PreparingEnvironment.progress) {
-                                    it.copy(isRunning = true, runningSinceMs = 0L, startupPhase = StartupPhase.PreparingEnvironment)
-                                } else it.copy(isRunning = true, runningSinceMs = 0L)
-                            }
+                            repo.updateServerState { markRunningIfAlive(it) }
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "崩溃重启失败: ${e.message}", e)
