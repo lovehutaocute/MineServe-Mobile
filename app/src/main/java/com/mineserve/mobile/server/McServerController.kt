@@ -1114,6 +1114,14 @@ class McServerController(
         }
     }
 
+    /** Forge 1.16 及更早版本：FML 只支持 Java 8/11，Termux 无 Java 11，只能用 Java 8。 */
+    private fun isLegacyForgeMcVersion(mcVersion: String): Boolean {
+        val parts = mcVersion.trim().removePrefix("v").split('.').mapNotNull { it.toIntOrNull() }
+        val major = parts.getOrNull(0) ?: return false
+        val minor = parts.getOrNull(1) ?: return false
+        return major == 1 && minor <= 16
+    }
+
     private fun isLegacyPowerNukkitXVersion(version: String): Boolean =
         version.trim().removePrefix("v").removePrefix("V").contains("-r", ignoreCase = true) ||
             version.trim().endsWith("-PNX", ignoreCase = true)
@@ -1168,8 +1176,18 @@ class McServerController(
             runCatching { repo.saveConfig(config.copy(selectedJavaVersion = recommended)) }
             recommended
         } else config.selectedJavaVersion
+        // Forge ≤1.16 的 FML 只支持 Java 8/11，Termux 无 Java 11；用户选择更高版本时强制降到 Java 8，
+        // 否则安装器能在 Java 17 下成功，服务端却根本无法运行。
+        val effectiveLaunchJava = if (coreType == ServerCore.Forge && isLegacyForgeMcVersion(mcVersion) && launchJava != JavaVersion.Java8) {
+            if (!termux.isJavaInstalled(JavaVersion.Java8)) {
+                throw RuntimeException("Forge $mcVersion 需要 Java 8 运行（不支持 ${launchJava.displayName}），请先在「Java 管理」卡片中安装 Java 8 后重试")
+            }
+            termux.emitLog("[startMc] Forge $mcVersion 不支持 ${launchJava.displayName} 运行，已自动切换 Java 8")
+            runCatching { repo.saveConfig(config.copy(selectedJavaVersion = JavaVersion.Java8)) }
+            JavaVersion.Java8
+        } else launchJava
         termux.autoRepairRuntime(
-            javaVersion = launchJava,
+            javaVersion = effectiveLaunchJava,
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
         if (coreType == ServerCore.NeoForge && config.selectedJavaVersion != JavaVersion.Java8) {
@@ -1177,7 +1195,7 @@ class McServerController(
             termux.emitLog("[startMc] ReferenceOpenHashSet 或 DistanceManager 异常属于 NeoForge/Minecraft 运行期崩溃，请以 crash-reports 的首个异常为准")
         }
         if ((coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) &&
-            config.selectedJavaVersion != JavaVersion.Java8 && !termux.repairFontRuntime()) {
+            effectiveLaunchJava != JavaVersion.Java8 && !termux.repairFontRuntime()) {
             // Forge/NeoForge 初始化 Minecraft 字体配置；旧环境可能在安装依赖前已下载核心。
             termux.emitLog("[startMc] 字体运行库仍未通过校验；已保留无图形模式启动参数")
         }
@@ -1187,7 +1205,7 @@ class McServerController(
                     ?: throw RuntimeException("${coreType.displayName} 核心入口缺失，请检查导入目录")
                 bukkitLaunchArguments(serverDir, coreJar)
             }
-            ServerCore.Forge -> forgeLaunchArguments(serverDir, config.selectedJavaVersion)
+            ServerCore.Forge -> forgeLaunchArguments(serverDir, effectiveLaunchJava)
             ServerCore.NeoForge -> File(serverDir, "libraries/net/neoforged/neoforge")
                 .walkTopDown().firstOrNull { it.name == "unix_args.txt" }
                 ?.let { "@${it.absolutePath}" }
@@ -1216,7 +1234,7 @@ class McServerController(
             jarPath = jarPath.orEmpty(),
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
-            javaVersion = launchJava,
+            javaVersion = effectiveLaunchJava,
             launchArgs = launchArgs,
             appendNogui = coreType != ServerCore.PowerNukkitX,
             onExit = createExitHandler(config, dirName, jarPath)
@@ -1326,17 +1344,10 @@ class McServerController(
                 return "@${it.absolutePath}"
             }
 
-        // Forge 1.12 installers leave the real server jar in libraries/ while
-        // server.jar remains the installer. Prefer the verified library jar so
-        // a headless Android process never launches SimpleInstaller again.
-        if (javaVersion == JavaVersion.Java8) {
-            findJava8ForgeLibraryJar(serverDir)?.let { jar ->
-                val relativePath = jar.relativeTo(serverDir).invariantSeparatorsPath
-                termux.emitLog("[startMc] Java 8 Forge: 使用 ServerLaunchWrapper classpath 模式: $relativePath")
-                return "-jar '$relativePath'"
-            }
-        }
-
+        // Forge 1.12-1.16 installers leave the launchable jar at the top level
+        // (a ServerLaunchWrapper with a Class-Path manifest) or inside
+        // libraries/net/minecraftforge/forge/**, while server.jar stays the
+        // installer. Search both so a completed install is recognized.
         findLegacyForgeServerJar(serverDir, javaVersion)?.let { jar ->
             termux.emitLog("[startMc] Forge 旧版启动方式: ${jar.name}")
             // Java 8 runs after `cd /srv/mineserve` inside PRoot. Keep this
@@ -1401,45 +1412,37 @@ class McServerController(
         check(ready) { "${core.displayName} installer 未生成启动文件，请检查安装日志和网络后重试" }
     }
 
-    private fun findLegacyForgeServerJar(serverDir: File, javaVersion: JavaVersion): File? =
-        serverDir.listFiles()
-            ?.filter { file ->
-                file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar") &&
+    /**
+     * 旧版 Forge（≤1.16）的可启动 jar：顶层 wrapper（Main-Class=ServerLaunchWrapper，
+     * 通过 Class-Path 清单加载 libraries）或 libraries 下的 forge-*-server.jar。
+     * Forge 1.16.5 的安装产物在 libraries 子目录，顶层查找会漏判。
+     */
+    private fun findLegacyForgeServerJar(serverDir: File, javaVersion: JavaVersion): File? {
+        val topLevel = serverDir.listFiles()?.filter { it.isFile } ?: emptyList()
+        val libraries = File(serverDir, "libraries/net/minecraftforge/forge")
+            .takeIf { it.isDirectory }
+            ?.walkTopDown()
+            ?.filter { it.isFile }
+            ?: emptySequence()
+        return (topLevel.asSequence() + libraries)
+            .filter { file ->
+                file.name.startsWith("forge-") && file.name.endsWith(".jar") &&
                     isLegacyForgeServerJar(file, serverDir, javaVersion)
             }
-            ?.maxByOrNull { it.lastModified() }
-
-    private fun findJava8ForgeLibraryJar(serverDir: File): File? =
-        File(serverDir, "libraries/net/minecraftforge/forge")
-            .walkTopDown()
-            .filter { file ->
-                file.isFile && file.name.startsWith("forge-") && file.name.endsWith(".jar")
-            }
-            .sortedByDescending { it.lastModified() }
-            .firstOrNull { file ->
-                isLegacyForgeServerJar(file, serverDir, JavaVersion.Java8)
-            }
+            .maxByOrNull { it.lastModified() }
+    }
 
     private fun isLegacyForgeServerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
-        if (javaVersion == JavaVersion.Java8) {
-            val guestJar = "/srv/mineserve/${file.relativeTo(serverDir).invariantSeparatorsPath}"
-            val hasServerWrapper = termux.runJava8Command(
-                serverDir,
-                "jar tf '$guestJar' 2>/dev/null | grep -q 'net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class'",
-                60_000
-            ) == 0
-            if (!hasServerWrapper) return false
-            // Some Forge installers contain launcher classes too; SimpleInstaller
-            // is the decisive marker that this file must never be launched.
-            return !isForgeInstallerJar(file, serverDir, javaVersion)
-        }
-        return runCatching {
+        val mainClass = runCatching {
             JarFile(file).use { jar ->
-                jar.getEntry("net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class") != null &&
-                    jar.manifest?.mainAttributes?.getValue("Main-Class")
-                        ?.contains("net.minecraftforge.installer", ignoreCase = true) != true
+                jar.manifest?.mainAttributes?.getValue("Main-Class")
             }
-        }.getOrDefault(false)
+        }.getOrNull() ?: return false
+        // 安装器入口是 SimpleInstaller；1.16 的合法顶层 wrapper 与它同包
+        // （net.minecraftforge.installer.ServerLaunchWrapper），1.12- 的 universal
+        // 则是 fml.relauncher.ServerLaunchWrapper——都按可启动处理。
+        if (mainClass.contains("SimpleInstaller", ignoreCase = true)) return false
+        return mainClass.contains("ServerLaunchWrapper", ignoreCase = true)
     }
 
     private fun isForgeInstallerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {
@@ -1457,8 +1460,10 @@ class McServerController(
 
     private fun hasForgeInstallerMainClass(file: File): Boolean = runCatching {
         JarFile(file).use { jar ->
+            // 安装器的入口精确为 SimpleInstaller；1.16 顶层 wrapper 与安装器同包
+            // （net.minecraftforge.installer.ServerLaunchWrapper），不能按包名误判。
             jar.manifest?.mainAttributes?.getValue("Main-Class")
-                ?.contains("net.minecraftforge.installer", ignoreCase = true) == true
+                ?.contains("SimpleInstaller", ignoreCase = true) == true
         }
     }.getOrDefault(false)
 
