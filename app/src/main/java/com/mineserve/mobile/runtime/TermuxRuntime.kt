@@ -62,6 +62,8 @@ class TermuxRuntime(context: Context) {
     /** Java PID identified for this launch; never rescan into an installer or older server. */
     @Volatile private var mcServerPid: Int? = null
     @Volatile private var mcServerDir: File? = null
+    @Volatile private var lastMcLogFile: File? = null
+    @Volatile private var lastMcLogStartOffset: Long = 0L
     private val mcProcessLock = Any()
 
     /** MC 进程的 stdin，用于发送命令 */
@@ -95,6 +97,38 @@ class TermuxRuntime(context: Context) {
     /** 多核心支持：按文件夹名获取对应核心的工作目录（home/servers/{dirName}/） */
     fun serverDirFor(dirName: String): File =
         File(installer.rootDir, "home/servers/$dirName").apply { mkdirs() }
+
+    /** 读取当前服务端日志文件的最近内容，供终端页快速恢复历史输出。 */
+    suspend fun readRecentMcLog(dirName: String, maxLines: Int = 300): List<String> = withContext(Dispatchers.IO) {
+        val file = File(serverDirFor(dirName), "logs/latest.log")
+        if (!file.isFile || file.length() == 0L) return@withContext emptyList()
+        file.useLines(Charsets.UTF_8) { lines -> lines.toList().takeLast(maxLines) }
+    }
+
+    /** 读取最近一次服务端运行从启动到退出产生的完整日志。 */
+    suspend fun readLastMcRunLog(maxBytes: Long = 4L * 1024L * 1024L): String = withContext(Dispatchers.IO) {
+        val file = lastMcLogFile ?: return@withContext ""
+        if (!file.isFile) return@withContext ""
+        val start = lastMcLogStartOffset.coerceAtMost(file.length())
+        val end = file.length()
+        val readStart = if (end - start > maxBytes) end - maxBytes else start
+        java.io.RandomAccessFile(file, "r").use { raf ->
+            raf.seek(readStart)
+            val length = (end - readStart).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            val bytes = ByteArray(length)
+            raf.readFully(bytes)
+            String(bytes, Charsets.UTF_8)
+        }
+    }
+
+    private fun prepareMcLogFile(serverDir: File): File {
+        val file = File(serverDir, "logs/latest.log")
+        file.parentFile?.mkdirs()
+        file.createNewFile()
+        lastMcLogFile = file
+        lastMcLogStartOffset = file.length()
+        return file
+    }
 
     /** 多核心基础目录（home/servers/） */
     val serversDir: File get() = File(installer.rootDir, "home/servers").apply { mkdirs() }
@@ -2012,9 +2046,7 @@ class TermuxRuntime(context: Context) {
 
         val prefix = installer.rootDir.absolutePath
         val serverDir = serverDirFor(dirName)
-        val logFile = File(serverDir, "logs/latest.log")
-        logFile.parentFile?.mkdirs()
-        logFile.createNewFile()
+        val logFile = prepareMcLogFile(serverDir)
 
         // 清理占用该服务器目录的孤儿 java 进程（app 重启后旧 MC 进程成孤儿，
         // 占着 world/session.lock → 新实例启动报 already locked）
@@ -2120,9 +2152,7 @@ class TermuxRuntime(context: Context) {
 
         val prefix = installer.rootDir.absolutePath
         val serverDir = serverDirFor(dirName)
-        val logFile = File(serverDir, "logs/latest.log")
-        logFile.parentFile?.mkdirs()
-        logFile.createNewFile()
+        val logFile = prepareMcLogFile(serverDir)
 
         killOrphanMcProcess(serverDir)
 

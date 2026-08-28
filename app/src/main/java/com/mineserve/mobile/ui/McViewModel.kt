@@ -151,6 +151,11 @@ class McViewModel(
     private val _logTranslationEnabled = MutableStateFlow(true)
     val logTranslationEnabled: StateFlow<Boolean> = _logTranslationEnabled.asStateFlow()
 
+    /** 服务端最近一次运行从启动到退出写入 latest.log 的完整内容。 */
+    private val _lastRunLog = MutableStateFlow("")
+    val lastRunLog: StateFlow<String> = _lastRunLog.asStateFlow()
+    @Volatile private var terminalHistoryLoading = false
+
     /** Small, stable preview for cards that only show the latest few server messages. */
     private val _consolePreviewLines = MutableStateFlow<ImmutableList<String>>(persistentListOf())
     val consolePreviewLines: StateFlow<ImmutableList<String>> = _consolePreviewLines.asStateFlow()
@@ -255,6 +260,39 @@ class McViewModel(
         _consoleLines.value = persistentListOf()
         _consolePreviewLines.value = persistentListOf()
         _terminalConsoleLines.value = persistentListOf()
+    }
+
+    /** 进入 MC 终端时异步补读磁盘日志，实时输出仍由 consoleFlow 持续追加。 */
+    fun loadRecentTerminalLog() {
+        if (terminalHistoryLoading) return
+        val dirName = activeDirName() ?: return
+        terminalHistoryLoading = true
+        viewModelScope.launch {
+            try {
+                val history = withContext(Dispatchers.IO) {
+                    repo.termuxRuntime.readRecentMcLog(dirName)
+                }
+                if (history.isNotEmpty()) {
+                    val live = consoleBuffer.snapshot()
+                    val overlap = (minOf(history.size, live.size) downTo 1).firstOrNull { size ->
+                        history.takeLast(size) == live.take(size)
+                    } ?: 0
+                    val merged = (history + live.drop(overlap)).takeLast(MAX_LOG_LINES)
+                    consoleBuffer.replace(merged)
+                    terminalConsoleBuffer.replace(
+                        merged.map { TerminalLogProcessor.process(it, _logTranslationEnabled.value) }
+                    )
+                    consoleGeneration++
+                    terminalGeneration++
+                    _consoleLines.value = consoleBuffer.snapshot()
+                    _terminalConsoleLines.value = terminalConsoleBuffer.snapshot()
+                    consoleUiGeneration = consoleGeneration
+                    terminalUiGeneration = terminalGeneration
+                }
+            } finally {
+                terminalHistoryLoading = false
+            }
+        }
     }
 
     private fun updateTerminalSession(id: String, transform: (TerminalSession) -> TerminalSession) {
@@ -1269,6 +1307,7 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 lastJavaCompatibilityWarning = null
+                _lastRunLog.value = ""
                 val current = config.value
                 val startConfig = current
                 repo.updateServerState {
@@ -3296,10 +3335,6 @@ class McViewModel(
                             )
                         } ?: emptyList()
                     }
-                }a.util.Date(f.lastModified()))
-                            )
-                        } ?: emptyList()
-                    }
                 }
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s302, e.message))
@@ -3473,7 +3508,13 @@ class McViewModel(
         viewModelScope.launch {
             var wasRunning = false
             serverState.collect { state ->
-                if (wasRunning && !state.isRunning) interruptPlayerSessions()
+                if (wasRunning && !state.isRunning) {
+                    interruptPlayerSessions()
+                    _lastRunLog.value = withContext(Dispatchers.IO) {
+                        delay(150)
+                        repo.termuxRuntime.readLastMcRunLog()
+                    }
+                }
                 wasRunning = state.isRunning
             }
         }

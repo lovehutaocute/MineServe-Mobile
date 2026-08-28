@@ -91,7 +91,10 @@ fun TerminalScreen(vm: McViewModel) {
     var pendingDangerousCommand by remember { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
     val rawLines = if (active.type == TerminalSessionType.Minecraft) mcLines else active.lines
-    LaunchedEffect(Unit) { vm.setLogTranslationEnabled(translateLogs) }
+    LaunchedEffect(Unit) {
+        vm.setLogTranslationEnabled(translateLogs)
+        vm.loadRecentTerminalLog()
+    }
     // Keep the full session history for copy/export, but cap Compose nodes on low-end devices.
     val renderedLines = remember(rawLines) { rawLines.takeLast(MAX_RENDERED_LINES) }
     // 追踪用户是否手动向上滚动；用户在底部附近时自动滚动跟随新日志

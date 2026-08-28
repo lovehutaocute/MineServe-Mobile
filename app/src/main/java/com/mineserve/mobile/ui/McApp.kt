@@ -69,6 +69,7 @@ fun McApp() {
     val vm: McViewModel = viewModel(factory = McViewModel.Factory)
     val currentCrashContent by vm.currentCrashContent.collectAsState()
     val currentCrashAnalysis by vm.currentCrashAnalysis.collectAsState()
+    val lastRunLog by vm.lastRunLog.collectAsState()
     var tab by remember { mutableStateOf(McTab.Dashboard) }
     var showLogs by remember { mutableStateOf(false) }
     var subPage by remember { mutableStateOf<SubPage?>(null) }
@@ -208,6 +209,8 @@ fun McApp() {
         UpdateDialog(vm = vm)
         val crashContent = currentCrashContent
         val crashAnalysis = currentCrashAnalysis
-        if (crashContent != null && crashAnalysis != null) CrashReportDialog(crashContent, crashAnalysis, vm::clearCrashContent)
+        if (crashContent != null && crashAnalysis != null) {
+            CrashReportDialog(crashContent, crashAnalysis, lastRunLog, vm::clearCrashContent)
+        }
     }
 }

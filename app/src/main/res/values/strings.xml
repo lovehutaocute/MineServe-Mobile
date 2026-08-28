@@ -1517,6 +1517,9 @@
     <string name="crash_analysis_title">崩溃分析</string>
     <string name="crash_summary">摘要</string>
     <string name="crash_raw">原始报告</string>
+    <string name="crash_run_log">完整日志</string>
+    <string name="crash_run_log_title">本次运行完整日志</string>
+    <string name="crash_run_log_empty">本次运行没有可用日志。</string>
     <string name="crash_copy">复制</string>
     <string name="crash_share">分享</string>
     <string name="player_history_summary">%1$d 名玩家，累计在线 %2$s</string>

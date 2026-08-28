@@ -54,30 +54,61 @@ fun CrashReportsScreen(vm: McViewModel, onBack: () -> Unit) {
     }
 }
 
+private enum class CrashViewMode { Summary, RawReport, RunLog }
+
 @Composable
-fun CrashReportDialog(content: String, analysis: CrashReportAnalyzer.Analysis, onDismiss: () -> Unit) {
+fun CrashReportDialog(
+    content: String,
+    analysis: CrashReportAnalyzer.Analysis,
+    runLog: String,
+    onDismiss: () -> Unit
+) {
     val context = LocalContext.current
-    var raw by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(CrashViewMode.Summary) }
     val summary = buildString {
         appendLine(analysis.title)
         analysis.exitCode?.let { appendLine(stringResource(R.string.startup_report_exitcode, it)) }
         analysis.causedBy.forEach { appendLine("Caused by: $it") }
-        analysis.findings.forEach { appendLine(stringResource(R.string.crash_finding, it.label, it.detail)); appendLine(stringResource(R.string.crash_suggestion, it.suggestion)) }
+        analysis.findings.forEach {
+            appendLine(stringResource(R.string.crash_finding, it.label, it.detail))
+            appendLine(stringResource(R.string.crash_suggestion, it.suggestion))
+        }
     }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(if (raw) stringResource(R.string.crash_raw_title) else stringResource(R.string.crash_analysis_title)) }, text = {
+    val displayedText = when (mode) {
+        CrashViewMode.Summary -> summary
+        CrashViewMode.RawReport -> content
+        CrashViewMode.RunLog -> runLog.ifBlank { stringResource(R.string.crash_run_log_empty) }
+    }
+    val title = when (mode) {
+        CrashViewMode.Summary -> stringResource(R.string.crash_analysis_title)
+        CrashViewMode.RawReport -> stringResource(R.string.crash_raw_title)
+        CrashViewMode.RunLog -> stringResource(R.string.crash_run_log_title)
+    }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = {
         Column(Modifier.fillMaxWidth().heightIn(max = 460.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(selected = !raw, onClick = { raw = false }, label = { Text(stringResource(R.string.crash_summary)) })
-                FilterChip(selected = raw, onClick = { raw = true }, label = { Text(stringResource(R.string.crash_raw)) })
+                FilterChip(selected = mode == CrashViewMode.Summary, onClick = { mode = CrashViewMode.Summary }, label = { Text(stringResource(R.string.crash_summary)) })
+                FilterChip(selected = mode == CrashViewMode.RawReport, onClick = { mode = CrashViewMode.RawReport }, label = { Text(stringResource(R.string.crash_raw)) })
+                FilterChip(selected = mode == CrashViewMode.RunLog, onClick = { mode = CrashViewMode.RunLog }, label = { Text(stringResource(R.string.crash_run_log)) })
             }
             Spacer(Modifier.height(8.dp))
-            Text(if (raw) content else summary, fontFamily = if (raw) FontFamily.Monospace else FontFamily.Default, fontSize = 12.sp, modifier = Modifier.weight(1f).verticalScroll(rememberScrollState()))
+            Text(
+                displayedText,
+                fontFamily = if (mode == CrashViewMode.Summary) FontFamily.Default else FontFamily.Monospace,
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())
+            )
         }
     }, confirmButton = {
         Row {
-            IconButton(onClick = { copy(context, if (raw) content else summary) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.crash_copy), tint = Indigo) }
+            IconButton(onClick = { copy(context, displayedText) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.crash_copy), tint = Indigo) }
             val shareTitle = stringResource(R.string.crash_share)
-            IconButton(onClick = { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type = "text/plain"; putExtra(Intent.EXTRA_TEXT, content) }, shareTitle)) }) { Icon(Icons.Outlined.IosShare, stringResource(R.string.crash_export), tint = Indigo) }
+            IconButton(onClick = {
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_TEXT, displayedText)
+                }, shareTitle))
+            }) { Icon(Icons.Outlined.IosShare, stringResource(R.string.crash_export), tint = Indigo) }
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.s620)) }
         }
     })
