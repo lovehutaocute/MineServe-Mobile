@@ -1047,7 +1047,7 @@ class McViewModel(
             val requiredJava = CrashReportAnalyzer.requiredJavaVersion(line)
             if (requiredJava != null) {
                 val selected = when (config.value.selectedJavaVersion) {
-                    JavaVersion.Java8 -> 8; JavaVersion.Java17 -> 17; JavaVersion.Java21 -> 21; JavaVersion.Java25 -> 25
+                    JavaVersion.Java8 -> 8; JavaVersion.Java11 -> 11; JavaVersion.Java17 -> 17; JavaVersion.Java21 -> 21; JavaVersion.Java25 -> 25
                 }
                 if (selected < requiredJava) {
                     val core = config.value.installedCores.firstOrNull { it.name == config.value.activeCoreName }?.core?.displayName ?: str(R.string.diag_core_unknown_name)

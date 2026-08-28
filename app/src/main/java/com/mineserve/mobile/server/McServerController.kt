@@ -1176,15 +1176,22 @@ class McServerController(
             runCatching { repo.saveConfig(config.copy(selectedJavaVersion = recommended)) }
             recommended
         } else config.selectedJavaVersion
-        // Forge ≤1.16 的 FML 只支持 Java 8/11，Termux 无 Java 11；用户选择更高版本时强制降到 Java 8，
-        // 否则安装器能在 Java 17 下成功，服务端却根本无法运行。
-        val effectiveLaunchJava = if (coreType == ServerCore.Forge && isLegacyForgeMcVersion(mcVersion) && launchJava != JavaVersion.Java8) {
-            if (!termux.isJavaInstalled(JavaVersion.Java8)) {
-                throw RuntimeException("Forge $mcVersion 需要 Java 8 运行（不支持 ${launchJava.displayName}），请先在「Java 管理」卡片中安装 Java 8 后重试")
+        // Forge ≤1.16 的 FML 只支持 Java 8/11，Termux 无 Java 11 前用户只能用 PRoot Java 8；
+        // 现优先选已安装的 Java 11（TUR 原生，性能优于 PRoot），其次 Java 8，均未安装时明确提示。
+        val effectiveLaunchJava = if (coreType == ServerCore.Forge && isLegacyForgeMcVersion(mcVersion) &&
+            launchJava != JavaVersion.Java8 && launchJava != JavaVersion.Java11
+        ) {
+            val fallback = when {
+                termux.isJavaInstalled(JavaVersion.Java11) -> JavaVersion.Java11
+                termux.isJavaInstalled(JavaVersion.Java8) -> JavaVersion.Java8
+                else -> throw RuntimeException(
+                    "Forge $mcVersion 需要 Java 11 或 Java 8 运行（不支持 ${launchJava.displayName}），" +
+                        "请在「Java 管理」卡片安装 Java 11（推荐，TUR 源）或 Java 8 后重试"
+                )
             }
-            termux.emitLog("[startMc] Forge $mcVersion 不支持 ${launchJava.displayName} 运行，已自动切换 Java 8")
-            runCatching { repo.saveConfig(config.copy(selectedJavaVersion = JavaVersion.Java8)) }
-            JavaVersion.Java8
+            termux.emitLog("[startMc] Forge $mcVersion 不支持 ${launchJava.displayName} 运行，已自动切换 ${fallback.displayName}")
+            runCatching { repo.saveConfig(config.copy(selectedJavaVersion = fallback)) }
+            fallback
         } else launchJava
         termux.autoRepairRuntime(
             javaVersion = effectiveLaunchJava,
@@ -1438,11 +1445,13 @@ class McServerController(
                 jar.manifest?.mainAttributes?.getValue("Main-Class")
             }
         }.getOrNull() ?: return false
-        // 安装器入口是 SimpleInstaller；1.16 的合法顶层 wrapper 与它同包
-        // （net.minecraftforge.installer.ServerLaunchWrapper），1.12- 的 universal
-        // 则是 fml.relauncher.ServerLaunchWrapper——都按可启动处理。
+        // 安装器入口是 SimpleInstaller。可启动入口按版本分三类：
+        // 1.12- 的 universal 是 fml.relauncher.ServerLaunchWrapper；
+        // 1.16 顶层 wrapper 与安装器同包（installer.ServerLaunchWrapper）；
+        // 1.13-1.16 新版安装器生成的 forge-*-server.jar 入口是 fml.loading.FMLServerTweaker。
         if (mainClass.contains("SimpleInstaller", ignoreCase = true)) return false
-        return mainClass.contains("ServerLaunchWrapper", ignoreCase = true)
+        return mainClass.contains("ServerLaunchWrapper", ignoreCase = true) ||
+            mainClass.contains("FMLServerTweaker", ignoreCase = true)
     }
 
     private fun isForgeInstallerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {

@@ -597,7 +597,7 @@ private fun installerJavaRequirement(
     if (major != 1 || minor == null) return InstallerJavaRequirement(null, false)
 
     val java = when {
-        minor <= 16 -> JavaVersion.Java8
+        minor <= 16 -> JavaVersion.Java11
         minor > 20 || (minor == 20 && (patch ?: 0) >= 5) -> JavaVersion.Java25
         else -> JavaVersion.Java17
     }

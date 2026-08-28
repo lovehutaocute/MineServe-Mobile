@@ -280,6 +280,10 @@ class TermuxRuntime(context: Context) {
         }
         emitLog("[java] 正在安装 ${version.displayName}")
         emitLog("[java] ${version.displayName} 正在下载并配置，首次安装可能需要数分钟")
+        if (version == JavaVersion.Java11 && !ensureTurRepo()) {
+            emitLog("[java] ${version.displayName} 安装失败：TUR 社区软件源不可用，请检查网络后重试")
+            return@withContext false
+        }
         if (!prepareAptPackages(version.packageName)) {
             emitLog("[java] ${version.displayName} 安装失败：Termux 软件源或包索引不可用")
             return@withContext false
@@ -291,6 +295,21 @@ class TermuxRuntime(context: Context) {
         val installed = code == 0 && isJavaInstalled(version)
         emitLog(if (installed) "[java] ${version.displayName} 安装完成" else "[java] ${version.displayName} 安装失败")
         installed
+    }
+
+    /**
+     * TUR（Termux User Repository）提供 Termux 原生 openjdk-11；
+     * tur-repo 包本身来自主仓库，安装后写入独立的 sources.list.d 条目。
+     */
+    private fun ensureTurRepo(): Boolean {
+        val marker = File(installer.rootDir, "var/lib/dpkg/status")
+        val hasTur = runCatching { marker.exists() && marker.useLines { lines ->
+            lines.any { it == "Package: tur-repo" }
+        } }.getOrDefault(false)
+        if (hasTur) return true
+        val code = execOnce("apt-get", "-o", "DPkg::Lock::Timeout=60", "install", "--allow-unauthenticated", "-y", "tur-repo")
+        if (code != 0) emitLog("[java] tur-repo 安装失败（TUR 软件源不可用）")
+        return code == 0
     }
 
     /** Install Java 8 inside the Ubuntu ARM64 glibc container. */
@@ -1918,9 +1937,12 @@ class TermuxRuntime(context: Context) {
             launchArgs?.contains("libraries/", ignoreCase = true) == true
         val forgeServerClasspath = if (launchesVerifiedLibraryJar) {
             "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
-                "if [ -z \"${'$'}forge_jar\" ] || ! jar tf \"${'$'}forge_jar\" 2>/dev/null | grep -q 'net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class'; then " +
-                "echo '[startMc] Java 8 Forge: verified ServerLaunchWrapper is missing'; exit 1; fi; " +
-                "forge_classpath=\"${'$'}(find libraries -type f -name '*.jar' -printf '%p:' 2>/dev/null)${'$'}(find . -maxdepth 1 -type f -name 'minecraft_server.*.jar' -printf '%p:' 2>/dev/null)\"; "
+                "if [ -z \"${'$'}forge_jar\" ]; then echo '[startMc] Java 8 Forge: launch jar not found in libraries'; exit 1; fi; " +
+                // 1.12- 的 universal 无 Main-Class，需要 classpath + relauncher 模式；
+                // 1.13-1.16 的 server jar 自带 Main-Class（FMLServerTweaker）与 Class-Path 清单，直接 -jar。
+                "if jar tf \"${'$'}forge_jar\" 2>/dev/null | grep -q 'net/minecraftforge/fml/relauncher/ServerLaunchWrapper.class'; then " +
+                "forge_classpath=\"${'$'}(find libraries -type f -name '*.jar' -printf '%p:' 2>/dev/null)${'$'}(find . -maxdepth 1 -type f -name 'minecraft_server.*.jar' -printf '%p:' 2>/dev/null)\"; " +
+                "LAUNCH_LEGACY_CP=1; else LAUNCH_LEGACY_CP=0; fi; "
         } else ""
         val forgeLibraryRepair = if (isLegacyForgeLaunch && !launchesVerifiedLibraryJar) {
             "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
@@ -1929,7 +1951,9 @@ class TermuxRuntime(context: Context) {
                 "cp -f \"${'$'}forge_jar\" \"${'$'}forge_target\" && echo '[startMc] Java 8 Forge: restored launch jar from verified library'; fi; fi; "
         } else ""
         val javaArguments = if (launchesVerifiedLibraryJar) {
-            "-cp \"${'$'}forge_classpath\" net.minecraftforge.fml.relauncher.ServerLaunchWrapper"
+            "if [ \"${'$'}LAUNCH_LEGACY_CP\" = 1 ]; then " +
+                "-cp \"${'$'}forge_classpath\" net.minecraftforge.fml.relauncher.ServerLaunchWrapper; " +
+                "else -jar \"${'$'}forge_jar\"; fi"
         } else {
             guestLaunchArgs ?: "-jar '$guestJar'"
         }

@@ -134,6 +134,8 @@ enum class InstallStep(val label: String) {
 @Serializable
 enum class JavaVersion(val displayName: String, val packageName: String, val directoryName: String) {
     Java8("Java 8", "ubuntu-java8", "java-8-ubuntu"),
+    /** TUR 社区仓库提供的 Termux 原生 openjdk-11（Forge 1.13–1.16 的推荐运行时）。 */
+    Java11("Java 11", "openjdk-11", "java-11-openjdk"),
     Java17("Java 17", "openjdk-17", "java-17-openjdk"),
     Java21("Java 21", "openjdk-21", "java-21-openjdk"),
     Java25("Java 25", "openjdk-25", "java-25-openjdk")
