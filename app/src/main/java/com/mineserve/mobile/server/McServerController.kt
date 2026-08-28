@@ -158,6 +158,8 @@ class McServerController(
     @Volatile
     private var startupDeadlineMs = 0L
     @Volatile
+    private var processStartedAtMs = 0L
+    @Volatile
     private var lastStartupFailure: StartupFailure? = null
     @Volatile
     private var lastStartupFailureAtMs = 0L
@@ -1140,6 +1142,7 @@ class McServerController(
         if (config.advancedCustomCommandEnabled && config.advancedCustomCommand.isNotBlank()) {
             termux.emitLog("[startMc] 使用完全自定义启动命令")
             startupDeadlineMs = System.currentTimeMillis() + 20_000L
+            processStartedAtMs = System.currentTimeMillis()
             termux.startMcCustom(
                 command = config.advancedCustomCommand,
                 dirName = dirName,
@@ -1205,6 +1208,7 @@ class McServerController(
             throw RuntimeException("未找到可启动的 JAR；导入内容未被修改，请检查服务器目录")
         }
         startupDeadlineMs = System.currentTimeMillis() + 20_000L
+        processStartedAtMs = System.currentTimeMillis()
         termux.startMc(
             jarPath = jarPath.orEmpty(),
             maxHeapMb = config.maxHeapMb,
@@ -1238,12 +1242,16 @@ class McServerController(
             )
         }
         Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
-        if (code != 0) {
+        // 启动后极短时间内退出（即使 exit=0）不是正常停止：测试核心/配置错误常表现为退出码 0。
+        val quickCleanExit = code == 0 && System.currentTimeMillis() - processStartedAtMs < 5_000L
+        if (code != 0 || quickCleanExit) {
             // stdout writer 在进程退出哨兵后完成 flush，稍候再读文件避免报告缺失尾部。
             try { Thread.sleep(200) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
             var reportPath: String? = null
             try {
-                reportPath = crashReportManager.captureCrash(code, wasRunningBefore = true, dirName = dirName)
+                reportPath = crashReportManager.captureCrash(
+                    code, wasRunningBefore = true, dirName = dirName, allowCleanExit = quickCleanExit
+                )
                 if (reportPath != null) {
                     Log.i(TAG, "崩溃报告已保存: $reportPath")
                     termux.emitLog("[crash] 检测到异常退出(exit=$code)，崩溃报告已保存: ${File(reportPath).name}")
@@ -1254,6 +1262,8 @@ class McServerController(
             val willAutoRestart = config.autoRestartOnCrash && restartAttempts < maxRestartAttempts
             val detail = if (failedDuringStartup) {
                 "服务端启动后立即退出 (exit=$code)"
+            } else if (quickCleanExit) {
+                "服务端异常快速退出 (exit=$code)"
             } else if (willAutoRestart) {
                 "服务端异常退出 (exit=$code)，稍后自动重启"
             } else {
@@ -1264,7 +1274,7 @@ class McServerController(
             lastStartupFailureAtMs = System.currentTimeMillis()
             _startupFailures.tryEmit(failure)
         }
-        if (config.autoRestartOnCrash && code != 0) {
+        if (config.autoRestartOnCrash && (code != 0 || quickCleanExit)) {
             if (restartAttempts < maxRestartAttempts) {
                 restartAttempts++
                 Log.i(TAG, "崩溃自动重启中... (attempt $restartAttempts/$maxRestartAttempts)")

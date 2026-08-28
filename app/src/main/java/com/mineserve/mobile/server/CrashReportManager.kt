@@ -48,9 +48,10 @@ class CrashReportManager(private val termux: TermuxRuntime) {
      * @param wasRunningBefore 是否之前在运行（区分正常停止和崩溃）
      * @return 生成的报告路径，失败返回 null
      */
-    fun captureCrash(exitCode: Int, wasRunningBefore: Boolean, dirName: String): String? {
-        // 只在之前在运行且非正常退出时生成报告（正常 stop 命令退出码通常是 0）
-        if (!wasRunningBefore || exitCode == 0) {
+    fun captureCrash(exitCode: Int, wasRunningBefore: Boolean, dirName: String, allowCleanExit: Boolean = false): String? {
+        // 只在之前在运行且非正常退出时生成报告（正常 stop 命令退出码通常是 0；
+        // 启动后快速退出即使 exit=0 也按异常处理）
+        if (!wasRunningBefore || (exitCode == 0 && !allowCleanExit)) {
             return null
         }
 
