@@ -1226,8 +1226,11 @@ class McServerController(
         }
         Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
         if (code != 0) {
+            // stdout writer 在进程退出哨兵后完成 flush，稍候再读文件避免报告缺失尾部。
+            try { Thread.sleep(200) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
+            var reportPath: String? = null
             try {
-                val reportPath = crashReportManager.captureCrash(code, wasRunningBefore = true, dirName = dirName)
+                reportPath = crashReportManager.captureCrash(code, wasRunningBefore = true, dirName = dirName)
                 if (reportPath != null) {
                     Log.i(TAG, "崩溃报告已保存: $reportPath")
                     termux.emitLog("[crash] 检测到异常退出(exit=$code)，崩溃报告已保存: ${File(reportPath).name}")
@@ -1235,7 +1238,15 @@ class McServerController(
             } catch (e: Exception) {
                 Log.e(TAG, "捕获崩溃报告失败: ${e.message}", e)
             }
-            if (failedDuringStartup) _startupFailures.tryEmit(StartupFailure(code, null, "服务端启动后立即退出"))
+            val willAutoRestart = config.autoRestartOnCrash && restartAttempts < maxRestartAttempts
+            val detail = if (failedDuringStartup) {
+                "服务端启动后立即退出 (exit=$code)"
+            } else if (willAutoRestart) {
+                "服务端异常退出 (exit=$code)，稍后自动重启"
+            } else {
+                "服务端异常退出 (exit=$code)"
+            }
+            _startupFailures.tryEmit(StartupFailure(code, reportPath, detail))
         }
         if (config.autoRestartOnCrash && code != 0) {
             if (restartAttempts < maxRestartAttempts) {
