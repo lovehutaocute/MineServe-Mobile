@@ -1445,13 +1445,15 @@ class McServerController(
                 jar.manifest?.mainAttributes?.getValue("Main-Class")
             }
         }.getOrNull() ?: return false
-        // 安装器入口是 SimpleInstaller。可启动入口按版本分三类：
+        // 安装器入口是 SimpleInstaller。可启动入口按版本分四类：
         // 1.12- 的 universal 是 fml.relauncher.ServerLaunchWrapper；
         // 1.16 顶层 wrapper 与安装器同包（installer.ServerLaunchWrapper）；
-        // 1.13-1.16 新版安装器生成的 forge-*-server.jar 入口是 fml.loading.FMLServerTweaker。
+        // 1.13-1.16 新版安装器的 forge-*-server.jar 入口是 fml.loading.FMLServerTweaker（无 Main-Class 的变体也存在）；
+        // 1.16.5（36.x）的顶层 launcher 是 net.minecraftforge.server.ServerMain（设备 MANIFEST 实测）。
         if (mainClass.contains("SimpleInstaller", ignoreCase = true)) return false
         return mainClass.contains("ServerLaunchWrapper", ignoreCase = true) ||
-            mainClass.contains("FMLServerTweaker", ignoreCase = true)
+            mainClass.contains("FMLServerTweaker", ignoreCase = true) ||
+            mainClass.contains("net.minecraftforge.server.ServerMain", ignoreCase = true)
     }
 
     private fun isForgeInstallerJar(file: File, serverDir: File, javaVersion: JavaVersion): Boolean {

@@ -1935,6 +1935,10 @@ class TermuxRuntime(context: Context) {
             launchArgs.contains("forge-")
         val launchesVerifiedLibraryJar = isLegacyForgeLaunch &&
             launchArgs?.contains("libraries/", ignoreCase = true) == true
+        // 注意：不要用 libraries 里 find 到的第一个 jar 覆盖顶层启动 jar——
+        // 1.16.5 的 libraries 第一个 jar 是无 Main-Class 的 -server.jar，
+        // 而顶层 launcher（ServerMain）才是官方启动入口；launchArgs 指向的
+        // jar 已在 App 侧验证过 Main-Class，这里直接使用即可。
         val forgeServerClasspath = if (launchesVerifiedLibraryJar) {
             "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
                 "if [ -z \"${'$'}forge_jar\" ]; then echo '[startMc] Java 8 Forge: launch jar not found in libraries'; exit 1; fi; " +
@@ -1944,12 +1948,7 @@ class TermuxRuntime(context: Context) {
                 "forge_classpath=\"${'$'}(find libraries -type f -name '*.jar' -printf '%p:' 2>/dev/null)${'$'}(find . -maxdepth 1 -type f -name 'minecraft_server.*.jar' -printf '%p:' 2>/dev/null)\"; " +
                 "LAUNCH_LEGACY_CP=1; else LAUNCH_LEGACY_CP=0; fi; "
         } else ""
-        val forgeLibraryRepair = if (isLegacyForgeLaunch && !launchesVerifiedLibraryJar) {
-            "forge_jar=\"${'$'}(find libraries/net/minecraftforge/forge -type f -name 'forge-*.jar' -print -quit 2>/dev/null)\"; " +
-                "if [ -n \"${'$'}forge_jar\" ]; then forge_target=\"${'$'}(basename \"${'$'}forge_jar\")\"; " +
-                "if ! cmp -s \"${'$'}forge_jar\" \"${'$'}forge_target\" 2>/dev/null; then " +
-                "cp -f \"${'$'}forge_jar\" \"${'$'}forge_target\" && echo '[startMc] Java 8 Forge: restored launch jar from verified library'; fi; fi; "
-        } else ""
+        val forgeLibraryRepair = ""
         val javaArguments = if (launchesVerifiedLibraryJar) {
             "if [ \"${'$'}LAUNCH_LEGACY_CP\" = 1 ]; then " +
                 "-cp \"${'$'}forge_classpath\" net.minecraftforge.fml.relauncher.ServerLaunchWrapper; " +
