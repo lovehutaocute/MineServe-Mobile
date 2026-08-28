@@ -27,6 +27,7 @@ import com.mineserve.mobile.data.DiagnosticCheck
 import com.mineserve.mobile.data.DiagnosticReport
 import com.mineserve.mobile.data.DiagnosticStatus
 import com.mineserve.mobile.data.ServerResourceStats
+import com.mineserve.mobile.data.ServerEventNotifier
 import com.mineserve.mobile.data.AppRelease
 import com.mineserve.mobile.data.AppUpdateService
 import com.mineserve.mobile.server.BackupManager
@@ -155,6 +156,10 @@ class McViewModel(
     private val _lastRunLog = MutableStateFlow("")
     val lastRunLog: StateFlow<String> = _lastRunLog.asStateFlow()
     @Volatile private var terminalHistoryLoading = false
+
+    /** 事件通知等级：0=关闭 1=仅重要 2=全部（含玩家上下线）。 */
+    private val _eventNotifyLevel = MutableStateFlow(ServerEventNotifier.level(app))
+    val eventNotifyLevel: StateFlow<Int> = _eventNotifyLevel.asStateFlow()
 
     /** Small, stable preview for cards that only show the latest few server messages. */
     private val _consolePreviewLines = MutableStateFlow<ImmutableList<String>>(persistentListOf())
@@ -1032,6 +1037,7 @@ class McViewModel(
                     repo.updateServerState { it.copy(onlinePlayers = (it.onlinePlayers + if (joined) 1 else -1).coerceAtLeast(0)) }
                     if (joined) addOnlinePlayer(name) else removeOnlinePlayer(name)
                     recordPlayerEvent(name, if (joined) "进服" else "离服")
+                    notifyPlayerEvent(name, joined)
                 }
                 line.contains("joined the game") -> {
                     // 仅当提取到真实玩家名（日志前缀 + 合法名字）时才计数与记录，避免聊天消息误报
@@ -1041,6 +1047,7 @@ class McViewModel(
                         }
                         addOnlinePlayer(name)
                         recordPlayerEvent(name, "进服")
+                        notifyPlayerEvent(name, true)
                     }
                 }
                 line.contains("left the game") -> {
@@ -1050,6 +1057,7 @@ class McViewModel(
                         }
                         removeOnlinePlayer(name)
                         recordPlayerEvent(name, "离服")
+                        notifyPlayerEvent(name, false)
                     }
                 }
                 line.contains("players online") -> {
@@ -1101,6 +1109,24 @@ class McViewModel(
         }
         // 启动完成时主动请求一次 list，全量校正在线玩家名单。
         if (becameReady && repo.termuxRuntime.isMcRunning()) playerManager.requestOnlineList()
+        if (becameReady) {
+            ServerEventNotifier.notify(
+                app,
+                str(R.string.notif_server_started_title),
+                str(R.string.notif_server_started_text),
+                ServerEventNotifier.ID_STARTED, 1
+            )
+        }
+    }
+
+    /** 玩家进出服系统通知（仅“全部”档发布）。 */
+    private fun notifyPlayerEvent(name: String, joined: Boolean) {
+        ServerEventNotifier.notify(
+            app,
+            if (joined) str(R.string.notif_player_joined_title, name) else str(R.string.notif_player_left_title, name),
+            if (joined) str(R.string.notif_player_joined_text) else str(R.string.notif_player_left_text),
+            ServerEventNotifier.ID_PLAYER, 2
+        )
     }
 
     /** 在后台日志解析线程推进启动阶段，UI 不扫描原始日志。
@@ -3620,6 +3646,12 @@ class McViewModel(
     fun setBootAutoStart(v: Boolean) {
         metaPrefs().edit().putBoolean(BootReceiver.KEY_BOOT_AUTO_START, v).apply()
         if (v) startKeepAliveService() else stopKeepAliveService()
+    }
+
+    /** 设置服务器事件通知等级（0 关闭 / 1 仅重要 / 2 全部）。 */
+    fun setEventNotifyLevel(value: Int) {
+        ServerEventNotifier.setLevel(app, value.coerceIn(0, 2))
+        _eventNotifyLevel.value = value.coerceIn(0, 2)
     }
 
     /** 后台周期保活开关状态 */

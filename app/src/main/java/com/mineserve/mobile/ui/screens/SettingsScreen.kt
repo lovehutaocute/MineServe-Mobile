@@ -185,6 +185,34 @@ fun SettingsScreen(vm: McViewModel, onNavigate: (SubPage) -> Unit = {}) {
             )
         }
 
+        // 服务器事件通知
+        McCard(title = stringResource(R.string.set_notify_title)) {
+            Text(
+                stringResource(R.string.set_notify_hint),
+                color = Muted,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.height(8.dp))
+            val notifyLevel by vm.eventNotifyLevel.collectAsState()
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                SegPill(
+                    text = stringResource(R.string.set_notify_off),
+                    selected = notifyLevel == 0,
+                    onClick = { vm.setEventNotifyLevel(0) }
+                )
+                SegPill(
+                    text = stringResource(R.string.set_notify_important),
+                    selected = notifyLevel == 1,
+                    onClick = { vm.setEventNotifyLevel(1) }
+                )
+                SegPill(
+                    text = stringResource(R.string.set_notify_all),
+                    selected = notifyLevel == 2,
+                    onClick = { vm.setEventNotifyLevel(2) }
+                )
+            }
+        }
+
         // 后台保活（大尺寸独立入口）
         McCard(title = stringResource(R.string.s542)) {
             Text(

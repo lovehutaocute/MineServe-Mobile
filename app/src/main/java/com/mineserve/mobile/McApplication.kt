@@ -276,6 +276,7 @@ class McApplication : Application(), Configuration.Provider {
             setShowBadge(false)
         }
         nm.createNotificationChannel(channel)
+        com.mineserve.mobile.data.ServerEventNotifier.createChannel(this)
     }
 
     override val workManagerConfiguration: Configuration

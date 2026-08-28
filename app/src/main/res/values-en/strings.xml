@@ -1198,4 +1198,25 @@
     <string name="termux_hint">Type a command, e.g. ls, pkg update</string>
     <string name="termux_busy">Running…</string>
     <string name="termux_placeholder">Type a command to start</string>
+
+    <!-- Server event notifications -->
+    <string name="notif_events_channel_name">Server events</string>
+    <string name="notif_events_channel_desc">Server started, player join/leave and abnormal exit alerts</string>
+    <string name="notif_server_started_title">Server started</string>
+    <string name="notif_server_started_text">Server is ready, players can join now.</string>
+    <string name="notif_server_stopped_title">Server stopped</string>
+    <string name="notif_server_stopped_text">Server has stopped.</string>
+    <string name="notif_server_crashed_title">Server exited abnormally</string>
+    <string name="notif_server_crashed_text">Exit code %1$s. Check the crash report inside the app.</string>
+    <string name="notif_player_joined_title">%1$s joined the game</string>
+    <string name="notif_player_joined_text">Online player count updated.</string>
+    <string name="notif_player_left_title">%1$s left the game</string>
+    <string name="notif_player_left_text">Online player count updated.</string>
+
+    <!-- Settings: event notifications -->
+    <string name="set_notify_title">Event notifications</string>
+    <string name="set_notify_hint">Get alerts when the server finishes starting, stops, or exits abnormally; All also includes player join/leave.</string>
+    <string name="set_notify_off">Off</string>
+    <string name="set_notify_important">Important</string>
+    <string name="set_notify_all">All</string>
 </resources>

@@ -1,6 +1,9 @@
 package com.mineserve.mobile.server
 
 import android.util.Log
+import com.mineserve.mobile.R
+import com.mineserve.mobile.McApplication
+import com.mineserve.mobile.data.ServerEventNotifier
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.InstalledCore
@@ -1244,6 +1247,15 @@ class McServerController(
         Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
         // 启动后极短时间内退出（即使 exit=0）不是正常停止：测试核心/配置错误常表现为退出码 0。
         val quickCleanExit = code == 0 && System.currentTimeMillis() - processStartedAtMs < 5_000L
+        if (code == 0 && !quickCleanExit) {
+            val app = McApplication.get()
+            ServerEventNotifier.notify(
+                app,
+                app.getString(R.string.notif_server_stopped_title),
+                app.getString(R.string.notif_server_stopped_text),
+                ServerEventNotifier.ID_STOPPED, 1
+            )
+        }
         if (code != 0 || quickCleanExit) {
             // stdout writer 在进程退出哨兵后完成 flush，稍候再读文件避免报告缺失尾部。
             try { Thread.sleep(200) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
@@ -1273,6 +1285,13 @@ class McServerController(
             lastStartupFailure = failure
             lastStartupFailureAtMs = System.currentTimeMillis()
             _startupFailures.tryEmit(failure)
+            val app = McApplication.get()
+            ServerEventNotifier.notify(
+                app,
+                app.getString(R.string.notif_server_crashed_title),
+                app.getString(R.string.notif_server_crashed_text, code),
+                ServerEventNotifier.ID_CRASH, 1
+            )
         }
         if (config.autoRestartOnCrash && (code != 0 || quickCleanExit)) {
             if (restartAttempts < maxRestartAttempts) {
