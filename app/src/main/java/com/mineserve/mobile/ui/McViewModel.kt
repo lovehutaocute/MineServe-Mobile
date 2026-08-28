@@ -682,6 +682,10 @@ class McViewModel(
     private var cachedResourceDir: String? = null
     private var cachedDirectoryBytes: Long? = null
     private var cachedDirectoryBytesAtMs = 0L
+    private var cachedMemoryAtMs = 0L
+    private var cachedMemoryMb = 0L
+    private var cachedJavaAvailable: Boolean? = null
+    private var cachedJavaAvailableAtMs = 0L
     private var previousCpuTotalTicks = 0L
     private var previousCpuIdleTicks = 0L
 
@@ -713,18 +717,42 @@ class McViewModel(
                 }
                 cachedDirectoryBytes
             }
-            val memory = repo.termuxRuntime.mcProcessMemoryMb().takeIf { running && it > 0L }
+            // 进程内存采样遍历 /proc，降频到 30s（运行中才需要），窗口内沿用旧值。
+            if (running && now - cachedMemoryAtMs >= 30_000L) {
+                cachedMemoryAtMs = now
+                cachedMemoryMb = repo.termuxRuntime.mcProcessMemoryMb()
+            }
+            val effectiveMemory = cachedMemoryMb.takeIf { running && it > 0L }
             // CPU is the whole device's usage and remains available even when the server is stopped.
             val cpu = readSystemCpuPercent()
-            _serverResources.value = ServerResourceStats(
-                processMemoryMb = memory,
+            // java 可用性检查会 stat 多个候选路径，60s 缓存一次。
+            if (now - cachedJavaAvailableAtMs >= 60_000L) {
+                cachedJavaAvailable = repo.termuxRuntime.isJavaInstalled(cfg.selectedJavaVersion)
+                cachedJavaAvailableAtMs = now
+            }
+            val javaAvailable = cachedJavaAvailable ?: true
+            val newStats = ServerResourceStats(
+                processMemoryMb = effectiveMemory,
                 cpuPercent = cpu,
                 availableBytes = available,
                 directoryBytes = directoryBytes,
-                javaAvailable = repo.termuxRuntime.isJavaInstalled(cfg.selectedJavaVersion),
+                javaAvailable = javaAvailable,
                 sampledAtMs = now
             )
-            repo.updateServerState { it.copy(usedMemoryMb = memory ?: 0L, cpuPercent = cpu) }
+            // 值无变化时不发布新快照：避免每 15 秒无谓的重组（后台游戏挤压 CPU 时尤其明显）。
+            val prev = _serverResources.value
+            if (prev.processMemoryMb != newStats.processMemoryMb ||
+                prev.cpuPercent != newStats.cpuPercent ||
+                prev.availableBytes != newStats.availableBytes ||
+                prev.directoryBytes != newStats.directoryBytes ||
+                prev.javaAvailable != newStats.javaAvailable
+            ) {
+                _serverResources.value = newStats
+            }
+            repo.updateServerState { state ->
+                if (state.usedMemoryMb == (effectiveMemory ?: 0L) && state.cpuPercent == cpu) state
+                else state.copy(usedMemoryMb = effectiveMemory ?: 0L, cpuPercent = cpu)
+            }
         } catch (e: Exception) {
             // Keep the last known snapshot when Android or PRoot denies a probe.
         }
