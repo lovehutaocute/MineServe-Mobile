@@ -44,6 +44,60 @@ class PluginManager(
         private const val DISABLED_PREFIX = "-"
         /** 模组禁用后缀（Fabric/Forge 官方约定：xxx.jar → xxx.jar.disabled） */
         private const val MOD_DISABLED_SUFFIX = ".jar.disabled"
+        /** 历史版本遗留的禁用后缀（缺 .jar 的变体） */
+        private const val LEGACY_DISABLED_SUFFIX = ".disabled"
+
+        /** 忽略大小写地剥离后缀（removeSuffix 区分大小写，会漏掉 .JAR 等变体）。 */
+        private fun stripSuffixIgnoreCase(name: String, suffix: String): String {
+            if (name.length < suffix.length) return name
+            val tail = name.substring(name.length - suffix.length)
+            return if (tail.equals(suffix, ignoreCase = true)) {
+                name.substring(0, name.length - suffix.length)
+            } else name
+        }
+
+        /**
+         * 解析 mods 目录文件名 → (展示基名, 是否启用)。
+         * 兼容：标准 .jar / .jar.disabled、遗留 .disabled、遗留 `-` 前缀、
+         * 以及历史 bug 留下的无后缀文件（一律按禁用模组处理，可通过开关自愈为标准名）。
+         */
+        internal fun parseModFileName(name: String): Pair<String, Boolean> = when {
+            name.endsWith(MOD_DISABLED_SUFFIX, ignoreCase = true) ->
+                stripSuffixIgnoreCase(name, MOD_DISABLED_SUFFIX) to false
+            name.endsWith(LEGACY_DISABLED_SUFFIX, ignoreCase = true) ->
+                stripSuffixIgnoreCase(stripSuffixIgnoreCase(name, LEGACY_DISABLED_SUFFIX), JAR_EXT) to false
+            name.startsWith(DISABLED_PREFIX) ->
+                stripSuffixIgnoreCase(name.substring(1), JAR_EXT) to false
+            name.endsWith(JAR_EXT, ignoreCase = true) ->
+                stripSuffixIgnoreCase(name, JAR_EXT) to true
+            else -> name to false
+        }
+
+        /** 计算切换后的目标文件名：启用恢复标准 baseName.jar，禁用为标准 baseName.jar.disabled。 */
+        internal fun modToggleTarget(fileName: String, enable: Boolean): String {
+            val (baseName, _) = parseModFileName(fileName)
+            return if (enable) "$baseName$JAR_EXT" else "$baseName$MOD_DISABLED_SUFFIX"
+        }
+
+        /** 判断 mods 目录里的文件是否按模组条目展示。 */
+        private fun isModCandidate(f: File): Boolean {
+            val name = f.name
+            if (name.endsWith(JAR_EXT, ignoreCase = true) ||
+                name.endsWith(MOD_DISABLED_SUFFIX, ignoreCase = true) ||
+                name.endsWith(LEGACY_DISABLED_SUFFIX, ignoreCase = true) ||
+                name.startsWith(DISABLED_PREFIX)
+            ) return true
+            // 历史遗留的无后缀文件：内容为 zip（PK 魔数）才按模组展示
+            if (!name.contains('.')) {
+                return runCatching {
+                    f.inputStream().use { ins ->
+                        val head = ByteArray(2)
+                        ins.read(head) == 2 && head[0] == 'P'.code.toByte() && head[1] == 'K'.code.toByte()
+                    }
+                }.getOrDefault(false)
+            }
+            return false
+        }
         private const val UPDATE_CHECK_COOLDOWN_MS = 5 * 60 * 1000L  // 更新检测冷却 5 分钟
     }
 
@@ -626,33 +680,28 @@ class PluginManager(
         val isEnabled: Boolean
     )
 
-    /** 读取 mods/ 目录下的模组列表（禁用文件为 .jar.disabled 后缀，Fabric/Forge 官方约定） */
+    /** 读取 mods/ 目录下的模组列表。除标准 .jar/.jar.disabled 外，还识别历史版本
+     *  遗留的禁用形态（.disabled、`-` 前缀、无后缀的 jar 文件），避免条目凭空消失。 */
     fun readMods(dirName: String): List<ModEntry> {
         val dir = modsDirOf(dirName)
         if (!dir.exists() || !dir.isDirectory) return emptyList()
-        return dir.listFiles { f ->
-            f.isFile && (f.name.endsWith(JAR_EXT, ignoreCase = true) || f.name.endsWith(MOD_DISABLED_SUFFIX, ignoreCase = true))
-        }
+        return dir.listFiles { f -> f.isFile && isModCandidate(f) }
             ?.sortedBy { it.name.lowercase() }
             ?.map { f ->
-                val isEnabled = f.name.endsWith(JAR_EXT, ignoreCase = true)
-                val baseName = if (isEnabled) f.name.removeSuffix(JAR_EXT)
-                               else f.name.removeSuffix(MOD_DISABLED_SUFFIX)
+                val (baseName, isEnabled) = parseModFileName(f.name)
                 ModEntry(f.name, baseName, formatSize(f.length()), isEnabled)
             } ?: emptyList()
     }
 
-    /** 切换模组启用状态（.jar ↔ .jar.disabled） */
+    /** 切换模组启用状态（.jar ↔ .jar.disabled），并自愈历史遗留的坏文件名。 */
     suspend fun toggleModEnabled(fileName: String, dirName: String): String? = withContext(Dispatchers.IO) {
         val dir = modsDirOf(dirName)
         val file = File(dir, fileName)
         if (!file.exists()) return@withContext null
-        val newName = if (fileName.endsWith(MOD_DISABLED_SUFFIX, ignoreCase = true)) {
-            fileName.removeSuffix(MOD_DISABLED_SUFFIX)
-        } else {
-            "$fileName.disabled"
-        }
-        return@withContext if (file.renameTo(File(dir, newName))) newName else null
+        val (_, isEnabled) = parseModFileName(fileName)
+        val target = modToggleTarget(fileName, !isEnabled)
+        if (target == fileName) return@withContext null
+        return@withContext if (file.renameTo(File(dir, target))) target else null
     }
 
     /** 删除模组文件 */
