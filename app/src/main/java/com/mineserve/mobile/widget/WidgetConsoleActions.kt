@@ -4,6 +4,7 @@ import android.content.Context
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.R
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.ServerEventNotifier
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.McServerController
@@ -30,9 +31,11 @@ object WidgetConsoleActions {
         if (cores.isEmpty()) return config.activeCoreName
         val idx = cores.indexOfFirst { it.name == config.activeCoreName }.takeIf { it >= 0 } ?: 0
         val next = cores[(idx + delta + cores.size) % cores.size]
-        repo.saveConfig(config.copy(activeCoreName = next.name))
-        // saveConfig 有 300ms 防抖落盘；立即刷新会读到旧配置导致按钮看似无响应
-        delay(450L)
+        val updated = config.copy(activeCoreName = next.name)
+        repo.saveConfig(updated)
+        awaitConfigSaved(repo) { it.activeCoreName == next.name }
+        // 该字段就是启动（controller.start）读取的全局选择，切换即生效
+        repo.termuxRuntime.emitLog("[widget] 已切换服务器核心: ${next.name}")
         return next.name
     }
 
@@ -43,9 +46,25 @@ object WidgetConsoleActions {
         val config = repo.configFlow.first()
         val idx = versions.indexOf(config.selectedJavaVersion).takeIf { it >= 0 } ?: 0
         val next = versions[(idx + delta + versions.size) % versions.size]
-        repo.saveConfig(config.copy(selectedJavaVersion = next))
-        delay(450L)
+        val updated = config.copy(selectedJavaVersion = next)
+        repo.saveConfig(updated)
+        awaitConfigSaved(repo) { it.selectedJavaVersion == next }
+        // 启动校验与 Java 解析读取的就是 selectedJavaVersion，切换即生效
+        repo.termuxRuntime.emitLog("[widget] 已切换 Java 版本: ${next.displayName}")
         return next.displayName
+    }
+
+    /**
+     * saveConfig 是 300ms 防抖异步落盘：不等落盘就刷新组件/触发启动会读到旧值，
+     * 造成“切换无响应”。这里轮询确认目标字段已持久化（最多 2 秒）。
+     */
+    private suspend fun awaitConfigSaved(repo: com.mineserve.mobile.data.ServerRepository, matches: (McConfig) -> Boolean) {
+        val deadline = System.currentTimeMillis() + 2_000L
+        while (System.currentTimeMillis() < deadline) {
+            val current = runCatching { repo.configFlow.first() }.getOrNull()
+            if (current != null && matches(current)) return
+            delay(100L)
+        }
     }
 
     /** 启动服务器（后台执行完整启动流程，失败发事件通知）。 */
