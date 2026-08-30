@@ -127,41 +127,62 @@
             android:exported="false" />
 
         <receiver
-            android:name=".widget.StatusWidgetSmall"
+            android:name=".widget.OverviewWidget"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_small_info" />
+                android:resource="@xml/widget_overview_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.StatusWidgetMedium"
+            android:name=".widget.EventLogWidget"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_medium_info" />
+                android:resource="@xml/widget_event_log_info" />
         </receiver>
 
         <receiver
-            android:name=".widget.StatusWidgetLarge"
+            android:name=".widget.ConsoleWidget"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
-                android:resource="@xml/widget_large_info" />
+                android:resource="@xml/widget_console_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.ModPluginWidget"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_mod_plugin_info" />
         </receiver>
 
         <receiver
             android:name=".widget.WidgetActionReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".widget.EventLogWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <service
+            android:name=".widget.ModPluginWidgetService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
 
         <activity
             android:name="bin.mt.file.content.MTDataFilesWakeUpActivity"

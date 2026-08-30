@@ -5,54 +5,65 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Handler
-import android.os.Looper
 import android.widget.RemoteViews
 import com.mineserve.mobile.MainActivity
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.R
-import com.mineserve.mobile.widget.StatusWidgetLarge
-import com.mineserve.mobile.widget.StatusWidgetMedium
-import com.mineserve.mobile.widget.StatusWidgetSmall
+import com.mineserve.mobile.widget.ConsoleWidget
+import com.mineserve.mobile.widget.EventLogWidget
+import com.mineserve.mobile.widget.ModPluginWidget
+import com.mineserve.mobile.widget.OverviewWidget
 import com.mineserve.mobile.widget.WidgetActionReceiver
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 /**
- * 桌面组件状态刷新：从 serverState 构建小/中/大三种 RemoteViews 并推送。
- * 刷新入口统一走 [refresh]（300ms 防抖合并），状态变化的 diff 判定在
- * ServerRepository.updateServerState 中完成。
+ * 桌面组件刷新分发器：
+ *  - 总览/控制台由 serverState+config 构建静态 RemoteViews；
+ *  - 事件日志/模组插件仅更新外壳（列表数据由各自 RemoteViewsService 提供）。
+ * 状态变化的 diff 判定在 ServerRepository.updateServerState 中完成。
  */
 object WidgetUpdater {
     private const val ACTION_WIDGET_START = "com.mineserve.mobile.widget.START_SERVER"
     private const val ACTION_WIDGET_STOP = "com.mineserve.mobile.widget.STOP_SERVER"
     private const val DEBOUNCE_MS = 300L
 
-    private val handler = Handler(Looper.getMainLooper())
-    private var pending = false
-    private var lastPushAtMs = 0L
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var pending = false
+    @Volatile private var lastPushAtMs = 0L
 
     /** 状态变化触发的刷新（防抖合并高频变化）。 */
     fun refresh(context: Context) {
         val appContext = context.applicationContext
         if (pending) return
+        pending = true
         val since = System.currentTimeMillis() - lastPushAtMs
         if (since >= DEBOUNCE_MS) {
-            pending = true
-            handler.post { pushNow(appContext) }
-            return
+            scope.launch { pushNow(appContext) }
+        } else {
+            scope.launch {
+                kotlinx.coroutines.delay(DEBOUNCE_MS - since)
+                pushNow(appContext)
+            }
         }
-        pending = true
-        handler.postDelayed({ pushNow(appContext) }, DEBOUNCE_MS - since)
     }
 
-    private fun pushNow(context: Context) {
+    private suspend fun pushNow(context: Context) {
         pending = false
         lastPushAtMs = System.currentTimeMillis()
         try {
-            val state = McApplication.get(context).repository.serverState.value
+            val repo = McApplication.get(context).repository
+            val state = repo.serverState.value
+            val config = runCatching { repo.configFlow.first() }.getOrNull() ?: McConfig()
             val manager = AppWidgetManager.getInstance(context)
-            updateProvider(context, manager, StatusWidgetSmall::class.java) { buildSmall(context, state) }
-            updateProvider(context, manager, StatusWidgetMedium::class.java) { buildMedium(context, state) }
-            updateProvider(context, manager, StatusWidgetLarge::class.java) { buildLarge(context, state) }
+            updateProvider(context, manager, OverviewWidget::class.java) { buildOverview(context, state) }
+            updateProvider(context, manager, EventLogWidget::class.java) { buildEventLogShell(context) }
+            updateProvider(context, manager, ConsoleWidget::class.java) { buildConsole(context, state, config) }
+            updateProvider(context, manager, ModPluginWidget::class.java) { buildModPluginShell(context) }
         } catch (_: Exception) {
             // Widget 刷新失败不影响服务器运行
         }
@@ -69,28 +80,50 @@ object WidgetUpdater {
         manager.updateAppWidget(ids, views())
     }
 
-    private fun buildSmall(context: Context, state: ServerState): RemoteViews =
-        RemoteViews(context.packageName, R.layout.widget_small).apply {
+    /** ① 状态总览（4×1）：状态点 + 状态文本 + 在线人数；第二行 TPS/内存/时长/CPU。 */
+    private fun buildOverview(context: Context, state: ServerState): RemoteViews =
+        RemoteViews(context.packageName, R.layout.widget_overview).apply {
             bindStatus(context, this, state)
+            setTextViewText(R.id.widget_metric_tps, tpsValue(state))
+            setTextViewText(R.id.widget_metric_memory, memoryValue(state))
+            setTextViewText(R.id.widget_metric_uptime, uptimeValue(state))
+            setTextViewText(R.id.widget_metric_cpu, cpuValue(state))
         }
 
-    private fun buildMedium(context: Context, state: ServerState): RemoteViews =
-        RemoteViews(context.packageName, R.layout.widget_medium).apply {
-            bindStatus(context, this, state)
-            setTextViewText(R.id.widget_tps_text, tpsText(context, state))
-            setTextViewText(R.id.widget_memory_text, memoryText(state))
-            bindActionButton(context, this, state)
+    /** ② 事件日志（2×4）：外壳（列表数据由 EventLogWidgetService 提供）。 */
+    private fun buildEventLogShell(context: Context): RemoteViews =
+        RemoteViews(context.packageName, R.layout.widget_event_log).apply {
+            setOnClickPendingIntent(R.id.widget_event_root, openAppIntent(context))
         }
 
-    private fun buildLarge(context: Context, state: ServerState): RemoteViews =
-        RemoteViews(context.packageName, R.layout.widget_large).apply {
-            bindStatus(context, this, state)
-            setTextViewText(R.id.widget_tps_text, tpsText(context, state))
-            setTextViewText(R.id.widget_memory_text, memoryText(state))
-            setTextViewText(R.id.widget_cpu_text, cpuText(state))
-            setTextViewText(R.id.widget_uptime_text, uptimeText(state))
+    /** ③ 控制台管理（4×3）：核心/Java 选择 + 启停 + 存档保存/备份。 */
+    private fun buildConsole(context: Context, state: ServerState, config: McConfig): RemoteViews =
+        RemoteViews(context.packageName, R.layout.widget_console).apply {
+            val core = config.installedCores.find { it.name == config.activeCoreName }
+            val running = state.isRunning
+            setTextViewText(
+                R.id.widget_console_core,
+                core?.name ?: context.getString(R.string.widget_console_no_core)
+            )
+            setTextViewText(R.id.widget_console_java, config.selectedJavaVersion.displayName)
             bindActionButton(context, this, state)
+            // 服务器运行中禁止切换核心/Java（视觉淡出，点击也会被动作层忽略）
+            viewsList().forEach {
+                setTextColor(it, if (running) 0xFF9AA0A6.toInt() else 0xFF3B4C9C.toInt())
+            }
+            bindConsolePendingIntents(context, this)
         }
+
+    /** ④ 模组与插件（4×3）：外壳（列表数据由 ModPluginWidgetService 提供）。 */
+    private fun buildModPluginShell(context: Context): RemoteViews =
+        RemoteViews(context.packageName, R.layout.widget_mod_plugin).apply {
+            setOnClickPendingIntent(R.id.widget_mod_root, openAppIntent(context))
+        }
+
+    private fun viewsList() = listOf(
+        R.id.widget_core_prev, R.id.widget_core_next,
+        R.id.widget_java_prev, R.id.widget_java_next
+    )
 
     private fun bindStatus(context: Context, views: RemoteViews, state: ServerState) {
         val starting = state.isRunning && state.runningSinceMs == 0L
@@ -102,14 +135,12 @@ object WidgetUpdater {
         }
         views.setTextViewText(R.id.widget_status_text, statusText)
         views.setTextViewText(R.id.widget_players_text, playersText(state))
-        // 状态点：运行=薄荷绿，启动中=琥珀，停止/失败=珊瑚红
         val dotColor = when {
             starting -> 0xFFFFA726.toInt()
             state.isRunning -> 0xFF2FBF87.toInt()
             else -> 0xFFF97066.toInt()
         }
         views.setInt(R.id.widget_status_dot, "setColorFilter", dotColor)
-        views.setOnClickPendingIntent(R.id.widget_root, openAppIntent(context))
     }
 
     private fun bindActionButton(context: Context, views: RemoteViews, state: ServerState) {
@@ -120,33 +151,40 @@ object WidgetUpdater {
         )
         views.setOnClickPendingIntent(
             R.id.widget_action_btn,
-            widgetActionIntent(context, if (running) ACTION_WIDGET_STOP else ACTION_WIDGET_START)
+            widgetActionIntent(context, if (running) ACTION_WIDGET_STOP else ACTION_WIDGET_START, 4001)
         )
+    }
+
+    private fun bindConsolePendingIntents(context: Context, views: RemoteViews) {
+        views.setOnClickPendingIntent(R.id.widget_core_prev, widgetActionIntent(context, WidgetActionReceiver.ACTION_CORE_PREV, 4010))
+        views.setOnClickPendingIntent(R.id.widget_core_next, widgetActionIntent(context, WidgetActionReceiver.ACTION_CORE_NEXT, 4011))
+        views.setOnClickPendingIntent(R.id.widget_java_prev, widgetActionIntent(context, WidgetActionReceiver.ACTION_JAVA_PREV, 4012))
+        views.setOnClickPendingIntent(R.id.widget_java_next, widgetActionIntent(context, WidgetActionReceiver.ACTION_JAVA_NEXT, 4013))
+        views.setOnClickPendingIntent(R.id.widget_save_btn, widgetActionIntent(context, WidgetActionReceiver.ACTION_SAVE, 4014))
+        views.setOnClickPendingIntent(R.id.widget_backup_btn, widgetActionIntent(context, WidgetActionReceiver.ACTION_BACKUP, 4015))
     }
 
     private fun playersText(state: ServerState): String =
         if (state.isRunning) "${state.onlinePlayers}/${state.maxPlayers}" else "--"
 
-    private fun tpsText(context: Context, state: ServerState): String =
-        context.getString(R.string.widget_tps_label) + " " +
-            (if (state.isRunning && state.tps > 0.0) String.format("%.1f", state.tps) else "--")
+    private fun tpsValue(state: ServerState): String =
+        if (state.isRunning && state.tps > 0.0) String.format("%.1f", state.tps) else "--"
 
-    private fun memoryText(state: ServerState): String =
+    private fun memoryValue(state: ServerState): String =
         if (state.isRunning && state.usedMemoryMb > 0) {
             val mb = state.usedMemoryMb
-            (if (mb >= 1024) String.format("%.1f GB", mb / 1024.0) else "$mb MB")
+            if (mb >= 1024) String.format("%.1fG", mb / 1024.0) else "${mb}M"
         } else "--"
 
-    private fun cpuText(state: ServerState): String =
-        (state.cpuPercent?.let { "$it%" }) ?: "--"
-
-    private fun uptimeText(state: ServerState): String {
+    private fun uptimeValue(state: ServerState): String {
         if (!state.isRunning || state.runningSinceMs <= 0L) return "--"
         val totalSec = (android.os.SystemClock.elapsedRealtime() - state.runningSinceMs) / 1000
         val h = totalSec / 3600
         val m = (totalSec % 3600) / 60
-        return if (h > 0) "${h}h ${m}m" else "${m}m"
+        return if (h > 0) "${h}h${m}m" else "${m}m"
     }
+
+    private fun cpuValue(state: ServerState): String = (state.cpuPercent?.let { "$it%" }) ?: "--"
 
     private fun openAppIntent(context: Context): PendingIntent =
         PendingIntent.getActivity(
@@ -155,10 +193,10 @@ object WidgetUpdater {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-    private fun widgetActionIntent(context: Context, action: String): PendingIntent =
+    private fun widgetActionIntent(context: Context, action: String, requestCode: Int): PendingIntent =
         PendingIntent.getBroadcast(
             context,
-            if (action == ACTION_WIDGET_START) 4001 else 4002,
+            requestCode,
             Intent(context, WidgetActionReceiver::class.java).setAction(action),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
