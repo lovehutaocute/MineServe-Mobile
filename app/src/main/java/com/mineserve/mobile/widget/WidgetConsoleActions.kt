@@ -31,6 +31,8 @@ object WidgetConsoleActions {
         val idx = cores.indexOfFirst { it.name == config.activeCoreName }.takeIf { it >= 0 } ?: 0
         val next = cores[(idx + delta + cores.size) % cores.size]
         repo.saveConfig(config.copy(activeCoreName = next.name))
+        // saveConfig 有 300ms 防抖落盘；立即刷新会读到旧配置导致按钮看似无响应
+        delay(450L)
         return next.name
     }
 
@@ -42,6 +44,7 @@ object WidgetConsoleActions {
         val idx = versions.indexOf(config.selectedJavaVersion).takeIf { it >= 0 } ?: 0
         val next = versions[(idx + delta + versions.size) % versions.size]
         repo.saveConfig(config.copy(selectedJavaVersion = next))
+        delay(450L)
         return next.displayName
     }
 

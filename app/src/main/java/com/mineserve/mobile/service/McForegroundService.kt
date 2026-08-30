@@ -18,8 +18,10 @@ import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.R
 import com.mineserve.mobile.data.EventLogStore
 import com.mineserve.mobile.data.InstallStep
+import com.mineserve.mobile.data.StartupPhase
 import com.mineserve.mobile.data.StepStatus
 import com.mineserve.mobile.data.WidgetEventType
+import com.mineserve.mobile.data.startupPhaseForLog
 import com.mineserve.mobile.runtime.TermuxRuntime
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.ExternalBackupStore
@@ -106,6 +108,17 @@ class McForegroundService : Service() {
                                 it.copy(tps = tps, healthPercent = ((tps / 20.0) * 100).toInt().coerceIn(0, 100))
                             }
                         }
+                        // 启动完成检测下沉：App 退后台后无人设置 runningSinceMs，
+                        // 桌面组件会一直停留在“启动中”。
+                        startupPhaseForLog(line) == StartupPhase.Ready ->
+                            McApplication.get(this@McForegroundService).repository.updateServerState { st ->
+                                if (!st.isRunning || st.startupPhase == StartupPhase.Ready) st
+                                else st.copy(
+                                    startupPhase = StartupPhase.Ready,
+                                    runningSinceMs = st.runningSinceMs.takeIf { it > 0L }
+                                        ?: android.os.SystemClock.elapsedRealtime()
+                                )
+                            }
                     }
                     recordWidgetEvents(line)
                 } catch (_: Exception) {

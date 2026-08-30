@@ -3,145 +3,75 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:orientation="horizontal"
     android:gravity="center_vertical"
     android:background="@drawable/widget_bg"
-    android:paddingHorizontal="14dp"
-    android:paddingVertical="8dp">
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="4dp">
 
-    <LinearLayout
-        android:layout_width="match_parent"
+    <ImageView
+        android:id="@+id/widget_status_dot"
+        android:layout_width="8dp"
+        android:layout_height="8dp"
+        android:src="@drawable/widget_status_dot"
+        android:contentDescription="@string/widget_status_running" />
+
+    <TextView
+        android:id="@+id/widget_status_text"
+        android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:layout_weight="1"
+        android:layout_marginStart="6dp"
+        android:textColor="@color/ink"
+        android:textSize="12sp"
+        android:textStyle="bold"
+        android:maxLines="1"
+        android:ellipsize="end"
+        android:text="@string/widget_status_stopped" />
 
-        <ImageView
-            android:id="@+id/widget_status_dot"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:src="@drawable/widget_status_dot"
-            android:contentDescription="@string/widget_status_running" />
-
-        <TextView
-            android:id="@+id/widget_status_text"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:textColor="@color/ink"
-            android:textSize="13sp"
-            android:textStyle="bold"
-            android:maxLines="1"
-            android:ellipsize="end"
-            android:text="@string/widget_status_stopped" />
-
-        <TextView
-            android:id="@+id/widget_players_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:textColor="@color/indigo"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:text="--" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/widget_players_text"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:orientation="horizontal">
+        android:layout_marginStart="4dp"
+        android:textColor="@color/indigo"
+        android:textSize="11sp"
+        android:textStyle="bold"
+        android:text="--" />
 
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
+    <TextView
+        android:id="@+id/widget_metric_tps"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:textColor="@color/muted"
+        android:textSize="11sp"
+        android:text="--" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/widget_tps_label"
-                android:textColor="@color/muted"
-                android:textSize="9sp" />
+    <TextView
+        android:id="@+id/widget_metric_memory"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:textColor="@color/muted"
+        android:textSize="11sp"
+        android:text="--" />
 
-            <TextView
-                android:id="@+id/widget_metric_tps"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/ink"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:text="--" />
-        </LinearLayout>
+    <TextView
+        android:id="@+id/widget_metric_uptime"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:textColor="@color/muted"
+        android:textSize="11sp"
+        android:text="--" />
 
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/widget_memory_label"
-                android:textColor="@color/muted"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/widget_metric_memory"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/ink"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:text="--" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/widget_uptime_label"
-                android:textColor="@color/muted"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/widget_metric_uptime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/ink"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:text="--" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/widget_cpu_label"
-                android:textColor="@color/muted"
-                android:textSize="9sp" />
-
-            <TextView
-                android:id="@+id/widget_metric_cpu"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/ink"
-                android:textSize="12sp"
-                android:textStyle="bold"
-                android:text="--" />
-        </LinearLayout>
-    </LinearLayout>
+    <TextView
+        android:id="@+id/widget_metric_cpu"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:textColor="@color/muted"
+        android:textSize="11sp"
+        android:text="--" />
 </LinearLayout>
