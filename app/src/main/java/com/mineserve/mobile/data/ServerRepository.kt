@@ -80,7 +80,20 @@ class ServerRepository(
 
     /** 原子更新服务器状态（CAS），避免多线程并发读改写丢失更新 */
     fun updateServerState(transform: (ServerState) -> ServerState) {
+        val before = _serverState.value
         _serverState.update { transform(it) }
+        val after = _serverState.value
+        // 桌面组件关心的字段变化时才刷新 widget，避免高频日志解析带来的无谓推送
+        if (before.isRunning != after.isRunning ||
+            before.onlinePlayers != after.onlinePlayers ||
+            before.maxPlayers != after.maxPlayers ||
+            before.tps != after.tps ||
+            before.usedMemoryMb != after.usedMemoryMb ||
+            before.cpuPercent != after.cpuPercent ||
+            before.startupPhase != after.startupPhase
+        ) {
+            WidgetUpdater.refresh(context)
+        }
     }
 
     /** 由 ForegroundService 调用：标记安装步骤进度 */

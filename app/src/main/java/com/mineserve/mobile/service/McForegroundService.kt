@@ -70,6 +70,34 @@ class McForegroundService : Service() {
         }
         // 移到 IO 线程，避免主线程阻塞导致 ANR
         scope.launch { detectSurvivingProcess() }
+        // 解析 list/tps 命令回复并写入 serverState：
+        // 该解析原先只在 UI 层（McViewModel）进行，App 退后台后桌面组件数据会停更。
+        startConsoleParsing()
+    }
+
+    private fun startConsoleParsing() {
+        scope.launch {
+            termux.consoleFlow.collect { line ->
+                try {
+                    when {
+                        line.contains("players online") -> PLAYERS_REGEX.find(line)?.let { m ->
+                            val online = m.groupValues[1].toIntOrNull() ?: return@let
+                            val max = m.groupValues[2].toIntOrNull() ?: return@let
+                            McApplication.get(this@McForegroundService).repository.updateServerState {
+                                it.copy(onlinePlayers = online, maxPlayers = max)
+                            }
+                        }
+                        line.contains("TPS from last 1m") -> TPS_REGEX.find(line)?.let { m ->
+                            val tps = m.groupValues[1].toDoubleOrNull() ?: return@let
+                            McApplication.get(this@McForegroundService).repository.updateServerState {
+                                it.copy(tps = tps, healthPercent = ((tps / 20.0) * 100).toInt().coerceIn(0, 100))
+                            }
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -181,8 +209,10 @@ class McForegroundService : Service() {
                         Log.w(TAG, "watchdog query failed: ${e.message}")
                     }
                 }
-                tick++
-                kotlinx.coroutines.delay(30_000L)
+            tick++
+            // 服务器运行中每 30s 同步一次桌面组件（停止/崩溃等事件由状态 diff 钩子驱动）
+            com.mineserve.mobile.data.WidgetUpdater.refresh(this@McForegroundService)
+            kotlinx.coroutines.delay(30_000L)
             }
         }
     }
@@ -338,6 +368,8 @@ class McForegroundService : Service() {
         const val ACTION_STOP = "com.mineserve.mobile.action.STOP"
         const val ACTION_REFRESH_KEEP_ALIVE = "com.mineserve.mobile.action.REFRESH_KEEP_ALIVE"
         private const val TAG = "McForegroundService"
+        private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
+        private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")
 
         /** 服务是否在运行（供保活检查） */
         @Volatile
