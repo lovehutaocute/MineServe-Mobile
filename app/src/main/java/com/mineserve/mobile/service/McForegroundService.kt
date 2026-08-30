@@ -16,8 +16,10 @@ import androidx.core.app.NotificationCompat
 import com.mineserve.mobile.MainActivity
 import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.R
+import com.mineserve.mobile.data.EventLogStore
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.StepStatus
+import com.mineserve.mobile.data.WidgetEventType
 import com.mineserve.mobile.runtime.TermuxRuntime
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.ExternalBackupStore
@@ -51,6 +53,12 @@ class McForegroundService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
     // ponytail: one active server process, so one service-wide backup lock is enough.
     @Volatile private var autoBackupRunning = false
+    @Volatile private var cachedDirName: String? = null
+    private val chatRegex = Regex("<([A-Za-z0-9_]{1,16})>\\s*(.+)$")
+    private val joinRegex = Regex(":\\s*([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?joined the game")
+    private val leaveRegex = Regex(":\\s*([A-Za-z0-9_]{1,16})(?:\\[[^\\]]*\\])?\\s+(?:has\\s+)?left the game")
+    private val pnxJoinRegex = Regex("(?:^|[: ]\\s*)([A-Za-z0-9_]{1,16})(?:\\[[^]]*])?\\s+logged in with entity id", RegexOption.IGNORE_CASE)
+    private val pnxLeaveRegex = Regex("(?:^|[: ]\\s*)([A-Za-z0-9_]{1,16})(?:\\[[^]]*])?\\s+disconnected(?:[: ]|$)", RegexOption.IGNORE_CASE)
 
     override fun onCreate() {
         super.onCreate()
@@ -77,6 +85,11 @@ class McForegroundService : Service() {
 
     private fun startConsoleParsing() {
         scope.launch {
+            McApplication.get(this@McForegroundService).repository.configFlow.collect { config ->
+                cachedDirName = config.installedCores.find { it.name == config.activeCoreName }?.dirName
+            }
+        }
+        scope.launch {
             termux.consoleFlow.collect { line ->
                 try {
                     when {
@@ -94,9 +107,31 @@ class McForegroundService : Service() {
                             }
                         }
                     }
+                    recordWidgetEvents(line)
                 } catch (_: Exception) {
                 }
             }
+        }
+    }
+
+    /** 玩家进离服与聊天公告写入事件日志组件的数据源。 */
+    private fun recordWidgetEvents(line: String) {
+        val dir = cachedDirName ?: return
+        val context = this@McForegroundService
+        chatRegex.find(line)?.let {
+            EventLogStore.add(context, dir, WidgetEventType.CHAT, it.groupValues[1], it.groupValues[2])
+        }
+        joinRegex.find(line)?.let {
+            EventLogStore.add(context, dir, WidgetEventType.JOIN, it.groupValues[1])
+        }
+        leaveRegex.find(line)?.let {
+            EventLogStore.add(context, dir, WidgetEventType.LEAVE, it.groupValues[1])
+        }
+        pnxJoinRegex.find(line)?.let {
+            EventLogStore.add(context, dir, WidgetEventType.JOIN, it.groupValues[1])
+        }
+        pnxLeaveRegex.find(line)?.let {
+            EventLogStore.add(context, dir, WidgetEventType.LEAVE, it.groupValues[1])
         }
     }
 
@@ -240,7 +275,7 @@ class McForegroundService : Service() {
             try {
                 val typeName = config.autoBackupType.displayName
                 termux.emitLog("[backup] 正在自动$typeName: ${active.name}")
-                termux.sendCommand("save-all")
+                termux.sendCommand(active.core.consoleSaveCommand)
                 kotlinx.coroutines.delay(1_000L)
                 val path = when (config.autoBackupType) {
                     com.mineserve.mobile.data.AutoBackupType.World -> backupManager.backupWorldToExternal(

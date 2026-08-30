@@ -264,7 +264,9 @@ fun BackupScreen(vm: McViewModel, onBack: () -> Unit = {}) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
-                            vm.sendCommand("save-all")
+                            vm.sendCommand(
+                                config.installedCores.find { it.name == config.activeCoreName }?.core?.consoleSaveCommand ?: "save-all"
+                            )
                             scope.launch { snackbarHostState.showSnackbar(context.getString(R.string.s327)) }
                         },
                         enabled = isBootstrapped,

@@ -29,6 +29,9 @@ enum class ServerCore(val displayName: String) {
     /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
     val isBedrock: Boolean get() = this == PowerNukkitX
 
+    /** 控制台保存世界的命令：基岩版（PowerNukkitX）不支持 save-all，用 save hold */
+    val consoleSaveCommand: String get() = if (isBedrock) "save hold" else "save-all"
+
     val supportsPlugins: Boolean get() = this == Paper || this == Purpur ||
         this == Leaves || this == Leaf || this == Spigot || this == CraftBukkit || this == PowerNukkitX
 
