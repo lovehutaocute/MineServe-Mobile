@@ -1234,4 +1234,14 @@
     <string name="msg_stop_backup_done">Server stopped and the world snapshot was backed up automatically.</string>
     <string name="notif_schedule_start_fail_title">Scheduled start failed</string>
     <string name="notif_schedule_start_fail_text">Reason: %1$s. Check the server configuration in the app.</string>
+
+    <!-- Home screen widgets -->
+    <string name="widget_app_desc">Minecraft server status</string>
+    <string name="widget_status_running">Server running</string>
+    <string name="widget_status_stopped">Server stopped</string>
+    <string name="widget_status_starting">Server starting…</string>
+    <string name="widget_status_failed">Start failed</string>
+    <string name="widget_tps_label">TPS</string>
+    <string name="widget_btn_start">Start</string>
+    <string name="widget_btn_stop">Stop</string>
 </resources>

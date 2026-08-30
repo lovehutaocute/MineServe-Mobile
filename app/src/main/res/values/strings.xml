@@ -1689,4 +1689,14 @@
     <string name="msg_stop_backup_done">服务器已停止，世界快照已自动备份。</string>
     <string name="notif_schedule_start_fail_title">定时开服失败</string>
     <string name="notif_schedule_start_fail_text">原因：%1$s，请在应用内检查服务器配置。</string>
+
+    <!-- 桌面组件 -->
+    <string name="widget_app_desc">Minecraft 服务器状态</string>
+    <string name="widget_status_running">服务器运行中</string>
+    <string name="widget_status_stopped">服务器已停止</string>
+    <string name="widget_status_starting">服务器启动中…</string>
+    <string name="widget_status_failed">启动失败</string>
+    <string name="widget_tps_label">TPS</string>
+    <string name="widget_btn_start">启动</string>
+    <string name="widget_btn_stop">停止</string>
 </resources>
