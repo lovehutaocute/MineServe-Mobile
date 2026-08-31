@@ -155,6 +155,14 @@ class McApplication : Application(), Configuration.Provider {
         container = AppContainer(this)
         createNotificationChannel()
         WorkManager.initialize(this, workManagerConfiguration)
+        // 桌面组件兜底刷新：App 进程被杀后由 WorkManager 周期纠正组件状态
+        androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+            "widget_refresh",
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            androidx.work.PeriodicWorkRequestBuilder<com.mineserve.mobile.widget.WidgetRefreshWorker>(
+                15, java.util.concurrent.TimeUnit.MINUTES
+            ).build()
+        )
 
         // 累计使用人数统计：设备标识上报（每天一次，失败静默）
         UsageTracker.maybePulse(this)

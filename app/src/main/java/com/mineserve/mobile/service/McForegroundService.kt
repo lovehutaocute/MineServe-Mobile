@@ -216,6 +216,10 @@ class McForegroundService : Service() {
                         ?: android.os.SystemClock.elapsedRealtime()
                 )
             }
+        } else {
+            // 服务被系统重启后新进程的 ServerState 是初始“已停止”，状态无变化
+            // 不会触发 diff 钩子；而组件上仍是陈旧的“运行中”，这里必须主动补刷。
+            com.mineserve.mobile.data.WidgetUpdater.refresh(this)
         }
     }
 
@@ -361,7 +365,14 @@ class McForegroundService : Service() {
      */
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        Log.i(TAG, "onTaskRemoved: scheduling restart via inexact alarm")
+        // 划掉任务时进程即将终止：按 MC 实际存活状态落一次组件终态，
+        // 避免组件在进程死后长期显示“运行中”。
+        val alive = runCatching { termux.isMcRunning() }.getOrDefault(false)
+        McApplication.get(this).repository.updateServerState { st ->
+            if (alive) st else st.copy(isRunning = false, runningSinceMs = 0L)
+        }
+        com.mineserve.mobile.data.WidgetUpdater.refresh(this)
+        Log.i(TAG, "onTaskRemoved: mcAlive=$alive, scheduling restart via inexact alarm")
         scheduleRestart()
     }
 

@@ -28,6 +28,8 @@ class BootReceiver : BroadcastReceiver() {
                 runCatching { McApplication.get(context).repository.configFlow.first() }
                     .getOrNull()
                     ?.let { ScheduleManager.register(context, it) }
+                // 开机后纠正桌面组件（重启前可能停留在“运行中”）
+                com.mineserve.mobile.data.WidgetUpdater.refresh(context)
             } finally {
                 pending.finish()
             }
