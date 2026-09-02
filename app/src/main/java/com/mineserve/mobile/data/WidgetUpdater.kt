@@ -88,6 +88,10 @@ object WidgetUpdater {
             setTextViewText(R.id.widget_metric_memory, memoryValue(state))
             setTextViewText(R.id.widget_metric_uptime, uptimeValue(state))
             setTextViewText(R.id.widget_metric_cpu, cpuValue(state))
+            setOnClickPendingIntent(
+                R.id.widget_refresh_btn,
+                widgetActionIntent(context, WidgetActionReceiver.ACTION_REFRESH_STATUS, 4002)
+            )
         }
 
     /** ② 事件日志（2×4）：外壳（列表数据由 EventLogWidgetService 提供）。 */
@@ -106,12 +110,13 @@ object WidgetUpdater {
                 core?.name ?: context.getString(R.string.widget_console_no_core)
             )
             setTextViewText(R.id.widget_console_java, config.selectedJavaVersion.displayName)
-            bindActionButton(context, this, state)
-            // 服务器运行中禁止切换核心/Java（视觉淡出，点击也会被动作层忽略）
+            val actionsEnabled = WidgetPreferences.areActionsEnabled(context)
+            bindActionButton(context, this, state, actionsEnabled)
+            // 服务器运行中禁止切换核心/Java；设置关闭时禁用全部写操作。
             viewsList().forEach {
-                setTextColor(it, if (running) 0xFF9AA0A6.toInt() else 0xFF3B4C9C.toInt())
+                setTextColor(it, if (!actionsEnabled || running) 0xFF9AA0A6.toInt() else 0xFF3B4C9C.toInt())
             }
-            bindConsolePendingIntents(context, this)
+            bindConsolePendingIntents(context, this, actionsEnabled)
         }
 
     /** ④ 模组与插件（4×3）：外壳（列表数据由 ModPluginWidgetService 提供）。 */
@@ -143,25 +148,38 @@ object WidgetUpdater {
         views.setInt(R.id.widget_status_dot, "setColorFilter", dotColor)
     }
 
-    private fun bindActionButton(context: Context, views: RemoteViews, state: ServerState) {
+    private fun bindActionButton(context: Context, views: RemoteViews, state: ServerState, enabled: Boolean) {
         val running = state.isRunning
         views.setTextViewText(
             R.id.widget_action_btn,
             context.getString(if (running) R.string.widget_btn_stop else R.string.widget_btn_start)
         )
-        views.setOnClickPendingIntent(
-            R.id.widget_action_btn,
-            widgetActionIntent(context, if (running) ACTION_WIDGET_STOP else ACTION_WIDGET_START, 4001)
-        )
+        views.setTextColor(R.id.widget_action_btn, if (enabled) 0xFFFFFFFF.toInt() else 0xFF9AA0A6.toInt())
+        if (enabled) {
+            views.setOnClickPendingIntent(
+                R.id.widget_action_btn,
+                widgetActionIntent(context, if (running) ACTION_WIDGET_STOP else ACTION_WIDGET_START, 4001)
+            )
+        } else {
+            views.setOnClickPendingIntent(R.id.widget_action_btn, openAppIntent(context))
+        }
     }
 
-    private fun bindConsolePendingIntents(context: Context, views: RemoteViews) {
-        views.setOnClickPendingIntent(R.id.widget_core_prev, widgetActionIntent(context, WidgetActionReceiver.ACTION_CORE_PREV, 4010))
-        views.setOnClickPendingIntent(R.id.widget_core_next, widgetActionIntent(context, WidgetActionReceiver.ACTION_CORE_NEXT, 4011))
-        views.setOnClickPendingIntent(R.id.widget_java_prev, widgetActionIntent(context, WidgetActionReceiver.ACTION_JAVA_PREV, 4012))
-        views.setOnClickPendingIntent(R.id.widget_java_next, widgetActionIntent(context, WidgetActionReceiver.ACTION_JAVA_NEXT, 4013))
-        views.setOnClickPendingIntent(R.id.widget_save_btn, widgetActionIntent(context, WidgetActionReceiver.ACTION_SAVE, 4014))
-        views.setOnClickPendingIntent(R.id.widget_backup_btn, widgetActionIntent(context, WidgetActionReceiver.ACTION_BACKUP, 4015))
+    private fun bindConsolePendingIntents(context: Context, views: RemoteViews, enabled: Boolean) {
+        val actions = listOf(
+            R.id.widget_core_prev to WidgetActionReceiver.ACTION_CORE_PREV,
+            R.id.widget_core_next to WidgetActionReceiver.ACTION_CORE_NEXT,
+            R.id.widget_java_prev to WidgetActionReceiver.ACTION_JAVA_PREV,
+            R.id.widget_java_next to WidgetActionReceiver.ACTION_JAVA_NEXT,
+            R.id.widget_save_btn to WidgetActionReceiver.ACTION_SAVE,
+            R.id.widget_backup_btn to WidgetActionReceiver.ACTION_BACKUP
+        )
+        actions.forEachIndexed { index, (viewId, action) ->
+            views.setOnClickPendingIntent(
+                viewId,
+                if (enabled) widgetActionIntent(context, action, 4010 + index) else openAppIntent(context)
+            )
+        }
     }
 
     private fun playersText(state: ServerState): String =

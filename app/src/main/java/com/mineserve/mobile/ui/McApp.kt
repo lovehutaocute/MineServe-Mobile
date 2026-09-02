@@ -50,6 +50,7 @@ import com.mineserve.mobile.ui.screens.ServerManagementScreen
 import com.mineserve.mobile.ui.screens.ServerIconScreen
 import com.mineserve.mobile.ui.screens.TerminalScreen
 import com.mineserve.mobile.ui.screens.MoreScreen
+import com.mineserve.mobile.ui.screens.WidgetSettingsScreen
 import com.mineserve.mobile.ui.screens.CrashReportsScreen
 import com.mineserve.mobile.ui.screens.CrashReportDialog
 import androidx.compose.material.icons.Icons
@@ -59,7 +60,7 @@ import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, CrashReports, More }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, CrashReports, WidgetSettings, More }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -127,7 +128,7 @@ fun McApp() {
                     )
                 }
                 NavigationBarItem(
-                    selected = subPage in setOf(SubPage.More, SubPage.Network, SubPage.Backup, SubPage.Diagnostics, SubPage.KeepAlive, SubPage.DownloadHelp, SubPage.MtGuide, SubPage.OpLevelGuide),
+                    selected = subPage in setOf(SubPage.More, SubPage.Network, SubPage.Backup, SubPage.Diagnostics, SubPage.KeepAlive, SubPage.DownloadHelp, SubPage.MtGuide, SubPage.OpLevelGuide, SubPage.WidgetSettings),
                     onClick = { subPage = SubPage.More; showLogs = false },
                     icon = { Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(R.string.mcapp_more)) },
                     label = { Text(stringResource(R.string.mcapp_more), fontSize = 10.sp) },
@@ -163,13 +164,15 @@ fun McApp() {
                         SubPage.Plugins -> PluginsScreen(vm = vm)
                         SubPage.ServerIcon -> ServerIconScreen(vm = vm, onBack = { subPage = null })
                         SubPage.CrashReports -> CrashReportsScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.WidgetSettings -> WidgetSettingsScreen(onBack = { subPage = null })
                         SubPage.More -> MoreScreen(
                             onNetwork = { subPage = SubPage.Network },
                             onBackup = { subPage = SubPage.Backup },
                             onDiagnostics = { subPage = SubPage.Diagnostics },
                             onKeepAlive = { subPage = SubPage.KeepAlive },
                             onHelp = { subPage = SubPage.DownloadHelp },
-                            onCrashReports = { subPage = SubPage.CrashReports }
+                            onCrashReports = { subPage = SubPage.CrashReports },
+                            onWidgetSettings = { subPage = SubPage.WidgetSettings }
                         )
                         null -> {}
                     }

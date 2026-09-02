@@ -1143,6 +1143,10 @@
     <string name="hero_online">在线</string>
     <string name="hero_memory">内存</string>
     <string name="hero_uptime">运行时长</string>
+    <string name="hero_cpu">服务端CPU</string>
+    <string name="hero_refresh">刷新状态</string>
+    <string name="hero_refreshing">正在刷新…</string>
+    <string name="widget_refresh_cd">刷新状态</string>
     <string name="hero_online_mode_warning">正版验证未关闭，离线玩家无法进入</string>
     <string name="s1061">版本</string>
     <string name="s1062">暂无版本</string>
@@ -1279,6 +1283,24 @@
     <string name="more_help">下载帮助</string>
     <string name="more_help_desc">镜像和下载问题说明</string>
     <string name="more_more">更多功能</string>
+    <string name="more_widgets">桌面组件</string>
+    <string name="more_widgets_desc">查看组件说明与操作设置</string>
+    <string name="widget_settings_title">桌面组件</string>
+    <string name="widget_settings_intro">把 MineServe 的服务器状态和常用操作放到桌面，打开应用后组件会自动刷新。</string>
+    <string name="widget_settings_types_title">组件类型</string>
+    <string name="widget_overview_title">状态总览</string>
+    <string name="widget_overview_size">4×1</string>
+    <string name="widget_event_size">4×2</string>
+    <string name="widget_console_size">4×2</string>
+    <string name="widget_mod_plugin_size">4×3</string>
+    <string name="widget_settings_add_title">添加到桌面</string>
+    <string name="widget_settings_add_steps">1. 长按桌面空白处，选择“组件”或“小部件”。\n2. 找到 MineServe，选择需要的组件类型并拖到桌面。\n3. 按桌面启动器提示调整组件大小。</string>
+    <string name="widget_settings_scope_hint">当前组件使用应用内选中的服务器核心和 Java 版本；所有组件实例共享这套选择。</string>
+    <string name="widget_settings_behavior_title">组件行为</string>
+    <string name="widget_settings_actions">允许组件操作按钮</string>
+    <string name="widget_settings_actions_hint">关闭后仍显示状态和指标，启动、停止、保存、备份及切换按钮会打开应用而不直接执行操作。</string>
+    <string name="widget_settings_refresh">立即刷新组件</string>
+    <string name="widget_settings_refresh_done">已请求刷新所有 MineServe 桌面组件。</string>
     <!-- 备份页 -->
     <string name="bk_auto_title">自动备份</string>
     <string name="bk_auto_hint">仅在服务端运行时写入公共备份目录，自动清理仅作用于同服务器、同类型的自动备份。</string>
