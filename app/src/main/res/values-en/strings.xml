@@ -1142,6 +1142,10 @@
     <string name="hero_online">Online</string>
     <string name="hero_memory">Memory</string>
     <string name="hero_uptime">Uptime</string>
+    <string name="hero_cpu">Server CPU</string>
+    <string name="hero_refresh">Refresh status</string>
+    <string name="hero_refreshing">Refreshing…</string>
+    <string name="widget_refresh_cd">Refresh status</string>
     <string name="hero_online_mode_warning">Online authentication is enabled; offline players cannot join.</string>
     <string name="s1061">Version</string>
     <string name="s1062">No versions</string>

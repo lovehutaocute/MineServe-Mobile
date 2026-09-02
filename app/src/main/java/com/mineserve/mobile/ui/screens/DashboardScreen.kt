@@ -173,18 +173,18 @@ fun DashboardScreen(
             snackbarHostState.showSnackbar(msg)
         }
     }
-    // 当核心或环境状态变化时，刷新真实插件列表
-    LaunchedEffect(isBootstrapped, config.activeCoreName) {
-        if (isBootstrapped && config.activeCoreName != null) {
+    // 首屏优先完成布局；文件系统探测按顺序错峰，避免与后台大型应用争抢 CPU 和存储带宽。
+    LaunchedEffect(isBootstrapped, config.activeCoreName, state.isRunning) {
+        if (!isBootstrapped) return@LaunchedEffect
+        vm.refreshJava()
+        kotlinx.coroutines.delay(250)
+        vm.refreshDependencies()
+        if (config.activeCoreName != null) {
+            kotlinx.coroutines.delay(250)
+            vm.loadServerProperties()
+            kotlinx.coroutines.delay(250)
             vm.refreshInstalledPlugins()
         }
-    }
-    LaunchedEffect(isBootstrapped) {
-        vm.refreshJava()
-        vm.refreshDependencies()
-    }
-    LaunchedEffect(isBootstrapped, config.activeCoreName, state.isRunning) {
-        if (isBootstrapped) vm.loadServerProperties()
     }
 
     Scaffold(
@@ -216,7 +216,8 @@ fun DashboardScreen(
                     vm = vm,
                     state = state,
                     coreLabel = coreLabel,
-                    onlineModeEnabled = onlineModeEnabled
+                    onlineModeEnabled = onlineModeEnabled,
+                    onRefresh = { vm.refreshServerStatus() }
                 )
             }
 
@@ -1000,14 +1001,16 @@ private fun DashboardHeroBlock(
     vm: McViewModel,
     state: ServerState,
     coreLabel: String,
-    onlineModeEnabled: Boolean
+    onlineModeEnabled: Boolean,
+    onRefresh: () -> Unit
 ) {
     val resources by vm.serverResources.collectAsState()
     HeroBlock(
         state = state,
         coreLabel = coreLabel,
         cpuPercent = resources.cpuPercent,
-        onlineModeEnabled = onlineModeEnabled
+        onlineModeEnabled = onlineModeEnabled,
+        onRefresh = onRefresh
     )
 }
 

@@ -6,10 +6,13 @@ import com.mineserve.mobile.R
 import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.ServerEventNotifier
+import com.mineserve.mobile.service.McForegroundService
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.McServerController
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 
 /**
  * 控制台组件的后台动作实现（由 WidgetActionReceiver 在 IO 协程中调用）。
@@ -93,6 +96,25 @@ object WidgetConsoleActions {
             McServerController(app.termuxRuntime, app.repository).let { kotlinx.coroutines.runBlocking { it.stop() } }
             true
         }.getOrDefault(false)
+    }
+
+    /** 桌面组件“刷新状态”：请求前台服务立即同步状态并重绘组件（只读）。 */
+    suspend fun refreshServerStatus(context: Context): Unit = withContext(Dispatchers.IO) {
+        try {
+            val app = McApplication.get(context)
+            if (!app.repository.termuxRuntime.isMcRunning() && !McForegroundService.isRunning) {
+                return@withContext
+            }
+            val intent = android.content.Intent(context, McForegroundService::class.java)
+                .setAction(McForegroundService.ACTION_REFRESH_STATUS)
+            if (McForegroundService.isRunning) {
+                context.startService(intent)
+            } else {
+                context.startForegroundService(intent)
+            }
+        } catch (_: Exception) {
+            // 厂商限制或服务未就绪时保持现状，避免组件点击崩溃。
+        }
     }
 
     /** 保存世界：按核心类型发 save-all / save hold。 */

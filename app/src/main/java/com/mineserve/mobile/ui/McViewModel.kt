@@ -679,6 +679,7 @@ class McViewModel(
 
     private val _serverResources = MutableStateFlow(ServerResourceStats())
     val serverResources: StateFlow<ServerResourceStats> = _serverResources.asStateFlow()
+    private val _statusRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
     private var cachedResourceDir: String? = null
     private var cachedDirectoryBytes: Long? = null
     private var cachedDirectoryBytesAtMs = 0L
@@ -686,10 +687,8 @@ class McViewModel(
     private var cachedMemoryMb = 0L
     private var cachedJavaAvailable: Boolean? = null
     private var cachedJavaAvailableAtMs = 0L
-    private var previousCpuTotalTicks = 0L
-    private var previousCpuIdleTicks = 0L
 
-    /** Samples global system CPU plus values that belong to the selected server. */
+    /** Samples values that belong to the selected server. */
     private fun startServerResourceCollection() {
         viewModelScope.launch {
             // Defer the first recursive server-directory scan until the first screen settles.
@@ -697,6 +696,26 @@ class McViewModel(
             while (true) {
                 withContext(Dispatchers.IO) { collectServerResourcesOnce() }
                 delay(15_000)
+            }
+        }
+    }
+
+    /** 手动刷新：立即重新采集服务器状态并请求前台服务查询最新数据。 */
+    fun refreshServerStatus() {
+        if (!_statusRefreshInFlight.compareAndSet(false, true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                collectServerResourcesOnce()
+                // 运行中的服务器异步回复 list/tps，由现有解析器更新在线人数与 TPS。
+                val rt = repo.termuxRuntime
+                if (rt.isMcRunning()) {
+                    rt.sendCommand("list")
+                    if (isActiveCorePaper()) {
+                        rt.sendCommand("tps")
+                    }
+                }
+            } finally {
+                _statusRefreshInFlight.set(false)
             }
         }
     }
@@ -723,10 +742,9 @@ class McViewModel(
                 cachedMemoryMb = repo.termuxRuntime.mcProcessMemoryMb()
             }
             val effectiveMemory = cachedMemoryMb.takeIf { running && it > 0L }
-            // CPU is the whole device's usage and remains available even when the server is stopped.
-            val cpu = readSystemCpuPercent()
-            // java 可用性检查会 stat 多个候选路径，60s 缓存一次。
-            if (now - cachedJavaAvailableAtMs >= 60_000L) {
+            // 服务端进程自身 CPU（支持多线程超过 100%），不可用或未运行时为 null。
+            val cpu = if (running) repo.termuxRuntime.mcProcessCpuPercent() else null
+            if (running && now - cachedJavaAvailableAtMs >= 60_000L) {
                 cachedJavaAvailable = repo.termuxRuntime.isJavaInstalled(cfg.selectedJavaVersion)
                 cachedJavaAvailableAtMs = now
             }
@@ -757,42 +775,6 @@ class McViewModel(
             // Keep the last known snapshot when Android or PRoot denies a probe.
         }
     }
-
-    /** Linux procfs 轻量采样：计算整机系统总 CPU 占用，不依赖 MC 进程。 */
-    private fun readSystemCpuPercent(): Int? = runCatching {
-        val sample = File("/proc/stat").useLines { lines ->
-            val fields = lines.firstOrNull { it.startsWith("cpu ") }
-                ?.trim()?.split(Regex("\\s+")) ?: return@useLines null
-            val values = fields.drop(1).map { token ->
-                val value = token.toLongOrNull()
-                if (value == null || value < 0L) return@useLines null
-                value
-            }
-            if (values.size < 5) return@useLines null
-
-            // /proc/stat: user, nice, system, idle, iowait, irq, softirq, steal...
-            val totalTicks = values.sum()
-            val idleTicks = values[3] + values[4]
-            if (totalTicks <= 0L || idleTicks > totalTicks) return@useLines null
-            CpuTicks(totalTicks, idleTicks)
-        } ?: return@runCatching null
-
-        val totalDelta = sample.totalTicks - previousCpuTotalTicks
-        val idleDelta = sample.idleTicks - previousCpuIdleTicks
-        val percent = if (previousCpuTotalTicks > 0L &&
-            totalDelta > 0L && idleDelta in 0L..totalDelta
-        ) {
-            ((totalDelta - idleDelta).toDouble() / totalDelta * 100.0)
-                .toInt().coerceIn(0, 100)
-        } else null
-
-        // Always advance the baseline so a counter reset or malformed interval can resync next time.
-        previousCpuTotalTicks = sample.totalTicks
-        previousCpuIdleTicks = sample.idleTicks
-        percent
-    }.getOrNull()
-
-    private data class CpuTicks(val totalTicks: Long, val idleTicks: Long)
 
     private val _diagnosticReport = MutableStateFlow(DiagnosticReport())
     val diagnosticReport: StateFlow<DiagnosticReport> = _diagnosticReport.asStateFlow()
@@ -2141,6 +2123,12 @@ class McViewModel(
     private fun activeDirName(): String? {
         return config.value.installedCores.find { it.name == config.value.activeCoreName }?.dirName
     }
+
+    /** 当前核心是否 Paper（含分叉核心均支持 tps 指令）。 */
+    private fun isActiveCorePaper(): Boolean =
+        config.value.installedCores
+            .firstOrNull { it.name == config.value.activeCoreName }
+            ?.core == ServerCore.Paper
 
     /** 创建 world 目录快照（zip 打包），返回快照文件路径或 null */
     suspend fun createSnapshot(): String? {

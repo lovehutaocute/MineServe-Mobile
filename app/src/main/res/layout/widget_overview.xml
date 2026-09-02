@@ -74,4 +74,13 @@
         android:textColor="@color/muted"
         android:textSize="11sp"
         android:text="--" />
+
+    <ImageView
+        android:id="@+id/widget_refresh_btn"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginStart="6dp"
+        android:src="@drawable/widget_refresh_icon"
+        android:contentDescription="@string/widget_refresh_cd"
+        android:padding="4dp" />
 </LinearLayout>

@@ -152,6 +152,7 @@ class McForegroundService : Service() {
         when (intent?.action) {
             ACTION_START -> startForegroundInternal()
             ACTION_REFRESH_KEEP_ALIVE -> scope.launch { syncOverlayFromConfig() }
+            ACTION_REFRESH_STATUS -> scope.launch { refreshServerStatusNow() }
             ACTION_STOP -> {
                 scope.launch {
                     termux.stopMc()
@@ -221,6 +222,37 @@ class McForegroundService : Service() {
             // 不会触发 diff 钩子；而组件上仍是陈旧的“运行中”，这里必须主动补刷。
             com.mineserve.mobile.data.WidgetUpdater.refresh(this)
         }
+    }
+
+    /** 立即同步一次服务端状态：更新存活状态，并向运行中的服务端发起 list/tps 查询。 */
+    private suspend fun refreshServerStatusNow() {
+        val alive = try { termux.isMcRunning() } catch (e: Exception) { false }
+        val app = McApplication.get(this@McForegroundService)
+        app.repository.updateServerState {
+            if (!alive) {
+                it.copy(isRunning = false, runningSinceMs = 0L, tps = 0.0, cpuPercent = null, usedMemoryMb = 0L)
+            } else {
+                it.copy(isRunning = true)
+            }
+        }
+        if (alive) {
+            try {
+                val config = runCatching { app.repository.configFlow.first() }.getOrNull()
+                if (config != null) {
+                    termux.sendCommand("list")
+                    if (config.installedCores.any {
+                            it.name == config.activeCoreName && it.core == com.mineserve.mobile.data.ServerCore.Paper
+                        }
+                    ) {
+                        termux.sendCommand("tps")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "refreshServerStatusNow query failed: ${e.message}")
+            }
+        }
+        // 状态可能没变化（diff 钩子不触发），这里主动补刷组件。
+        com.mineserve.mobile.data.WidgetUpdater.refresh(this@McForegroundService)
     }
 
     /**
@@ -426,6 +458,7 @@ class McForegroundService : Service() {
         const val ACTION_START = "com.mineserve.mobile.action.START"
         const val ACTION_STOP = "com.mineserve.mobile.action.STOP"
         const val ACTION_REFRESH_KEEP_ALIVE = "com.mineserve.mobile.action.REFRESH_KEEP_ALIVE"
+        const val ACTION_REFRESH_STATUS = "com.mineserve.mobile.action.REFRESH_STATUS"
         private const val TAG = "McForegroundService"
         private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
         private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")

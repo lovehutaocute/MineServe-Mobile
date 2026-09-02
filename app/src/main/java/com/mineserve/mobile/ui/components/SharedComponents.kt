@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -153,7 +154,8 @@ fun HeroBlock(
     state: ServerState,
     coreLabel: String,
     cpuPercent: Int? = null,
-    onlineModeEnabled: Boolean = false
+    onlineModeEnabled: Boolean = false,
+    onRefresh: (() -> Unit)? = null
 ) {
     Box(
         modifier = Modifier
@@ -168,33 +170,55 @@ fun HeroBlock(
         Column {
             // 启动中：isRunning 且尚未完成启动（runningSinceMs == 0）
             val isStarting = state.isRunning && state.runningSinceMs == 0L
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // 状态指示点：启动中橙色，运行中亮绿，未运行半透明白
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(
-                            when {
-                                isStarting -> Color(0xFFFFA726)
-                                state.isRunning -> MintBright
-                                else -> Color.White.copy(alpha = 0.5f)
-                            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // 状态指示点：启动中橙色，运行中亮绿，未运行半透明白
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(
+                                when {
+                                    isStarting -> Color(0xFFFFA726)
+                                    state.isRunning -> MintBright
+                                    else -> Color.White.copy(alpha = 0.5f)
+                                }
+                            )
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        when {
+                            isStarting -> stringResource(R.string.hero_starting, coreLabel)
+                            state.isRunning -> stringResource(R.string.hero_running, coreLabel)
+                            else -> stringResource(R.string.hero_stopped)
+                        },
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                if (onRefresh != null) {
+                    IconButton(
+                        onClick = onRefresh,
+                        modifier = Modifier.size(30.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Refresh,
+                            contentDescription = stringResource(R.string.hero_refresh),
+                            tint = Color.White.copy(alpha = 0.85f),
+                            modifier = Modifier.size(17.dp)
                         )
-                )
-                Spacer(Modifier.size(6.dp))
-                Text(
-                    when {
-                        isStarting -> stringResource(R.string.hero_starting, coreLabel)
-                        state.isRunning -> stringResource(R.string.hero_running, coreLabel)
-                        else -> stringResource(R.string.hero_stopped)
-                    },
-                    color = Color.White.copy(alpha = 0.9f),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                    }
+                }
             }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
@@ -216,7 +240,7 @@ fun HeroBlock(
                     else "--",
                     stringResource(R.string.hero_uptime)
                 )
-                HeroStat(cpuPercent?.let { "$it%" } ?: "--", "CPU")
+                HeroStat(cpuPercent?.let { "$it%" } ?: "--", stringResource(R.string.hero_cpu))
             }
             if (onlineModeEnabled) {
                 Spacer(Modifier.height(6.dp))

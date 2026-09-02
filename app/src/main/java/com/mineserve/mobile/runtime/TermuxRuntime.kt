@@ -70,6 +70,11 @@ class TermuxRuntime(context: Context) {
     @Volatile
     private var mcStdin: OutputStream? = null
 
+    // 进程级 CPU 采样基线：只在服务器启动/重启后建立，避免把停机时间计入使用率。
+    @Volatile private var cpuBaselinePid: Int? = null
+    @Volatile private var cpuBaselineJiffies: Long = 0L
+    @Volatile private var cpuBaselineAtElapsedMs: Long = 0L
+
     val consoleFlow: SharedFlow<String> get() = executor.consoleFlow
 
     /** 设置日志回调，bootstrap 过程的日志会通过此回调输出 */
@@ -2316,14 +2321,89 @@ class TermuxRuntime(context: Context) {
             // 启动器/安装器也可能是 Java 进程，不能在 MC 尚未创建时全局兜底扫描。
             if (mcProcess?.isAlive != true) return 0L
             processStat(mcProcess)?.let { stat ->
+                val rssKb = procVmRssKb(statPid(stat))
+                if (rssKb > 0L) return rssKb / 1024
+                // /proc/<pid>/status 不可读时回退到 RSS 页数；页大小用系统值而非固定 4096。
                 val rssPages = stat.getOrNull(21)?.toLongOrNull() ?: 0L
-                if (rssPages > 0) return rssPages * 4096 / (1024 * 1024)
+                if (rssPages > 0) {
+                    val pageBytes = systemPageBytes()
+                    return rssPages * pageBytes / (1024 * 1024)
+                }
             }
             0L
         } catch (e: Exception) {
             0L
         }
     }
+
+    /** 进程 CPU 使用率（%）：读取 MC Java 进程自身 utime+stime 增量计算。
+     *  多线程 Java 进程可超过 100%。服务器未运行或基线不可用返回 null。 */
+    fun mcProcessCpuPercent(): Int? {
+        val running = mcProcess?.isAlive == true
+        if (!running) {
+            cpuBaselinePid = null
+            return null
+        }
+        return try {
+            val stat = processStat(mcProcess) ?: return null
+            val pid = statPid(stat)
+            val jiffies = (stat.getOrNull(11)?.toLongOrNull() ?: 0L) +
+                (stat.getOrNull(12)?.toLongOrNull() ?: 0L)
+            val now = android.os.SystemClock.elapsedRealtime()
+            val baselinePid = cpuBaselinePid
+            // PID 变化、进程重启或缺少有效基线时只建立基准，不产生第一个读数。
+            if (baselinePid != pid || cpuBaselineJiffies <= 0L) {
+                cpuBaselinePid = pid
+                cpuBaselineJiffies = jiffies
+                cpuBaselineAtElapsedMs = now
+                return null
+            }
+            val deltaJiffies = jiffies - cpuBaselineJiffies
+            val deltaMs = now - cpuBaselineAtElapsedMs
+            val percent = McProcessCpuMath.percent(
+                jiffiesNow = jiffies,
+                jiffiesPrev = cpuBaselineJiffies,
+                elapsedMs = deltaMs,
+                tickHertz = clockTicksPerSecond()
+            )
+            // 计数器回退或采样间隔无效时保留旧基线，等下一窗口恢复。
+            if (percent == null && deltaJiffies >= 0L && deltaMs > 0L) {
+                cpuBaselinePid = pid
+                cpuBaselineJiffies = jiffies
+                cpuBaselineAtElapsedMs = now
+            }
+            if (percent != null) {
+                cpuBaselinePid = pid
+                cpuBaselineJiffies = jiffies
+                cpuBaselineAtElapsedMs = now
+            }
+            percent
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun statPid(stat: List<String>): Int =
+        stat.getOrNull(0)?.toIntOrNull() ?: 0
+
+    /** /proc/<pid>/status 的 VmRSS（kB），避免 16K 页设备上页数×4096 算错内存。 */
+    private fun procVmRssKb(pid: Int): Long = runCatching {
+        if (pid <= 0) return@runCatching 0L
+        File("/proc/$pid/status").takeIf { it.isFile }?.readText()?.lineSequence()?.firstNotNullOfOrNull { line ->
+            line.trim().takeIf { it.startsWith("VmRSS:") }?.substringAfter("VmRSS:")
+                ?.substringBefore(" kB")?.trim()?.toLongOrNull()
+        } ?: 0L
+    }.getOrDefault(0L)
+
+    /** 系统页大小（字节），默认按常见 4096 兜底。 */
+    private fun systemPageBytes(): Long = runCatching {
+        android.system.Os.sysconf(android.system.OsConstants._SC_PAGESIZE)
+    }.getOrDefault(4096L)
+
+    /** 系统时钟频率（HZ），进程 stat 的 utime/stime 以其为计数单位。 */
+    private fun clockTicksPerSecond(): Long = runCatching {
+        android.system.Os.sysconf(android.system.OsConstants._SC_CLK_TCK)
+    }.getOrDefault(100L)
 
     /** Read the launched Java process, which may be several layers below shell/proot. */
     private fun processStat(process: Process?): List<String>? {
@@ -2357,6 +2437,12 @@ class TermuxRuntime(context: Context) {
         val end = stat.lastIndexOf(')')
         return if (end < 0) null else stat.substring(end + 1).trim().split(Regex("\\s+"))
     }
+
+    /** MC 进程当前 PID（已缓存或现场解析），供 VM/UI 显示采样状态。 */
+    fun currentMcPid(): Int? = runCatching {
+        val stat = processStat(mcProcess) ?: return@runCatching null
+        stat.getOrNull(0)?.toIntOrNull()
+    }.getOrNull()
 
     private data class ProcEntry(val pid: Int, val parentPid: Int, val comm: String, val cmdline: String)
 
