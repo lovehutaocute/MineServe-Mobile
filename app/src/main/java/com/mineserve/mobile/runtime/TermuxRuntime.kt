@@ -2336,8 +2336,8 @@ class TermuxRuntime(context: Context) {
         }
     }
 
-    /** 进程 CPU 使用率（%）：读取 MC Java 进程自身 utime+stime 增量计算。
-     *  多线程 Java 进程可超过 100%。服务器未运行或基线不可用返回 null。 */
+    /** 进程 CPU 使用率（%）：读取 MC Java 进程自身 utime+stime 增量，按可用核心数归一化到 0..100。
+     *  服务器未运行或基线不可用返回 null。 */
     fun mcProcessCpuPercent(): Int? {
         val running = mcProcess?.isAlive == true
         if (!running) {
@@ -2364,7 +2364,8 @@ class TermuxRuntime(context: Context) {
                 jiffiesNow = jiffies,
                 jiffiesPrev = cpuBaselineJiffies,
                 elapsedMs = deltaMs,
-                tickHertz = clockTicksPerSecond()
+                tickHertz = clockTicksPerSecond(),
+                cores = availableProcessorCount()
             )
             // 计数器回退或采样间隔无效时保留旧基线，等下一窗口恢复。
             if (percent == null && deltaJiffies >= 0L && deltaMs > 0L) {
@@ -2381,6 +2382,18 @@ class TermuxRuntime(context: Context) {
         } catch (e: Exception) {
             null
         }
+    }
+
+    private var cachedCoreCount: Int = 0
+
+    /** 进程可用的逻辑核心数（cpuset 限制内），至少为 1。 */
+    private fun availableProcessorCount(): Int {
+        if (cachedCoreCount <= 0) {
+            cachedCoreCount = runCatching {
+                Runtime.getRuntime().availableProcessors()
+            }.getOrDefault(1).coerceAtLeast(1)
+        }
+        return cachedCoreCount
     }
 
     private fun statPid(stat: List<String>): Int =

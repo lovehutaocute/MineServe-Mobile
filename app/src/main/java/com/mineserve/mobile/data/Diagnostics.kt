@@ -22,7 +22,7 @@ data class DiagnosticReport(
 
 data class ServerResourceStats(
     val processMemoryMb: Long? = null,
-    /** 整机系统 CPU 总占用率；首次采样或不可用时为 null。 */
+    /** 服务端进程 CPU 占用率（%），按可用核心数归一化到 0-100；未运行时为 null。 */
     val cpuPercent: Int? = null,
     val availableBytes: Long? = null,
     val directoryBytes: Long? = null,
