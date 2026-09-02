@@ -107,9 +107,11 @@ class ModPluginWidgetService : RemoteViewsService() {
     }
 }
 
-/** jar 内图标 → Bitmap；按 (绝对路径+lastModified+entry) 缓存，失败返回 null 由调用方回退徽标。 */
+/** jar 内图标 → Bitmap；按 (绝对路径+lastModified+entry) 缓存，失败用哨兵占位避免重复解压。 */
 object WidgetIconCache {
-    private val cache = ConcurrentHashMap<String, Bitmap?>()
+    // ConcurrentHashMap 不接受 null key/value；解码失败用哨兵占位表示“已尝试过”。
+    private val cache = ConcurrentHashMap<String, Any>()
+    private val MISS = Any()
 
     fun pluginIcon(jar: File): Bitmap? = jarIcon(jar, listOf("icon.png"))
 
@@ -139,7 +141,8 @@ object WidgetIconCache {
 
     private fun jarIcon(jar: File, entryNames: List<String>): Bitmap? {
         val key = "${jar.absolutePath}:${jar.lastModified()}:${entryNames.firstOrNull() ?: ""}"
-        if (cache.containsKey(key)) return cache[key]
+        val cached = cache[key]
+        if (cached !== null) return cached as? Bitmap
         val bitmap = runCatching {
             JarFile(jar).use { jf ->
                 entryNames.firstNotNullOfOrNull { name ->
@@ -149,7 +152,7 @@ object WidgetIconCache {
                 }
             }
         }.getOrNull()
-        cache[key] = bitmap
+        cache[key] = bitmap ?: MISS
         return bitmap
     }
 }
