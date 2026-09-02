@@ -11,7 +11,9 @@ import com.mineserve.mobile.McApplication
 import com.mineserve.mobile.R
 import com.mineserve.mobile.widget.ConsoleWidget
 import com.mineserve.mobile.widget.EventLogWidget
+import com.mineserve.mobile.widget.EventLogWidgetService
 import com.mineserve.mobile.widget.ModPluginWidget
+import com.mineserve.mobile.widget.ModPluginWidgetService
 import com.mineserve.mobile.widget.OverviewWidget
 import com.mineserve.mobile.widget.WidgetActionReceiver
 import kotlinx.coroutines.CoroutineScope
@@ -64,9 +66,19 @@ object WidgetUpdater {
             updateProvider(context, manager, EventLogWidget::class.java) { buildEventLogShell(context) }
             updateProvider(context, manager, ConsoleWidget::class.java) { buildConsole(context, state, config) }
             updateProvider(context, manager, ModPluginWidget::class.java) { buildModPluginShell(context) }
+            // 外壳重建会覆盖 RemoteViews 的 adapter 连接；立即通知列表组件重新拉取数据，
+            // 否则要等下一次事件写入或 15 分钟兜底才更新。
+            notifyListChanged(context, manager, EventLogWidget::class.java, R.id.widget_event_list)
+            notifyListChanged(context, manager, ModPluginWidget::class.java, R.id.widget_mod_list)
         } catch (_: Exception) {
             // Widget 刷新失败不影响服务器运行
         }
+    }
+
+    private fun notifyListChanged(context: Context, manager: AppWidgetManager, provider: Class<*>, listId: Int) {
+        val ids = manager.getAppWidgetIds(ComponentName(context, provider))
+        if (ids == null || ids.isEmpty()) return
+        manager.notifyAppWidgetViewDataChanged(ids, listId)
     }
 
     private fun updateProvider(
@@ -94,9 +106,14 @@ object WidgetUpdater {
             )
         }
 
-    /** ② 事件日志（2×4）：外壳（列表数据由 EventLogWidgetService 提供）。 */
+    /** ② 事件日志（2×4）：外壳 + 列表适配器（列表数据由 EventLogWidgetService 提供）。 */
     private fun buildEventLogShell(context: Context): RemoteViews =
         RemoteViews(context.packageName, R.layout.widget_event_log).apply {
+            setRemoteAdapter(
+                R.id.widget_event_list,
+                Intent(context, EventLogWidgetService::class.java)
+            )
+            setEmptyView(R.id.widget_event_list, R.id.widget_event_empty)
             setOnClickPendingIntent(R.id.widget_event_root, openAppIntent(context))
         }
 
@@ -119,9 +136,14 @@ object WidgetUpdater {
             bindConsolePendingIntents(context, this, actionsEnabled)
         }
 
-    /** ④ 模组与插件（4×3）：外壳（列表数据由 ModPluginWidgetService 提供）。 */
+    /** ④ 模组与插件（4×3）：外壳 + 列表适配器（列表数据由 ModPluginWidgetService 提供）。 */
     private fun buildModPluginShell(context: Context): RemoteViews =
         RemoteViews(context.packageName, R.layout.widget_mod_plugin).apply {
+            setRemoteAdapter(
+                R.id.widget_mod_list,
+                Intent(context, ModPluginWidgetService::class.java)
+            )
+            setEmptyView(R.id.widget_mod_list, R.id.widget_mod_empty)
             setOnClickPendingIntent(R.id.widget_mod_root, openAppIntent(context))
         }
 

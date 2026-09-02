@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import com.mineserve.mobile.R
 import com.mineserve.mobile.widget.EventLogWidget
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -17,6 +18,7 @@ object WidgetEventType {
 }
 
 /** 事件日志条目（进服/离服/聊天公告） */
+@Serializable
 data class WidgetEvent(
     val type: String,
     val player: String,
