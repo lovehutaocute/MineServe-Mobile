@@ -198,6 +198,7 @@ fun TerminalScreen(vm: McViewModel) {
         Modifier
             .fillMaxSize()
             .background(Color(0xFF121419))
+            .statusBarsPadding()
             .padding(terminalPadding)
     ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween) {

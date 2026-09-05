@@ -36,6 +36,8 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material3.IconButton
 import androidx.compose.material.icons.outlined.ArrowUpward
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
@@ -151,12 +153,19 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_files), title = stringResource(R.string.s488))
 
-            // MT 管理器 + 导出服务器
+            // MT 管理器 + 导出服务器（教程按钮可统一收起/展开，状态持久化）
+            val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences(
+                "mc_config_meta", android.content.Context.MODE_PRIVATE
+            )
+            var topActionsExpanded by remember {
+                mutableStateOf(prefs.getBoolean("files_top_actions_expanded", true))
+            }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
                     onClick = onOpenMtGuide,
@@ -175,23 +184,39 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                     Spacer(Modifier.size(4.dp))
                     Text(stringResource(R.string.s491), fontSize = 12.sp, color = Indigo)
                 }
+                IconButton(
+                    onClick = {
+                        topActionsExpanded = !topActionsExpanded
+                        prefs.edit().putBoolean("files_top_actions_expanded", topActionsExpanded).apply()
+                    },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        if (topActionsExpanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown,
+                        contentDescription = null,
+                        tint = Muted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
-            // MT 管理器教程视频入口（在线播放，不打包进安装包）
-            OutlinedButton(
-                onClick = {
-                    try {
-                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TUTORIAL_VIDEO_URL)))
-                    } catch (e: Exception) {
-                        // 无浏览器/网络异常时静默
-                    }
-                },
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 2.dp)
-            ) {
-                Text(stringResource(R.string.s492), fontSize = 12.sp, color = Indigo)
+            // MT 管理器教程视频入口（在线播放，不打包进安装包）；随顶部快捷操作统一收起/展开
+            androidx.compose.animation.AnimatedVisibility(visible = topActionsExpanded) {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TUTORIAL_VIDEO_URL)))
+                        } catch (e: Exception) {
+                            // 无浏览器/网络异常时静默
+                        }
+                    },
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 2.dp)
+                ) {
+                    Text(stringResource(R.string.s492), fontSize = 12.sp, color = Indigo)
+                }
             }
 
             // 路径导航栏

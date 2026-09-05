@@ -23,7 +23,7 @@ fun TextFileEditorScreen(vm: McViewModel, file: McViewModel.TextEditorFile, onBa
     var confirmRunningSave by remember { mutableStateOf(false) }
     val state by vm.serverState.collectAsState()
     val context = LocalContext.current
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(8.dp)) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.s404)) }
             Column(Modifier.weight(1f)) { Text(file.name); Text(file.path, style = MaterialTheme.typography.labelSmall, maxLines = 1) }

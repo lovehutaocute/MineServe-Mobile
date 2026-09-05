@@ -25,8 +25,8 @@ android {
         applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
-        versionCode = 39
-        versionName = "1.2.4"
+        versionCode = 40
+        versionName = "1.2.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -74,7 +74,7 @@ android {
         buildConfig = true // BuildConfig.VERSION_NAME / VERSION_CODE（软件更新用）
     }
     packaging {
-        resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+        resources { excludes += "/META-INF/{AL2.0,LGPL2.1,DEPENDENCIES}" }
     }
     lint {
         abortOnError = false
@@ -103,6 +103,7 @@ dependencies {
     implementation(libs.commons.compress)
     implementation(libs.zstd.jni)
     implementation(libs.kotlinx.collections.immutable)
+    implementation(libs.apache.ftpserver)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test.junit)

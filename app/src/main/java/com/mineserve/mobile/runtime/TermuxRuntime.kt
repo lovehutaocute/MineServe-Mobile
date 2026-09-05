@@ -190,6 +190,46 @@ class TermuxRuntime(context: Context) {
 
     fun installedJavaVersions(): Set<JavaVersion> = JavaVersion.values().filter(::isJavaInstalled).toSet()
 
+    /** 直接删除指定 Java 版本的文件（Java 8 为独立 PRoot 来宾根文件系统）。返回是否有文件被删除。 */
+    fun deleteJava(version: JavaVersion): Boolean {
+        if (isMcRunning()) return false
+        val roots: List<File> = if (version == JavaVersion.Java8) {
+            listOf(java8Rootfs, File(installer.rootDir, "java-8-ubuntu-ready"))
+        } else {
+            javaCandidates(version).map(::File)
+        }
+        var deleted = false
+        roots.forEach { root ->
+            if (root.exists()) deleted = root.deleteRecursively() || deleted
+        }
+        // 被删版本的 bin/java 包装器可能悬空：若无任何已安装版本则移除包装器
+        if (deleted && installedJavaVersions().isEmpty()) {
+            File(installer.rootDir, "bin/java").delete()
+        }
+        return deleted
+    }
+
+    /** 直接删除依赖文件（wget/frpc/rclone/proot）。返回删除的组件数。 */
+    fun deleteDependencies(): Int {
+        val prefix = installer.rootDir
+        val targets = listOf(
+            listOf("bin/wget", "usr/bin/wget", "data/data/com.termux/files/usr/bin/wget"),
+            listOf("bin/frpc", "usr/bin/frpc", "data/data/com.termux/files/usr/bin/frpc"),
+            listOf("bin/rclone", "usr/bin/rclone", "data/data/com.termux/files/usr/bin/rclone"),
+            listOf("bin/proot", "usr/bin/proot")
+        )
+        var removed = 0
+        targets.forEach { paths ->
+            var hit = false
+            paths.forEach { rel ->
+                val f = File(prefix, rel)
+                if (f.exists() && f.delete()) hit = true
+            }
+            if (hit) removed++
+        }
+        return removed
+    }
+
     fun installedDependencySteps(): List<StepState> = InstallStep.values().map { step ->
         StepState(step, if (isDependencyInstalled(step)) StepStatus.Done else StepStatus.Wait)
     }
@@ -2162,6 +2202,70 @@ class TermuxRuntime(context: Context) {
             if (clearMcProcessIfCurrent(process)) onExit(code)
         }, "mc-watch").start()
 
+        return process
+    }
+
+    /**
+     * 用 PocketMine 专用 PHP 运行 PocketMine-MP（PHP 为 Android 原生构建，
+     * 含 PM5 全部必需扩展；php.ini 通过 PHPRC 环境变量显式指定）。
+     * 进程管理与日志处理与 [startMc] 一致。
+     */
+    fun startPhp(
+        phpBinaryPath: String,
+        phpIniPath: String,
+        pharPath: String,
+        dirName: String,
+        onExit: (Int) -> Unit
+    ): Process {
+        Log.i(TAG, "startPhp: php=$phpBinaryPath phar=$pharPath dirName=$dirName")
+        mcProcess?.let { if (it.isAlive) return it }
+
+        val prefix = installer.rootDir.absolutePath
+        val serverDir = serverDirFor(dirName)
+        val logFile = prepareMcLogFile(serverDir)
+        killOrphanMcProcess(serverDir)
+
+        val compatUsr = "$prefix/data/data/com.termux/files/usr"
+        val phpCmd = "export PATH='$prefix/bin:$prefix/usr/bin:$compatUsr/bin:/system/bin:/system/xbin'; " +
+            "export HOME='$prefix/home'; " +
+            "export TMPDIR='$prefix/tmp'; " +
+            "cd '$serverDir' && exec '$phpBinaryPath' '${File(pharPath).name}' --no-wizard"
+
+        Log.i(TAG, "startPhp command: $phpCmd")
+        val pb = ProcessBuilder("/system/bin/sh", "-c", phpCmd).apply {
+            redirectErrorStream(true)
+            directory(serverDir)
+            environment().putAll(executor.termuxEnv())
+            environment()["PHPRC"] = phpIniPath
+        }
+        val process = pb.start()
+        trackMcProcess(process, serverDir)
+
+        Thread({
+            try {
+                val writer = java.io.BufferedWriter(java.io.OutputStreamWriter(
+                    java.io.FileOutputStream(logFile, true), Charsets.UTF_8), 8192)
+                val reader = process.inputStream.bufferedReader()
+                var line = reader.readLine()
+                var lineCount = 0
+                while (line != null) {
+                    executor.emit(line)
+                    writer.appendLine(line)
+                    if (++lineCount % 50 == 0) writer.flush()
+                    line = reader.readLine()
+                }
+                writer.flush()
+                writer.close()
+            } catch (e: Exception) {
+                Log.w(TAG, "mc stdout reader error: ${e.message}")
+            }
+        }, "mc-stdout-reader").start()
+
+        Thread({
+            val code = process.waitFor()
+            Log.w(TAG, "MC process exited code=$code")
+            if (clearMcProcessIfCurrent(process)) onExit(code)
+        }, "mc-watch").start()
         return process
     }
 

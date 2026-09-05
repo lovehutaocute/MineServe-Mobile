@@ -13,6 +13,7 @@ xz = "1.10"
 commonsCompress = "1.27.1"
 zstdJni = "1.5.6-9"
 immutableCollections = "0.3.8"
+ftpserver = "1.2.0"
 junit = "4.13.2"
 kotlinTest = "2.0.21"
 
@@ -37,6 +38,7 @@ xz = { group = "org.tukaani", name = "xz", version.ref = "xz" }
 commons-compress = { group = "org.apache.commons", name = "commons-compress", version.ref = "commonsCompress" }
 zstd-jni = { group = "com.github.luben", name = "zstd-jni", version.ref = "zstdJni" }
 kotlinx-collections-immutable = { group = "org.jetbrains.kotlinx", name = "kotlinx-collections-immutable", version.ref = "immutableCollections" }
+apache-ftpserver = { group = "org.apache.ftpserver", name = "ftpserver-core", version.ref = "ftpserver" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 kotlin-test-junit = { group = "org.jetbrains.kotlin", name = "kotlin-test-junit", version.ref = "kotlinTest" }
 

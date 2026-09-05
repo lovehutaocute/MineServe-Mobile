@@ -41,7 +41,18 @@ class MainActivity : ComponentActivity() {
                 else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             }
         }
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT
+            )
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // 三键导航默认强制半透明对比度遮罩，关闭后才是全透明
+            window.isNavigationBarContrastEnforced = false
+        }
         ensureNotificationPermission()
         // 更新通知点击进入：通知带 open_update extra，通知 MainActivity 打开更新对话框
         if (intent?.getBooleanExtra("open_update", false) == true) {

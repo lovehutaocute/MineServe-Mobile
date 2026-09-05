@@ -10,7 +10,7 @@
 
 </div>
 
-MineServe Mobile is a native Android app for Minecraft Java Edition servers, with PowerNukkitX support for Bedrock Edition. It includes multi-server management, plugins and mods, Modrinth integration, tunneling, backups, crash reports, keep-alive tools, and no-root data access.
+MineServe Mobile is a native Android app for Minecraft Java Edition servers, with PowerNukkitX support for Bedrock Edition. It includes multi-server management, plugins and mods, Modrinth integration, tunneling, backups, crash reports, keep-alive tools, MCP remote control, and no-root data access.
 
 ## ✨ Features
 
@@ -22,6 +22,7 @@ MineServe Mobile is a native Android app for Minecraft Java Edition servers, wit
 - **Tunneling** — frp and bore with LAN and public address display.
 - **Backup and crash reports** — world/full-server backup, SAF export, abnormal-exit logs, native-report aggregation, and offline analysis.
 - **Keep-alive** — foreground service, wake locks, boot/periodic recovery, and an optional status overlay.
+- **MCP remote control** — embedded Model Context Protocol server (Streamable HTTP) so LAN AI assistants can check status, start/stop the server, send console commands, and read logs; protected by a bearer token.
 - **Material 3 UI** — Jetpack Compose with compact core and version selection.
 
 ## 📋 Requirements
@@ -120,4 +121,4 @@ See the [architecture document](./ARCHITECTURE.md) for implementation details.
 
 ## 📄 License
 
-Licensed under [GNU GPL v3.0 or later](LICENSE). TCP STUN traversal and parts of the keep-alive implementation are adapted from [EdgeCube](https://github.com/venti1112/EdgeCube), also GPL-3.0; see [NOTICE](NOTICE).
+Licensed under [GNU GPL v3.0 or later](LICENSE).

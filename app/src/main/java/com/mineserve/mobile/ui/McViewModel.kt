@@ -1188,6 +1188,70 @@ class McViewModel(
         }
     }
 
+    /** 修改服务器信息。名称/版本号仅影响显示；核心类型会改变应用对该服务器的处理方式。返回 null 表示成功。 */
+    fun updateServerDisplayInfo(oldName: String, newName: String, newVersion: String, newCore: com.mineserve.mobile.data.ServerCore? = null): String? {
+        val name = newName.trim()
+        val version = newVersion.trim()
+        if (name.isEmpty()) return "服务器名称不能为空"
+        val current = config.value
+        val target = current.installedCores.firstOrNull { it.name == oldName }
+            ?: return "未找到服务器：$oldName"
+        if (current.installedCores.any { it.name == name && it.name != oldName }) {
+            return "已存在同名服务器：$name"
+        }
+        updateConfig { cfg ->
+            cfg.copy(
+                installedCores = cfg.installedCores.map {
+                    if (it.name == oldName) it.copy(name = name, version = version, core = newCore ?: it.core) else it
+                },
+                activeCoreName = if (cfg.activeCoreName == oldName) name else cfg.activeCoreName
+            )
+        }
+        return null
+    }
+
+    @Volatile private var scanningServers = false
+
+    /**
+     * 扫描 servers 目录，自动登记未注册的服务器文件夹。
+     * 覆盖 MT 管理器等外部方式直接复制进目录的场景；识别不出核心时按「导入/未知核心」登记（降低识别门槛）。
+     */
+    fun scanUnregisteredServers() {
+        if (scanningServers) return
+        scanningServers = true
+        viewModelScope.launch {
+            try {
+                val dirs = withContext(Dispatchers.IO) {
+                    repo.termuxRuntime.serversDir.listFiles { f -> f.isDirectory }
+                        ?.sortedBy { it.name.lowercase() } ?: emptyList()
+                }
+                if (dirs.isEmpty()) return@launch
+                val config = repo.configFlow.first()
+                val known = config.installedCores.map { it.dirName }.toHashSet()
+                val fresh = dirs.filter { it.name !in known }
+                if (fresh.isEmpty()) return@launch
+                val registered = fresh.map { dir ->
+                    val detected = withContext(Dispatchers.IO) {
+                        com.mineserve.mobile.server.ServerCoreDetector.detect(dir)
+                    }
+                    com.mineserve.mobile.data.InstalledCore(
+                        name = dir.name,
+                        core = detected.core ?: com.mineserve.mobile.data.ServerCore.Unknown,
+                        version = detected.version ?: str(R.string.ver_imported),
+                        dirName = dir.name,
+                        serverFile = detected.serverFile
+                    )
+                }
+                updateConfig { it.copy(installedCores = it.installedCores + registered) }
+                _messageFlow.tryEmit(str(R.string.msg_scan_registered, registered.size))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.s191, e.message))
+            } finally {
+                scanningServers = false
+            }
+        }
+    }
+
     fun refreshJava() {
         if (!isBootstrapped.value) return
         viewModelScope.launch(Dispatchers.IO) {
@@ -1255,8 +1319,61 @@ class McViewModel(
         }
     }
 
+    /** FTP 文件管理根目录（含全部服务器与快照） */
+    fun ftpRootDir(): java.io.File = repo.termuxRuntime.serversDir.parentFile
+        ?: java.io.File(app.filesDir, "home")
+
+    /** 卸载指定 Java 版本（直接删除文件） */
+    fun deleteJava(version: JavaVersion) {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        _javaOperation.value = str(R.string.msg_java_op_deleting, version.displayName)
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { repo.termuxRuntime.deleteJava(version) }
+                refreshJava()
+                if (ok) _messageFlow.tryEmit(str(R.string.msg_java_deleted, version.displayName))
+                else _errorFlow.tryEmit(str(R.string.err_java_delete_fail, version.displayName))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(e.message ?: str(R.string.err_java_delete_fail, version.displayName))
+            } finally {
+                _javaOperation.value = null
+            }
+        }
+    }
+
+    /** 卸载依赖（直接删除 wget/frpc/rclone/proot 文件，不动 Termux 环境） */
+    fun deleteDependencies() {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        _isInstalling.value = true
+        viewModelScope.launch {
+            try {
+                val removed = withContext(Dispatchers.IO) { repo.termuxRuntime.deleteDependencies() }
+                refreshDependencies()
+                _messageFlow.tryEmit(str(R.string.msg_deps_deleted, removed))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(str(R.string.s195, e.message))
+            } finally {
+                _isInstalling.value = false
+            }
+        }
+    }
+
+    /** 重装依赖 = 先删除再安装 */
+    fun reinstallDependencies() {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        _isInstalling.value = true
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { repo.termuxRuntime.deleteDependencies() }
+            } catch (_: Exception) {}
+            _isInstalling.value = false
+            installDependencies()
+        }
+    }
+
     fun selectCore(core: ServerCore) = updateConfig {
-        if (core == ServerCore.PowerNukkitX) it.copy(
+        // 基岩版核心（PNX/PocketMine/Allay）走 UDP，默认端口切到 19132
+        if (core.isBedrock) it.copy(
             selectedCore = core,
             mcVersion = "latest",
             localPort = if (it.localPort == 25565) 19132 else it.localPort
@@ -3582,6 +3699,7 @@ class McViewModel(
      */
     init {
         loadPlayerHistory()
+        scanUnregisteredServers()
         viewModelScope.launch {
             config.map { it.activeCoreName }.distinctUntilChanged().collect { loadPlayerHistory() }
         }
@@ -3708,8 +3826,8 @@ class McViewModel(
         _eventNotifyLevel.value = value.coerceIn(0, 2)
     }
 
-    /** 后台周期保活开关状态 */
-    fun isKeepAliveEnabled(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_KEEP_ALIVE, false)
+    /** 后台周期保活开关状态（默认开启） */
+    fun isKeepAliveEnabled(): Boolean = metaPrefs().getBoolean(BootReceiver.KEY_KEEP_ALIVE, true)
 
     /** 设置后台周期保活：开启时调度 WorkManager 周期任务，关闭时取消 */
     fun setKeepAliveEnabled(v: Boolean) {

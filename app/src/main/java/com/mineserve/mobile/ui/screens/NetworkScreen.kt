@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -41,6 +42,11 @@ import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -89,6 +95,7 @@ import com.mineserve.mobile.ui.theme.MintSoft
 import com.mineserve.mobile.ui.theme.Muted
 import com.mineserve.mobile.ui.theme.TrackBg
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -318,6 +325,10 @@ fun NetworkScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = tr
                         color = Muted, fontSize = 10.sp
                     )
                 }
+            }
+
+            if (config.tunnelType == TunnelType.SakuraFrp) {
+                SakuraFrpConfigSection(vm = vm, config = config)
             }
 
         }
@@ -563,9 +574,20 @@ private fun GuideSection(tunnelType: TunnelType) {
                 when (tunnelType) {
                     TunnelType.Frp -> FrpGuide()
                     TunnelType.Bore -> BoreGuide()
+                    TunnelType.SakuraFrp -> SakuraGuide()
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SakuraGuide() {
+    GuideBlock(title = stringResource(R.string.sakura_guide_title)) {
+        GuideStep("1", stringResource(R.string.sakura_guide_1_t), stringResource(R.string.sakura_guide_1_d))
+        GuideStep("2", stringResource(R.string.sakura_guide_2_t), stringResource(R.string.sakura_guide_2_d))
+        GuideStep("3", stringResource(R.string.sakura_guide_3_t), stringResource(R.string.sakura_guide_3_d))
+        GuideStep("4", stringResource(R.string.sakura_guide_4_t), stringResource(R.string.sakura_guide_4_d))
     }
 }
 
@@ -684,3 +706,234 @@ private fun FreeFrpPlatformsCard(context: Context) {
         }
     }
 }
+
+// ── SakuraFrp 配置区（Token + 隧道列表 + 创建隧道） ───────────
+
+@Composable
+private fun SakuraFrpConfigSection(vm: McViewModel, config: com.mineserve.mobile.data.McConfig) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var account by remember { mutableStateOf<com.mineserve.mobile.server.tunnel.SakuraFrpApi.Account?>(null) }
+    var tunnels by remember { mutableStateOf<List<com.mineserve.mobile.server.tunnel.SakuraFrpApi.Tunnel>>(emptyList()) }
+    var nodes by remember { mutableStateOf<List<com.mineserve.mobile.server.tunnel.SakuraFrpApi.Node>>(emptyList()) }
+    var loading by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var showCreate by remember { mutableStateOf(false) }
+    val token = config.sakuraToken.trim()
+
+    fun refresh(withNodes: Boolean) {
+        if (token.isBlank() || loading) return
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            loading = true
+            message = ""
+            try {
+                val info = com.mineserve.mobile.server.tunnel.SakuraFrpApi.userInfo(token)
+                account = info
+                tunnels = com.mineserve.mobile.server.tunnel.SakuraFrpApi.tunnelList(token)
+                if (withNodes) nodes = com.mineserve.mobile.server.tunnel.SakuraFrpApi.nodeList(token, info.level)
+            } catch (e: Exception) {
+                message = e.message ?: "拉取失败"
+            } finally {
+                loading = false
+            }
+        }
+    }
+
+    Column {
+        Text("SakuraFrp 访问令牌（Token）", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(6.dp))
+        DebouncedTextField(
+            value = config.sakuraToken,
+            onValueChange = { v -> vm.updateConfig { it.copy(sakuraToken = v.trim()) } },
+            placeholder = { Text("在 natfrp.com 用户面板获取") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = { refresh(withNodes = false) },
+                enabled = token.isNotBlank() && !loading,
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                if (loading) {
+                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color.White)
+                    Spacer(Modifier.size(6.dp))
+                }
+                Text("拉取隧道列表", fontSize = 12.sp)
+            }
+            OutlinedButton(
+                onClick = {
+                    if (nodes.isEmpty()) refresh(withNodes = true)
+                    showCreate = true
+                },
+                enabled = token.isNotBlank() && !loading,
+                shape = RoundedCornerShape(10.dp)
+            ) { Text("创建隧道", fontSize = 12.sp) }
+        }
+        message.takeIf { it.isNotBlank() }?.let {
+            Spacer(Modifier.height(6.dp))
+            Text(it, color = Coral, fontSize = 11.sp)
+        }
+        account?.let { acc ->
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "账号：${acc.username}（${acc.group}）· 隧道 ${tunnels.size}${acc.maxTunnels?.let { "/$it" } ?: ""}",
+                color = Muted, fontSize = 11.sp
+            )
+        }
+        if (tunnels.isEmpty() && !loading) {
+            Spacer(Modifier.height(4.dp))
+            Text("暂无隧道，点击「创建隧道」新建；启动前需在列表中选中一条", color = Muted, fontSize = 11.sp)
+        }
+        tunnels.forEach { t ->
+            val selected = config.sakuraTunnelId == t.id
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(if (selected) IndigoSoft else Color.Transparent)
+                    .clickable {
+                        vm.updateConfig { it.copy(sakuraTunnelId = t.id, sakuraToken = token) }
+                    }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    Modifier
+                        .size(8.dp)
+                        .background(if (t.online) Color(0xFF4CAF50) else Color(0xFFBDBDBD), CircleShape)
+                )
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(t.name + if (selected) "（已选）" else "", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "节点 ${t.nodeId} · ${t.type} · 本地 ${t.localIp}:${t.localPort} · " +
+                            (t.remoteAddress.ifBlank { t.remotePort?.toString() } ?: "自动分配"),
+                        color = Muted, fontSize = 10.sp
+                    )
+                }
+            }
+        }
+        if (config.sakuraTunnelId.isNotBlank()) {
+            Spacer(Modifier.height(6.dp))
+            Text("点击上方「启动隧道」将拉取该隧道的官方配置并启动 frpc", color = Muted, fontSize = 10.sp)
+        }
+    }
+
+    if (showCreate) {
+        SakuraCreateTunnelDialog(
+            nodes = nodes,
+            defaultPort = config.localPort,
+            onDismiss = { showCreate = false },
+            onConfirm = { node, name, type, port ->
+                showCreate = false
+                scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    loading = true
+                    try {
+                        com.mineserve.mobile.server.tunnel.SakuraFrpApi.createTunnel(
+                            token, node.id, name, type, "127.0.0.1", port
+                        )
+                        refresh(withNodes = false)
+                    } catch (e: Exception) {
+                        message = e.message ?: "创建失败"
+                    } finally {
+                        loading = false
+                    }
+                }
+            }
+        )
+    }
+}
+
+@Composable
+private fun SakuraCreateTunnelDialog(
+    nodes: List<com.mineserve.mobile.server.tunnel.SakuraFrpApi.Node>,
+    defaultPort: Int,
+    onDismiss: () -> Unit,
+    onConfirm: (node: com.mineserve.mobile.server.tunnel.SakuraFrpApi.Node, name: String, type: String, port: Int) -> Unit
+) {
+    var selectedNode by remember { mutableStateOf(nodes.firstOrNull { it.online }) }
+    var nodeMenu by remember { mutableStateOf(false) }
+    var name by remember { mutableStateOf("MineServe") }
+    var type by remember { mutableStateOf("tcp") }
+    var portText by remember { mutableStateOf(defaultPort.toString()) }
+    val port = portText.toIntOrNull()
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("创建 SakuraFrp 隧道", fontSize = 16.sp, fontWeight = FontWeight.SemiBold) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (nodes.isEmpty()) {
+                    Text("节点列表为空：请先关闭弹窗后重新点「创建隧道」以拉取节点", color = Coral, fontSize = 11.sp)
+                }
+                Box {
+                    OutlinedTextField(
+                        value = selectedNode?.let { "${it.name}（${it.id}）" } ?: "请选择节点",
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("节点") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .clickable { if (nodes.isNotEmpty()) nodeMenu = true }
+                    )
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = nodeMenu,
+                        onDismissRequest = { nodeMenu = false }
+                    ) {
+                        nodes.forEach { node ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = { Text("${node.name}（${node.id}）${if (node.online) "" else " · 离线"}") },
+                                onClick = { selectedNode = node; nodeMenu = false }
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("隧道名称") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("tcp", "udp").forEach { t ->
+                        FilterChip(
+                            selected = type == t,
+                            onClick = { type = t },
+                            label = { Text(t.uppercase()) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { portText = it.filter(Char::isDigit).take(5) },
+                    label = { Text("本地端口（MC 服务器端口）") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val node = selectedNode ?: return@Button
+                    onConfirm(node, name.ifBlank { "MineServe" }, type, port ?: defaultPort)
+                },
+                enabled = selectedNode != null && port != null && name.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo)
+            ) { Text("创建") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("取消") }
+        }
+    )
+}
+

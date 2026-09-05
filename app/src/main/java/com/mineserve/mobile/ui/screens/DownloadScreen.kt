@@ -91,7 +91,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
     val importProgress by vm.importProgress.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val usesCoreVersion = config.selectedCore == ServerCore.PowerNukkitX
+    val usesCoreVersion = config.selectedCore.isBedrock
 
     // 自定义版本输入框
     var customVersion by remember { mutableStateOf("") }
@@ -253,7 +253,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             text = core.displayName,
                             selected = config.selectedCore == core,
                             compact = true,
-                            unselectedBackground = if (core == ServerCore.PowerNukkitX) Coral.copy(alpha = 0.16f) else com.mineserve.mobile.ui.theme.FieldGray,
+                            unselectedBackground = if (core.isBedrock) Coral.copy(alpha = 0.16f) else com.mineserve.mobile.ui.theme.FieldGray,
                             onClick = { vm.selectCore(core) }
                         )
                     }
@@ -275,6 +275,8 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                         ServerCore.Velocity -> stringResource(R.string.dl_desc_velocity)
                         ServerCore.BungeeCord -> stringResource(R.string.dl_desc_bungeecord)
                         ServerCore.PowerNukkitX -> stringResource(R.string.dl_desc_pnx)
+                        ServerCore.PocketMine -> stringResource(R.string.dl_desc_pocketmine)
+                        ServerCore.Allay -> stringResource(R.string.dl_desc_allay)
                         ServerCore.Unknown -> stringResource(R.string.dl_desc_unknown)
                     },
                     color = Muted,

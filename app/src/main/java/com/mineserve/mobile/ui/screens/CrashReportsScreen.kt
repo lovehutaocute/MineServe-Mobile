@@ -33,12 +33,12 @@ import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.Muted
 
 @Composable
-fun CrashReportsScreen(vm: McViewModel, onBack: () -> Unit) {
+fun CrashReportsScreen(vm: McViewModel, onBack: () -> Unit, onGoToJavaInstall: () -> Unit) {
     val reports by vm.crashReports.collectAsState()
     val content by vm.currentCrashContent.collectAsState()
     val analysis by vm.currentCrashAnalysis.collectAsState()
     LaunchedEffect(Unit) { vm.loadCrashReports() }
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().statusBarsPadding()) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, stringResource(R.string.crash_back)) }
             Text(stringResource(R.string.crash_title), fontWeight = FontWeight.Bold, fontSize = 20.sp)
@@ -46,8 +46,23 @@ fun CrashReportsScreen(vm: McViewModel, onBack: () -> Unit) {
         if (reports.isEmpty()) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.crash_empty), color = Muted) }
         else LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             items(reports, key = { it.path }, contentType = { "crash-report" }) { report ->
-                val label = remember(report.preview) { CrashReportAnalyzer.analyze(report.preview).primaryLabel }
-                ListItem(headlineContent = { Text(report.fileName, maxLines = 1) }, supportingContent = { Text("$label | ${report.createdText} | ${report.sizeText}", fontSize = 11.sp) }, leadingContent = { Icon(Icons.Outlined.Warning, null, tint = Coral) }, modifier = Modifier.clickable { vm.readCrashReport(report.fileName) })
+                val reportAnalysis = remember(report.preview) { CrashReportAnalyzer.analyze(report.preview) }
+                val label = reportAnalysis.primaryLabel
+                // Java 版本问题（未安装/版本不满足）→ 提供前往安装的直达入口
+                val javaIssue = reportAnalysis.findings.any { it.label.startsWith("Java") }
+                ListItem(
+                    headlineContent = { Text(report.fileName, maxLines = 1) },
+                    supportingContent = { Text("$label | ${report.createdText} | ${report.sizeText}", fontSize = 11.sp) },
+                    leadingContent = { Icon(Icons.Outlined.Warning, null, tint = Coral) },
+                    trailingContent = {
+                        if (javaIssue) {
+                            TextButton(onClick = onGoToJavaInstall) {
+                                Text(stringResource(R.string.env_go_install), color = Indigo, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    },
+                    modifier = Modifier.clickable { vm.readCrashReport(report.fileName) }
+                )
                 HorizontalDivider()
             }
         }
@@ -61,10 +76,12 @@ fun CrashReportDialog(
     content: String,
     analysis: CrashReportAnalyzer.Analysis,
     runLog: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onGoToJavaInstall: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     var mode by remember { mutableStateOf(CrashViewMode.Summary) }
+    val javaIssue = analysis.findings.any { it.label.startsWith("Java") }
     val summary = buildString {
         appendLine(analysis.title)
         analysis.exitCode?.let { appendLine(stringResource(R.string.startup_report_exitcode, it)) }
@@ -100,7 +117,13 @@ fun CrashReportDialog(
             )
         }
     }, confirmButton = {
-        Row {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (javaIssue && onGoToJavaInstall != null) {
+                TextButton(onClick = onGoToJavaInstall) {
+                    Text(stringResource(R.string.env_go_install), color = Indigo, fontWeight = FontWeight.SemiBold)
+                }
+                Spacer(Modifier.width(4.dp))
+            }
             IconButton(onClick = { copy(context, displayedText) }) { Icon(Icons.Outlined.ContentCopy, stringResource(R.string.crash_copy), tint = Indigo) }
             val shareTitle = stringResource(R.string.crash_share)
             IconButton(onClick = {

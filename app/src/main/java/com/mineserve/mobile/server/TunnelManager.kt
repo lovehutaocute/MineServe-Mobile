@@ -8,6 +8,7 @@ import com.mineserve.mobile.runtime.TermuxRuntime
 import com.mineserve.mobile.server.tunnel.BinaryManager
 import com.mineserve.mobile.server.tunnel.BoreBackend
 import com.mineserve.mobile.server.tunnel.FrpBackend
+import com.mineserve.mobile.server.tunnel.SakuraFrpBackend
 import com.mineserve.mobile.server.tunnel.TunnelBackend
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,7 +32,8 @@ class TunnelManager(private val termux: TermuxRuntime) {
 
     private val backends: Map<TunnelType, TunnelBackend> = mapOf(
         TunnelType.Frp to FrpBackend(termux, binaryManager),
-        TunnelType.Bore to BoreBackend()
+        TunnelType.Bore to BoreBackend(),
+        TunnelType.SakuraFrp to SakuraFrpBackend(termux, binaryManager)
     ).onEach { (_, backend) ->
         backend.attachLog { msg -> termux.emitLog("[tunnel] $msg") }
     }

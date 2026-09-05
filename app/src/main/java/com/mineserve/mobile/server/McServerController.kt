@@ -334,12 +334,19 @@ class McServerController(
         val eula = File(serverDir, "eula.txt")
         if (!eula.exists()) eula.writeText("eula=true\n")
         File(serverDir, "plugins").mkdirs()
+        // PocketMine 的核心是 .phar（PHP 运行），Allay 保持 server.jar（Java 运行）
+        val serverFileName = if (normalizedConfig.selectedCore == ServerCore.PocketMine) {
+            val phar = File(serverDir, "PocketMine-MP.phar")
+            File(jarPath).renameTo(phar)
+            phar.name
+        } else "server.jar"
         // 添加到已安装列表
         val newCore = InstalledCore(
             name = customName,
             core = normalizedConfig.selectedCore,
             version = normalizedConfig.mcVersion,
-            dirName = dirName
+            dirName = dirName,
+            serverFile = serverFileName
         )
         val updated = config.installedCores.filter { it.dirName != dirName } + newCore
         repo.saveConfig(config.copy(
@@ -373,6 +380,8 @@ class McServerController(
             ServerCore.Velocity -> resolveVelocityUrl(version)
             ServerCore.BungeeCord -> resolveBungeeUrl()
             ServerCore.PowerNukkitX -> resolvePowerNukkitXUrl(version)
+            ServerCore.PocketMine -> resolvePocketMineUrl(version)
+            ServerCore.Allay -> resolveAllayUrl(version)
             ServerCore.Unknown -> throw IllegalArgumentException("未知核心类型，无法解析下载地址")
         }
     }
@@ -578,6 +587,32 @@ class McServerController(
         return "https://ci.md-5.net/job/BungeeCord/lastSuccessfulBuild/artifact/bootstrap/target/BungeeCord.jar"
     }
 
+    // ── PocketMine-MP：pmmp update 通道 JSON → download_url（.phar） ──
+
+    private fun resolvePocketMineUrl(version: String): String {
+        val body = fetchGithubJsonElement(
+            "https://raw.githubusercontent.com/pmmp/update.pmmp.io/master/channels/$version.json"
+        )
+        val url = (body as? JsonObject)?.get("download_url")?.jsonPrimitive?.content
+            ?: throw RuntimeException("PocketMine-MP $version: 通道信息中没有 download_url")
+        return url
+    }
+
+    // ── Allay：GitHub Release 资产（优先 allay* 命名，带 sha256 校验值） ──
+
+    private fun resolveAllayUrl(version: String): String {
+        val release = fetchGithubJsonElement(
+            "https://api.github.com/repos/AllayMC/Allay/releases/tags/$version"
+        ).jsonObject
+        val assets = release["assets"]?.jsonArray.orEmpty().map { it.jsonObject }
+        if (assets.isEmpty()) throw RuntimeException("Allay $version: release has no assets")
+        val asset = assets.firstOrNull {
+            it["name"]?.jsonPrimitive?.content?.startsWith("allay", ignoreCase = true) == true
+        } ?: assets.first()
+        return asset["browser_download_url"]?.jsonPrimitive?.content
+            ?: throw RuntimeException("Allay $version: asset has no download url")
+    }
+
     private fun resolvePowerNukkitXUrl(version: String): String {
         powerNukkitXVersionCache[version.trim().removePrefix("v").removePrefix("V").lowercase(Locale.ROOT)]
             ?.assetUrl
@@ -669,6 +704,8 @@ class McServerController(
             ServerCore.Velocity -> fetchVelocityVersions().map(::CoreVersionOption)
             ServerCore.BungeeCord -> fetchBungeeVersions().map(::CoreVersionOption)
             ServerCore.PowerNukkitX -> fetchPowerNukkitXVersionOptions()
+            ServerCore.PocketMine -> fetchPocketMineVersions()
+            ServerCore.Allay -> fetchAllayVersionOptions()
             ServerCore.Unknown -> emptyList()
         }
     }
@@ -704,6 +741,71 @@ class McServerController(
     }
 
     private fun fetchBungeeVersions(): List<String> = listOf("latest")
+
+    /**
+     * PocketMine-MP：pmmp update 通道目录（5 / 5.44 / 5.25.0），仅保留 5.x 稳定版本，按版本号降序。
+     * 过滤掉高于 [PMMP_MAX_COMPAT_VERSION] 的通道：Android PHP 运行时内置的
+     * pmmp/ext-encoding 为 0.4.x，PocketMine 5.34.0 起要求 ~1.0.0（2025-09 起），
+     * 新版本核心会因扩展版本不满足而拒绝启动。
+     */
+    private fun fetchPocketMineVersions(): List<CoreVersionOption> = runCatching {
+        val pattern = Regex("^5(\\.\\d+)*$")
+        fetchGithubJsonElement("https://api.github.com/repos/pmmp/update.pmmp.io/contents/channels")
+            .jsonArray
+            .mapNotNull { it.jsonObject["name"]?.jsonPrimitive?.content }
+            .filter { it.endsWith(".json") }
+            .map { it.removeSuffix(".json") }
+            .filter { pattern.matches(it) }
+            .filter { versionAtMost(it, PMMP_MAX_COMPAT_VERSION) }
+            .sortedWith(
+                Comparator { a, b ->
+                    val pa = a.split(".").map { it.toIntOrNull() ?: 0 }
+                    val pb = b.split(".").map { it.toIntOrNull() ?: 0 }
+                    for (i in 0 until maxOf(pa.size, pb.size)) {
+                        val va = pa.getOrElse(i) { 0 }
+                        val vb = pb.getOrElse(i) { 0 }
+                        if (va != vb) return@Comparator vb - va
+                    }
+                    0
+                }
+            )
+            .map(::CoreVersionOption)
+    }.getOrElse {
+        termux.emitLog("[download] PocketMine-MP 版本源失败: ${it.message ?: "unknown"}")
+        listOf(CoreVersionOption(PMMP_MAX_COMPAT_VERSION, "当前 PHP 运行时兼容的最新版本"))
+    }
+
+    /** 版本号逐段数值比较：a 是否 ≤ b（如 "5.33.1" ≤ "5.33.1"，"5.9" ≤ "5.33"） */
+    private fun versionAtMost(a: String, b: String): Boolean {
+        val pa = a.split(".").map { it.toIntOrNull() ?: 0 }
+        val pb = b.split(".").map { it.toIntOrNull() ?: 0 }
+        for (i in 0 until maxOf(pa.size, pb.size)) {
+            val va = pa.getOrElse(i) { 0 }
+            val vb = pb.getOrElse(i) { 0 }
+            if (va != vb) return va < vb
+        }
+        return true
+    }
+
+    /** Allay：GitHub Releases 标签列表（排除 draft/prerelease），按发布时间降序 */
+    private fun fetchAllayVersionOptions(): List<CoreVersionOption> = runCatching {
+        fetchGithubJsonElement("https://api.github.com/repos/AllayMC/Allay/releases?per_page=30")
+            .jsonArray
+            .map { it.jsonObject }
+            .filter {
+                !(it["draft"]?.jsonPrimitive?.boolean ?: false) &&
+                    !(it["prerelease"]?.jsonPrimitive?.boolean ?: false)
+            }
+            .sortedByDescending { it["published_at"]?.jsonPrimitive?.content.orEmpty() }
+            .mapNotNull { release ->
+                val tag = release["tag_name"]?.jsonPrimitive?.content?.trim()?.removePrefix("v")
+                    ?: return@mapNotNull null
+                CoreVersionOption(tag, publishedAt = release["published_at"]?.jsonPrimitive?.content.orEmpty())
+            }
+    }.getOrElse {
+        termux.emitLog("[download] Allay 版本源失败: ${it.message ?: "unknown"}")
+        listOf(CoreVersionOption("latest", "官方最新版"))
+    }
 
     private fun fetchPowerNukkitXVersionOptions(): List<CoreVersionOption> {
         val releaseObjects = powerNukkitXRepos.flatMap { repoName ->
@@ -1037,12 +1139,13 @@ class McServerController(
         } else {
             termux.fixRootfsPermissions()
         }
-        if (!termux.isJavaInstalled(config.selectedJavaVersion)) {
-            throw RuntimeException("${config.selectedJavaVersion.displayName} 未安装，请先在 Java 管理卡片中安装")
-        }
         // 找到当前选用的核心
         val activeCore = config.installedCores.find { it.name == config.activeCoreName }
             ?: throw RuntimeException("未选择要启动的服务端核心，请先在「下载」Tab 下载或选择")
+        // PocketMine 用 PHP 运行（PHP 在启动时按需安装），跳过 Java 检查
+        if (activeCore.core != ServerCore.PocketMine && !termux.isJavaInstalled(config.selectedJavaVersion)) {
+            throw RuntimeException("${config.selectedJavaVersion.displayName} 未安装，请先在 Java 管理卡片中安装")
+        }
         val (launchConfig, launchCore) = migrateToAsciiServerDir(config, activeCore)
         val serverDir = File(termux.serversDir, launchCore.dirName)
         val configuredEntry = launchCore.serverFile
@@ -1168,6 +1271,72 @@ class McServerController(
             val current = if (properties.exists()) properties.readText() else ""
             properties.writeText(updatePowerNukkitXProperties(current, config.localPort))
         }
+        // Allay：默认同时绑定 IPv6（::），在 Android 上会抛
+        // UnsupportedAddressTypeException 导致网络接口启动失败。
+        // 首次启动写入最小配置；已存在的配置每次启动都强制修正
+        // enablev6=false 并同步端口（兼容修复前已生成配置的目录）。
+        if (coreType == ServerCore.Allay) {
+            val settings = File(serverDir, "server-settings.yml")
+            if (!settings.exists()) {
+                settings.writeText(
+                    "network-settings:\n" +
+                        "  ip: 0.0.0.0\n" +
+                        "  port: ${config.localPort}\n" +
+                        "  enablev6: false\n"
+                )
+                termux.emitLog("[startMc] 已生成 Allay 配置（禁用 IPv6 绑定，端口 ${config.localPort}）")
+            } else {
+                val current = settings.readText()
+                var updated = current.replace(Regex("enablev6: *true"), "enablev6: false")
+                updated = updated.replace(Regex("(\n  port: *)\\d+"), "$1${config.localPort}")
+                if (updated != current) {
+                    settings.writeText(updated)
+                    termux.emitLog("[startMc] 已修正 Allay 配置（禁用 IPv6 绑定，端口 ${config.localPort}）")
+                }
+            }
+        }
+        // PocketMine：需要官方定制 PHP（含 chunkutils2/encoding/leveldb/pmmpthread 等扩展）。
+        // PMMP 官方不发布 Linux ARM64 PHP，使用社区 Android 原生编译版（ItzxDwi/AndroidPHP，aarch64 PM5），
+        // 首次启动时下载到共享运行时目录 home/php-pmmp/，多服务器复用。
+        if (coreType == ServerCore.PocketMine) {
+            val phpBin = File(termux.installer.rootDir, "home/php-pmmp/php")
+            if (!phpBin.isFile) {
+                val runtimeDir = phpBin.parentFile?.apply { mkdirs() } ?: throw RuntimeException("无法创建 PHP 运行时目录")
+                termux.emitLog("[startMc] 正在下载 PocketMine 专用 PHP 运行环境（Android 原生构建，约 10MB）...")
+                val tarball = File(termux.installer.rootDir, "tmp/php-pmmp.tar.gz").apply { parentFile?.mkdirs() }
+                val mirrors = listOf(
+                    "https://ghfast.top/",
+                    "https://gh-proxy.com/",
+                    "https://mirror.ghproxy.com/",
+                    "https://ghproxy.net/",
+                    "https://github.moeyy.xyz/",
+                    ""
+                ).map { it + PMMP_PHP_TARBALL_URL }
+                var downloaded = false
+                for (url in mirrors) {
+                    if (downloadToFile(url, tarball)) { downloaded = true; break }
+                    termux.emitLog("[startMc] 镜像下载失败，尝试下一个源...")
+                }
+                if (!downloaded || tarball.length() < 1_000_000L) {
+                    tarball.delete()
+                    throw RuntimeException("PHP 运行环境下载失败，请检查网络后重试")
+                }
+                extractTarGz(tarball, runtimeDir)
+                tarball.delete()
+                termux.execOnce("chmod", "-R", "755", runtimeDir.absolutePath)
+            }
+            if (!phpBin.isFile || !phpBin.canExecute()) {
+                throw RuntimeException("PHP 运行环境不完整，请删除 home/php-pmmp 目录后重试")
+            }
+            val phar = serverDir.listFiles { f -> f.isFile && f.name.endsWith(".phar", ignoreCase = true) }
+                ?.maxByOrNull { it.lastModified() }
+                ?: throw RuntimeException("未找到 PocketMine-MP.phar，请重新下载核心")
+            startupDeadlineMs = System.currentTimeMillis() + 20_000L
+            processStartedAtMs = System.currentTimeMillis()
+            termux.startPhp(phpBin.absolutePath, File(phpBin.parentFile, "php.ini").absolutePath, phar.absolutePath, dirName, createExitHandler(config, dirName, phar.absolutePath))
+            repo.updateServerState { markRunningIfAlive(it) }
+            return
+        }
         // 按 MC 版本自动匹配所需 Java（如 Paper 26.1+ 要求 Java 25）：当前选择不足时自动升级并安装
         val mcVersion = activeCore?.version?.takeIf { it.isNotBlank() } ?: config.mcVersion
         val recommended = recommendedJavaForMinecraft(mcVersion, coreType)
@@ -1197,8 +1366,17 @@ class McServerController(
             runCatching { repo.saveConfig(config.copy(selectedJavaVersion = fallback)) }
             fallback
         } else launchJava
+        // Allay 官方要求 Java 21+：低于 21 自动切换，未安装则明确报错
+        val finalLaunchJava = if (coreType == ServerCore.Allay && effectiveLaunchJava.ordinal < JavaVersion.Java21.ordinal) {
+            if (!termux.isJavaInstalled(JavaVersion.Java21)) {
+                throw RuntimeException("Allay 需要 Java 21 运行（当前 ${effectiveLaunchJava.displayName} 未满足），请先安装 Java 21 后重试")
+            }
+            termux.emitLog("[startMc] Allay 需要 Java 21 及以上（当前 ${effectiveLaunchJava.displayName}），已自动切换")
+            runCatching { repo.saveConfig(config.copy(selectedJavaVersion = JavaVersion.Java21)) }
+            JavaVersion.Java21
+        } else effectiveLaunchJava
         termux.autoRepairRuntime(
-            javaVersion = effectiveLaunchJava,
+            javaVersion = finalLaunchJava,
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
         if (coreType == ServerCore.NeoForge && config.selectedJavaVersion != JavaVersion.Java8) {
@@ -1245,9 +1423,9 @@ class McServerController(
             jarPath = jarPath.orEmpty(),
             maxHeapMb = config.maxHeapMb,
             dirName = dirName,
-            javaVersion = effectiveLaunchJava,
+            javaVersion = finalLaunchJava,
             launchArgs = launchArgs,
-            appendNogui = coreType != ServerCore.PowerNukkitX,
+            appendNogui = coreType !in setOf(ServerCore.PowerNukkitX, ServerCore.Allay),
             onExit = createExitHandler(config, dirName, jarPath)
         )
         repo.updateServerState { markRunningIfAlive(it) }
@@ -1496,6 +1674,56 @@ class McServerController(
 
     companion object {
         private const val TAG = "McServerController"
+
+        /** PocketMine-MP 专用 PHP 运行时（Android aarch64 原生构建，含 PM5 全部必需扩展） */
+        private const val PMMP_PHP_TARBALL_URL =
+            "https://github.com/ItzxDwi/AndroidPHP/releases/download/pm5-latest/php-android-pm5-latest.tar.gz"
+
+        /**
+         * 该 PHP 构建内置 pmmp/ext-encoding 0.4.x，PocketMine 5.34.0 起要求 ~1.0.0，
+         * 因此可兼容的最高 PocketMine 版本为 5.33.1（实测其 composer 要求）。
+         */
+        private const val PMMP_MAX_COMPAT_VERSION = "5.33.1"
+
+        /** 下载文件到指定路径（跟随重定向），返回是否成功且文件大于 1KB */
+        private fun downloadToFile(url: String, target: File): Boolean = runCatching {
+            val conn = URL(url).openConnection() as HttpURLConnection
+            try {
+                conn.connectTimeout = 20_000
+                conn.readTimeout = 60_000
+                conn.instanceFollowRedirects = true
+                conn.setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
+                if (conn.responseCode !in 200..299) return false
+                conn.inputStream.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
+                }
+            } finally {
+                conn.disconnect()
+            }
+            target.length() > 1024
+        }.getOrElse { false }
+
+        /** 解压 tar.gz 到目标目录（不处理符号链接，防逃逸由调用方保证目录可信） */
+        private fun extractTarGz(tarball: File, destDir: File) {
+            java.util.zip.GZIPInputStream(tarball.inputStream().buffered()).use { gzip ->
+                org.apache.commons.compress.archivers.tar.TarArchiveInputStream(gzip).use { tar ->
+                    while (true) {
+                        val entry = tar.nextTarEntry ?: break
+                        val target = File(destDir, entry.name)
+                        if (!target.canonicalPath.startsWith(destDir.canonicalFile.path + File.separator) &&
+                            target.canonicalPath != destDir.canonicalFile.path
+                        ) continue
+                        if (entry.isDirectory) {
+                            target.mkdirs()
+                            continue
+                        }
+                        target.parentFile?.mkdirs()
+                        target.outputStream().use { output -> tar.copyTo(output, 64 * 1024) }
+                    }
+                }
+            }
+        }
+
         /** 默认 MC 版本列表（当 API 获取失败时回退使用） */
         private val DEFAULT_MC_VERSIONS = listOf(
             "1.21.4", "1.21", "1.20.6", "1.20.4", "1.20.1",

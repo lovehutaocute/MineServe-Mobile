@@ -11,7 +11,9 @@ import androidx.work.WorkManager
 import com.mineserve.mobile.data.DownloadPrefs
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.UsageTracker
+import com.mineserve.mobile.mcp.McpServerManager
 import com.mineserve.mobile.runtime.TermuxRuntime
+import com.mineserve.mobile.service.McForegroundService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,6 +38,10 @@ class McApplication : Application(), Configuration.Provider {
 
     /** Manual dependency graph shared by UI entry points. */
     lateinit var container: AppContainer
+        private set
+
+    /** 内嵌 MCP 服务器管理器（局域网 AI 助手接入） */
+    lateinit var mcpServerManager: McpServerManager
         private set
 
     /** Termux 环境初始化完成标志，UI 层可观察 */
@@ -80,6 +86,8 @@ class McApplication : Application(), Configuration.Provider {
     }
 
     private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var bootstrapInitializationInFlight = false
+    @Volatile private var backgroundWorkRegistered = false
 
     /** 应用级协程作用域（替代 GlobalScope，随进程生命周期，可统一取消） */
     fun scope(): CoroutineScope = appScope
@@ -153,16 +161,9 @@ class McApplication : Application(), Configuration.Provider {
         }
         repository = ServerRepository(this, termuxRuntime)
         container = AppContainer(this)
+        mcpServerManager = McpServerManager(this, repository)
+        mcpServerManager.start()
         createNotificationChannel()
-        WorkManager.initialize(this, workManagerConfiguration)
-        // 桌面组件兜底刷新：App 进程被杀后由 WorkManager 周期纠正组件状态
-        androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
-            "widget_refresh",
-            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
-            androidx.work.PeriodicWorkRequestBuilder<com.mineserve.mobile.widget.WidgetRefreshWorker>(
-                15, java.util.concurrent.TimeUnit.MINUTES
-            ).build()
-        )
 
         // 累计使用人数统计：设备标识上报（每天一次，失败静默）
         UsageTracker.maybePulse(this)
@@ -177,28 +178,55 @@ class McApplication : Application(), Configuration.Provider {
             _bootstrapSpeed.value = speedBps
         }
 
-        // 异步初始化 Termux 环境
-        // 环境已就绪：跳过 bootstrap 安装流程。全量修复推迟到安装依赖或启动服务端前，
-        // 避免首次页面渲染与大量文件访问竞争 CPU 和存储。
-        if (termuxRuntime.isReady()) {
-            _isBootstrapped.value = true
-            repository.updateServerState {
-                it.copy(
-                    currentProgress = 100,
-                    installSteps = termuxRuntime.installedDependencySteps()
-                )
+        // 保活默认开启：应用启动 3 秒内自动拉起前台保活服务并注册周期检查（用户可在保活页关闭）
+        scope().launch {
+            kotlinx.coroutines.delay(3_000)
+            val prefs = getSharedPreferences(BootReceiver.META_PREFS, Context.MODE_PRIVATE)
+            if (prefs.getBoolean(BootReceiver.KEY_KEEP_ALIVE, true)) {
+                try {
+                    startForegroundService(
+                        android.content.Intent(this@McApplication, McForegroundService::class.java)
+                            .setAction(McForegroundService.ACTION_START)
+                    )
+                } catch (e: Exception) {
+                    android.util.Log.w("McApplication", "自动保活启动失败: ${e.message}")
+                }
+                runCatching {
+                    androidx.work.WorkManager.getInstance(this@McApplication).enqueueUniquePeriodicWork(
+                        "keep_alive",
+                        androidx.work.ExistingPeriodicWorkPolicy.UPDATE,
+                        androidx.work.PeriodicWorkRequestBuilder<KeepAliveWorker>(
+                            15, java.util.concurrent.TimeUnit.MINUTES
+                        ).build()
+                    )
+                }
             }
-        } else {
-            startBootstrap()
+        }
+
+        // 初始化工作移至后台线程，避免阻塞页面创建；环境检查和 bootstrap 不额外延后。
+        scope().launch {
+            registerBackgroundWork()
+            if (termuxRuntime.isReady()) {
+                val steps = termuxRuntime.installedDependencySteps()
+                _isBootstrapped.value = true
+                repository.updateServerState { it.copy(currentProgress = 100, installSteps = steps) }
+            } else {
+                startBootstrap()
+            }
         }
     }
 
     /** 启动/重试 bootstrap 初始化 */
     fun startBootstrap() {
         if (_isBootstrapped.value) return
+        synchronized(this) {
+            if (bootstrapInitializationInFlight) return
+            bootstrapInitializationInFlight = true
+        }
         scope().launch {
-            _bootstrapError.value = null
-            val ok = try {
+            try {
+                _bootstrapError.value = null
+                val ok = try {
                 termuxRuntime.bootstrap { phase, progress ->
                     android.util.Log.i("McApplication", "bootstrap: ${getString(phase.labelRes)} $progress%")
                     repository.updateServerState { it.copy(currentProgress = progress) }
@@ -220,12 +248,37 @@ class McApplication : Application(), Configuration.Provider {
                 repository.updateServerState {
                     it.copy(currentProgress = 100, installSteps = termuxRuntime.installedDependencySteps())
                 }
-            } else {
-                android.util.Log.e("McApplication", "bootstrap failed")
-                if (_bootstrapError.value == null) {
-                    _bootstrapError.value = getString(R.string.s8)
+                } else {
+                    android.util.Log.e("McApplication", "bootstrap failed")
+                    if (_bootstrapError.value == null) {
+                        _bootstrapError.value = getString(R.string.s8)
+                    }
+                }
+            } finally {
+                synchronized(this@McApplication) {
+                    bootstrapInitializationInFlight = false
                 }
             }
+        }
+    }
+
+    private fun registerBackgroundWork() {
+        synchronized(this) {
+            if (backgroundWorkRegistered) return
+            backgroundWorkRegistered = true
+        }
+        try {
+            WorkManager.initialize(this, workManagerConfiguration)
+            androidx.work.WorkManager.getInstance(this).enqueueUniquePeriodicWork(
+                "widget_refresh",
+                androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+                androidx.work.PeriodicWorkRequestBuilder<com.mineserve.mobile.widget.WidgetRefreshWorker>(
+                    15, java.util.concurrent.TimeUnit.MINUTES
+                ).build()
+            )
+        } catch (e: Exception) {
+            synchronized(this) { backgroundWorkRegistered = false }
+            android.util.Log.w("McApplication", "WorkManager setup failed", e)
         }
     }
 

@@ -23,7 +23,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.sp
@@ -49,7 +49,10 @@ import com.mineserve.mobile.ui.screens.SettingsScreen
 import com.mineserve.mobile.ui.screens.ServerManagementScreen
 import com.mineserve.mobile.ui.screens.ServerIconScreen
 import com.mineserve.mobile.ui.screens.TerminalScreen
+import com.mineserve.mobile.ui.screens.EnvManagerScreen
+import com.mineserve.mobile.ui.screens.FtpScreen
 import com.mineserve.mobile.ui.screens.MoreScreen
+import com.mineserve.mobile.ui.screens.McpScreen
 import com.mineserve.mobile.ui.screens.WidgetSettingsScreen
 import com.mineserve.mobile.ui.screens.CrashReportsScreen
 import com.mineserve.mobile.ui.screens.CrashReportDialog
@@ -60,7 +63,7 @@ import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Muted
 
 /** 子页面类型（从设置页进入的二级页面） */
-enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, CrashReports, WidgetSettings, More }
+enum class SubPage { Properties, Network, Backup, DownloadHelp, MtGuide, KeepAlive, OpLevelGuide, Diagnostics, Plugins, ServerIcon, CrashReports, WidgetSettings, Mcp, EnvManager, Ftp, More }
 
 /**
  * 应用根布局：底部 6 Tab；概览页可跳转日志页；设置页可跳转子页面
@@ -71,9 +74,11 @@ fun McApp() {
     val currentCrashContent by vm.currentCrashContent.collectAsState()
     val currentCrashAnalysis by vm.currentCrashAnalysis.collectAsState()
     val lastRunLog by vm.lastRunLog.collectAsState()
-    var tab by remember { mutableStateOf(McTab.Dashboard) }
-    var showLogs by remember { mutableStateOf(false) }
-    var subPage by remember { mutableStateOf<SubPage?>(null) }
+    var tab by rememberSaveable { mutableStateOf(McTab.Dashboard) }
+    var showLogs by rememberSaveable { mutableStateOf(false) }
+    var subPage by rememberSaveable { mutableStateOf<SubPage?>(null) }
+    // 依赖与环境管理页的初始模块（0=Java 1=依赖 2=Termux）
+    var envManagerTab by rememberSaveable { mutableStateOf(0) }
 
     // 启动自动检查更新（后台执行，发现新版发通知）
     LaunchedEffect(Unit) {
@@ -128,7 +133,7 @@ fun McApp() {
                     )
                 }
                 NavigationBarItem(
-                    selected = subPage in setOf(SubPage.More, SubPage.Network, SubPage.Backup, SubPage.Diagnostics, SubPage.KeepAlive, SubPage.DownloadHelp, SubPage.MtGuide, SubPage.OpLevelGuide, SubPage.WidgetSettings),
+                    selected = subPage in setOf(SubPage.More, SubPage.Network, SubPage.Backup, SubPage.Diagnostics, SubPage.KeepAlive, SubPage.DownloadHelp, SubPage.MtGuide, SubPage.OpLevelGuide, SubPage.WidgetSettings, SubPage.Mcp, SubPage.EnvManager, SubPage.Ftp),
                     onClick = { subPage = SubPage.More; showLogs = false },
                     icon = { Icon(Icons.Outlined.MoreVert, contentDescription = stringResource(R.string.mcapp_more)) },
                     label = { Text(stringResource(R.string.mcapp_more), fontSize = 10.sp) },
@@ -141,7 +146,6 @@ fun McApp() {
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
-                .statusBarsPadding()
                 .padding(padding)
         ) {
             val page = Triple(showLogs, subPage, tab)
@@ -163,8 +167,18 @@ fun McApp() {
                         SubPage.Diagnostics -> DiagnosticsScreen(vm = vm, onBack = { subPage = null })
                         SubPage.Plugins -> PluginsScreen(vm = vm)
                         SubPage.ServerIcon -> ServerIconScreen(vm = vm, onBack = { subPage = null })
-                        SubPage.CrashReports -> CrashReportsScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.CrashReports -> CrashReportsScreen(
+                            vm = vm,
+                            onBack = { subPage = null },
+                            onGoToJavaInstall = {
+                                envManagerTab = 0
+                                subPage = SubPage.EnvManager
+                            }
+                        )
                         SubPage.WidgetSettings -> WidgetSettingsScreen(onBack = { subPage = null })
+                        SubPage.EnvManager -> EnvManagerScreen(vm = vm, initialTab = envManagerTab, onBack = { subPage = null })
+                        SubPage.Mcp -> McpScreen(vm = vm, onBack = { subPage = null })
+                        SubPage.Ftp -> FtpScreen(vm = vm, onBack = { subPage = null })
                         SubPage.More -> MoreScreen(
                             onNetwork = { subPage = SubPage.Network },
                             onBackup = { subPage = SubPage.Backup },
@@ -172,7 +186,9 @@ fun McApp() {
                             onKeepAlive = { subPage = SubPage.KeepAlive },
                             onHelp = { subPage = SubPage.DownloadHelp },
                             onCrashReports = { subPage = SubPage.CrashReports },
-                            onWidgetSettings = { subPage = SubPage.WidgetSettings }
+                            onWidgetSettings = { subPage = SubPage.WidgetSettings },
+                            onMcp = { subPage = SubPage.Mcp },
+                            onFtp = { subPage = SubPage.Ftp }
                         )
                         null -> {}
                     }
@@ -181,7 +197,11 @@ fun McApp() {
                     McTab.Dashboard -> DashboardScreen(
                         vm = vm,
                         onShowDownloadHelp = { subPage = SubPage.DownloadHelp },
-                        onShowDiagnostics = { subPage = SubPage.Diagnostics }
+                        onShowDiagnostics = { subPage = SubPage.Diagnostics },
+                        onEnvManager = { tab ->
+                            envManagerTab = tab
+                            subPage = SubPage.EnvManager
+                        }
                     )
                     McTab.Download -> DownloadScreen(
                         vm = vm,
@@ -213,7 +233,17 @@ fun McApp() {
         val crashContent = currentCrashContent
         val crashAnalysis = currentCrashAnalysis
         if (crashContent != null && crashAnalysis != null) {
-            CrashReportDialog(crashContent, crashAnalysis, lastRunLog, vm::clearCrashContent)
+            CrashReportDialog(
+                crashContent,
+                crashAnalysis,
+                lastRunLog,
+                onDismiss = { vm.clearCrashContent() },
+                onGoToJavaInstall = {
+                    vm.clearCrashContent()
+                    envManagerTab = 0
+                    subPage = SubPage.EnvManager
+                }
+            )
         }
     }
 }

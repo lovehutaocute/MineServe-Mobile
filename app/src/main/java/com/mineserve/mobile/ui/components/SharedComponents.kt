@@ -53,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -83,51 +85,68 @@ fun HeaderBlock(
     eyebrow: String,
     title: String,
     modifier: Modifier = Modifier,
-    statusBarPadding: Boolean = true
+    statusBarPadding: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null
 ) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        Text(
-            text = eyebrow,
-            color = Muted,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            letterSpacing = 0.6.sp
-        )
-        Spacer(Modifier.height(2.dp))
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onBackground,
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold
-        )
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
+                .padding(horizontal = 14.dp, vertical = 20.dp)
+        ) {
+            Text(
+                text = eyebrow,
+                color = Muted,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                letterSpacing = 0.6.sp
+            )
+            Spacer(Modifier.height(2.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = title,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                trailing?.invoke()
+            }
+        }
     }
 }
 
-/** 子页面统一返回栏：白底覆盖状态栏（配合全屏展示）+ 返回按钮 + 标题 */
+/** 子页面统一返回栏：白底延伸到状态栏后面（状态栏透明）+ 返回按钮 + 标题 */
 @Composable
 fun BackBar(title: String, onBack: () -> Unit) {
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically
     ) {
-        IconButton(onClick = onBack) {
-            Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
+            }
+            Text(
+                title,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground,
+                modifier = Modifier.padding(start = 4.dp)
+            )
         }
-        Text(
-            title,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium,
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(start = 4.dp)
-        )
     }
 }
 
@@ -279,7 +298,11 @@ fun HeroBlock(
 
 @Composable
 private fun HeroStat(value: String, label: String) {
-    Column {
+    Column(
+        modifier = Modifier.clearAndSetSemantics {
+            contentDescription = "$value, $label"
+        }
+    ) {
         Text(
             value,
             color = Color.White,
@@ -359,7 +382,10 @@ fun StepRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 7.dp),
+            .padding(vertical = 7.dp)
+            .clearAndSetSemantics {
+                contentDescription = "$name, $tag"
+            },
         verticalAlignment = Alignment.CenterVertically
     ) {
         val (bg, fg, text) = when (status) {

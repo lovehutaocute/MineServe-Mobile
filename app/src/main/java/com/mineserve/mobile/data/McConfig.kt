@@ -24,10 +24,12 @@ enum class ServerCore(val displayName: String) {
     Velocity("Velocity"),
     BungeeCord("BungeeCord"),
     PowerNukkitX("PowerNukkitX"),
+    PocketMine("PocketMine-MP"),
+    Allay("Allay"),
     Unknown("未知");
 
-    /** 是否支持 Bukkit/Spigot/Paper 插件体系 */
-    val isBedrock: Boolean get() = this == PowerNukkitX
+    /** 是否为基岩版（UDP 网络、Bedrock 客户端连接） */
+    val isBedrock: Boolean get() = this == PowerNukkitX || this == PocketMine || this == Allay
 
     /** 控制台保存世界的命令：基岩版（PowerNukkitX）不支持 save-all，用 save hold */
     val consoleSaveCommand: String get() = if (isBedrock) "save hold" else "save-all"
@@ -44,6 +46,7 @@ enum class ServerCore(val displayName: String) {
     val propertiesMode: PropertiesMode
         get() = when (this) {
             PowerNukkitX -> PropertiesMode.PowerNukkitXYaml
+            Allay -> PropertiesMode.Unsupported
             Unknown -> PropertiesMode.Unsupported
             else -> PropertiesMode.JavaProperties
         }
@@ -56,11 +59,13 @@ enum class ServerCore(val displayName: String) {
  * 内网穿透方式
  * - Frp: 自建 frp 服务器，最灵活，功能最全
  * - Bore: 自建 bore 服务器，协议极简，纯 Kotlin 实现无需 Termux
+ * - SakuraFrp: SakuraFrp 平台，填 Token 自动拉取隧道配置，无需自建服务器
  */
 @Serializable
 enum class TunnelType(val displayName: String, val description: String) {
     Frp("frp", "自建服务器，功能最全，支持自定义端口"),
-    Bore("bore", "自建服务器，协议最简，纯手机端运行无需下载二进制")
+    Bore("bore", "自建服务器，协议最简，纯手机端运行无需下载二进制"),
+    SakuraFrp("SakuraFrp", "填入 Token 管理隧道，官方节点，无需自建服务器")
 }
 
 /**
@@ -191,6 +196,10 @@ data class McConfig(
     val frpConfigText: String = "",
     /** bore: 服务端地址 (serverAddr:port) */
     val boreServerAddr: String = "",
+    /** SakuraFrp: 访问令牌（api.natfrp.com） */
+    val sakuraToken: String = "",
+    /** SakuraFrp: 选中的隧道 ID（启动时据此拉取官方配置） */
+    val sakuraTunnelId: String = "",
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
     val selectedJavaVersion: JavaVersion = JavaVersion.Java17,
@@ -239,7 +248,14 @@ data class McConfig(
     /** 每日定时关服时间（分钟，0-59） */
     val dailyStopMinute: Int = 0,
     /** 服务器停止后自动备份一份世界快照（服从 maxSnapshots 保留策略） */
-    val stopAutoBackup: Boolean = false
+    val stopAutoBackup: Boolean = false,
+    // ── MCP（Model Context Protocol）内嵌服务器 ──────────────
+    /** 启用内嵌 MCP 服务器，局域网内 AI 助手可通过 HTTP 管理 MC 服务器 */
+    val mcpEnabled: Boolean = false,
+    /** MCP HTTP 监听端口 */
+    val mcpPort: Int = 8931,
+    /** MCP 访问令牌（Bearer 鉴权），首次启用时自动生成 */
+    val mcpToken: String = ""
 )
 
 /**
@@ -289,7 +305,9 @@ fun startupPhaseForLog(line: String): StartupPhase? {
     return when {
         text.contains("启动完成") || text.contains("server started") ||
             text.contains("done (") || text.contains("done!") ||
-            text.contains("enabled bungeecord") || text.contains("velocity has started") -> StartupPhase.Ready
+            text.contains("enabled bungeecord") || text.contains("velocity has started") ||
+            // Allay：网络接口启动完成即为就绪（空闲期不再输出日志）
+            text.contains("network interface started at") -> StartupPhase.Ready
         text.contains("listening on") || text.contains("starting minecraft server on") ||
             text.contains("启动 gs4") || text.contains("query 运行") ||
             text.contains("server bound") || text.contains("监听") -> StartupPhase.StartingNetwork

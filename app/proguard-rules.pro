@@ -47,3 +47,11 @@
 
 # ---------- 数据/工具 ----------
 # xz / commons-compress / zstd-jni 无反射，无需规则
+
+# ---------- FTP 服务（Apache FTPServer / Mina） ----------
+-keep class org.apache.ftpserver.** { *; }
+-keep class org.apache.mina.** { *; }
+-dontwarn org.apache.mina.**
+-dontwarn org.slf4j.**
+# ftpserver-core 的可选 Spring 集成类在 Android 上无 Spring 依赖，忽略缺失告警
+-dontwarn org.springframework.**

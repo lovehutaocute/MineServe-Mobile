@@ -10,7 +10,7 @@
 
 </div>
 
-MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraft Java 版服务端，也支持 PowerNukkitX 基岩版核心。它提供多核心管理、插件与模组管理、Modrinth 对接、内网穿透、自动备份、崩溃报告、后台保活，以及免 Root 数据访问。
+MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraft Java 版服务端，也支持 PowerNukkitX 基岩版核心。它提供多核心管理、插件与模组管理、Modrinth 对接、内网穿透、自动备份、崩溃报告、后台保活、MCP 远程管理，以及免 Root 数据访问。
 
 ## ✨ 特性
 
@@ -22,6 +22,7 @@ MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraf
 - **内网穿透**：frp 与 bore；概览页展示局域网和公网地址。
 - **备份与崩溃报告**：世界/整服备份、SAF 导出；异常退出保存最近日志与原生报告，并汇总已安装服务器的原生崩溃报告。
 - **后台保活**：前台服务、唤醒锁、开机自启、周期检查和可选状态悬浮条。
+- **MCP 远程管理**：内嵌 Model Context Protocol 服务器（Streamable HTTP），局域网内 AI 助手可查询状态、开关服、发控制台命令、读日志；Bearer 令牌鉴权。
 - **Material 3 UI**：Jetpack Compose 构建，紧凑核心选择和版本列表。
 
 ## 📋 系统要求
@@ -124,4 +125,4 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ## 📄 许可证
 
-本项目采用 [GNU GPL v3.0 或更高版本](LICENSE)。TCP STUN 穿透和部分后台保活实现改编自同为 GPL-3.0 的 [EdgeCube](https://github.com/venti1112/EdgeCube)，详见 [NOTICE](NOTICE)。
+本项目采用 [GNU GPL v3.0 或更高版本](LICENSE)。

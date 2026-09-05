@@ -1,0 +1,243 @@
+package com.mineserve.mobile.ui.screens
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.mineserve.mobile.McApplication
+import com.mineserve.mobile.R
+import com.mineserve.mobile.mcp.McpToolCatalog
+import com.mineserve.mobile.mcp.McpServerManager
+import com.mineserve.mobile.ui.BackBar
+import com.mineserve.mobile.ui.McCard
+import com.mineserve.mobile.ui.McViewModel
+import com.mineserve.mobile.ui.theme.Coral
+import com.mineserve.mobile.ui.theme.Indigo
+import com.mineserve.mobile.ui.theme.Mint
+import com.mineserve.mobile.ui.theme.Muted
+
+/**
+ * MCP（Model Context Protocol）服务设置：
+ * 开关、端口、访问令牌、端点地址与客户端配置示例。
+ */
+@Composable
+fun McpScreen(vm: McViewModel, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val config by vm.config.collectAsState()
+    val lanIp by vm.lanIp.collectAsState()
+    val mcpManager = (context.applicationContext as McApplication).mcpServerManager
+    val mcpRunning by mcpManager.isRunning.collectAsState()
+    val mcpError by mcpManager.lastError.collectAsState()
+
+    LaunchedEffect(Unit) { vm.refreshLanIp() }
+
+    var portText by remember(config.mcpPort) { mutableStateOf(config.mcpPort.toString()) }
+    val portValue = portText.toIntOrNull()
+    val portValid = portValue != null && portValue in 1024..65535
+
+    val statusColor: Color
+    val statusText: String
+    when {
+        mcpError != null -> {
+            statusColor = Coral
+            statusText = stringResource(R.string.mcp_status_error, mcpError ?: "")
+        }
+        config.mcpEnabled && mcpRunning -> {
+            statusColor = Mint
+            statusText = stringResource(R.string.mcp_status_running)
+        }
+        else -> {
+            statusColor = Muted
+            statusText = stringResource(R.string.mcp_status_stopped)
+        }
+    }
+
+    fun copyToClipboard(text: String) {
+        val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        cm.setPrimaryClip(ClipData.newPlainText("MineServe MCP", text))
+        Toast.makeText(context, R.string.mcp_copied, Toast.LENGTH_SHORT).show()
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        BackBar(stringResource(R.string.mcp_title), onBack)
+        Column(
+            Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(stringResource(R.string.mcp_intro), color = Muted, fontSize = 12.sp)
+
+            McCard(title = stringResource(R.string.mcp_enable)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.mcp_enable), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                        Text(stringResource(R.string.mcp_enable_desc), fontSize = 11.sp, color = Muted)
+                    }
+                    Switch(
+                        checked = config.mcpEnabled,
+                        onCheckedChange = { enabled ->
+                            if (enabled && config.mcpToken.isBlank()) {
+                                vm.updateConfig { it.copy(mcpEnabled = true, mcpToken = McpServerManager.generateToken()) }
+                            } else {
+                                vm.updateConfig { it.copy(mcpEnabled = enabled) }
+                            }
+                        }
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(8.dp)
+                            .background(statusColor, CircleShape)
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(statusText, fontSize = 11.sp, color = Muted)
+                }
+            }
+
+            McCard(title = stringResource(R.string.mcp_port)) {
+                OutlinedTextField(
+                    value = portText,
+                    onValueChange = { value ->
+                        portText = value.filter { it.isDigit() }.take(5)
+                        val parsed = portText.toIntOrNull()
+                        if (parsed != null && parsed in 1024..65535 && parsed != config.mcpPort) {
+                            vm.updateConfig { it.copy(mcpPort = parsed) }
+                        }
+                    },
+                    label = { Text(stringResource(R.string.mcp_port)) },
+                    isError = portText.isNotEmpty() && !portValid,
+                    supportingText = if (portText.isNotEmpty() && !portValid) {
+                        { Text(stringResource(R.string.mcp_port_invalid), color = Coral) }
+                    } else null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Spacer(Modifier.height(4.dp))
+                Text(stringResource(R.string.mcp_port_hint), fontSize = 11.sp, color = Muted)
+            }
+
+            McCard(title = stringResource(R.string.mcp_token)) {
+                SelectionContainer {
+                    Text(
+                        config.mcpToken.ifEmpty { "—" },
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 12.sp
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Row {
+                    Button(
+                        onClick = { copyToClipboard(config.mcpToken) },
+                        enabled = config.mcpToken.isNotEmpty(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Indigo)
+                    ) {
+                        Text(stringResource(R.string.mcp_copy))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    OutlinedButton(onClick = {
+                        vm.updateConfig { it.copy(mcpToken = McpServerManager.generateToken()) }
+                    }) {
+                        Text(stringResource(R.string.mcp_token_regenerate))
+                    }
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(stringResource(R.string.mcp_token_desc), fontSize = 11.sp, color = Muted)
+            }
+
+            McCard(title = stringResource(R.string.mcp_endpoint)) {
+                val endpoint = "http://$lanIp:${config.mcpPort}/mcp"
+                SelectionContainer {
+                    Text(endpoint, fontFamily = FontFamily.Monospace, fontSize = 12.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Button(
+                    onClick = { copyToClipboard(endpoint) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Indigo)
+                ) {
+                    Text(stringResource(R.string.mcp_copy))
+                }
+                Spacer(Modifier.height(12.dp))
+                Text(stringResource(R.string.mcp_client_config), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(Modifier.height(2.dp))
+                Text(stringResource(R.string.mcp_client_config_desc), fontSize = 11.sp, color = Muted)
+                Spacer(Modifier.height(6.dp))
+                val snippet = """{
+  "mcpServers": {
+    "mineserve": {
+      "type": "http",
+      "url": "$endpoint",
+      "headers": {
+        "Authorization": "Bearer ${config.mcpToken}"
+      }
+    }
+  }
+}"""
+                SelectionContainer {
+                    Text(snippet, fontFamily = FontFamily.Monospace, fontSize = 10.sp, color = Muted)
+                }
+                Spacer(Modifier.height(6.dp))
+                OutlinedButton(onClick = { copyToClipboard(snippet) }) {
+                    Text(stringResource(R.string.mcp_copy))
+                }
+            }
+
+            McCard(title = stringResource(R.string.mcp_tools)) {
+                Text(stringResource(R.string.mcp_tools_hint), fontSize = 11.sp, color = Muted)
+                Spacer(Modifier.height(8.dp))
+                McpToolCatalog.definitions().forEach { tool ->
+                    Column(Modifier.padding(bottom = 8.dp)) {
+                        Text(tool.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Indigo, fontFamily = FontFamily.Monospace)
+                        Text(tool.description, fontSize = 11.sp, color = Muted)
+                    }
+                }
+            }
+
+            Text(stringResource(R.string.mcp_security_note), fontSize = 11.sp, color = Muted)
+        }
+    }
+}
