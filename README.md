@@ -15,7 +15,7 @@ MineServe Mobile is a native Android app for Minecraft Java Edition servers, wit
 ## ✨ Features
 
 - **No root required** — built-in Termux bootstrap runtime; Java 17/21/25 run directly, while legacy Java 8 servers use ARM64 Ubuntu PRoot.
-- **10 core types** — Paper, Purpur, Fabric, Forge, NeoForge, Quilt, Vanilla, Velocity, BungeeCord, and PowerNukkitX.
+- **16 core types** — Paper, Purpur, Leaves, Leaf, Spigot, CraftBukkit, Fabric, Forge, NeoForge, Quilt, Vanilla, Velocity, BungeeCord, PowerNukkitX, PocketMine-MP, and Allay.
 - **Multi-server management** — isolated cores, worlds, configuration, plugins, and mods with one-tap switching.
 - **Server import** — independent folder, archive, JAR, and Modrinth `.mrpack` actions with core/version detection.
 - **Plugins and mods** — scan, enable/disable, SAF upload, URL install, and Modrinth search/download.
@@ -67,6 +67,8 @@ Use frp/bore or router port forwarding for public access.
 | Velocity | ❌ | ❌ | Java proxy |
 | BungeeCord | ❌ | ❌ | Java proxy |
 | PowerNukkitX | ✅ | ❌ | Bedrock Nukkit core using UDP |
+| PocketMine-MP | ❌ | ❌ | Bedrock PHP server (downloads its own PHP runtime) |
+| Allay | ❌ | ❌ | Next-gen Bedrock server, requires Java 21+ |
 
 ## 📖 Features in Detail
 

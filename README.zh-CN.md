@@ -15,7 +15,7 @@ MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraf
 ## ✨ 特性
 
 - **无需 root**：内置 Termux bootstrap 运行时；Java 17/21/25 直接运行，旧版 Java 8 服务端使用 ARM64 Ubuntu PRoot。
-- **10 类核心**：Paper、Purpur、Fabric、Forge、NeoForge、Quilt、Vanilla、Velocity、BungeeCord、PowerNukkitX。
+- **16 类核心**：Paper、Purpur、Leaves、Leaf、Spigot、CraftBukkit、Fabric、Forge、NeoForge、Quilt、Vanilla、Velocity、BungeeCord、PowerNukkitX、PocketMine-MP、Allay。
 - **多核心管理**：多个服务器隔离存放，一键切换；世界、配置、插件和模组互不干扰。
 - **导入服务器**：文件夹、压缩包、单个 JAR 与 Modrinth `.mrpack` 独立导入入口，自动识别核心和版本。
 - **插件与模组**：扫描、启停、SAF 上传、URL 安装和 Modrinth 搜索下载。
@@ -71,6 +71,8 @@ APK 位于 `app/build/outputs/apk/debug/`。
 | Velocity | ❌ | ❌ | Java 代理端 |
 | BungeeCord | ❌ | ❌ | Java 代理端 |
 | PowerNukkitX | ✅ | ❌ | 基岩版 Nukkit 核心，使用 UDP |
+| PocketMine-MP | ❌ | ❌ | 基岩版 PHP 服务端（自动下载 PHP 运行环境） |
+| Allay | ❌ | ❌ | 新一代基岩版服务端，需要 Java 21+ |
 
 ## 📖 功能详解
 
