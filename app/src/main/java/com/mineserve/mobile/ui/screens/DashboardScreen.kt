@@ -205,36 +205,55 @@ fun DashboardScreen(
                 )
             }
 
+            // 一卡一 item：恢复 LazyColumn 虚拟化。状态刷新只 invalidate 单卡布局，
+            // 首屏组合分摊、视口外卡片延迟组合，避免滚动帧与整树重布局冲突（高压环境掉帧根因之一）。
             item {
-                Column(modifier = Modifier.fillMaxWidth()) {
-                    DashboardResourceCard(vm = vm)
+                DashboardResourceCard(vm = vm)
+            }
 
-                    // ── MC 终端入口（设备状态卡片下方） ──
-                    DashboardBootstrapCard(
-                        vm = vm,
-                        onShowHelp = onShowDownloadHelp,
-                        onShowMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
-                    )
+            item {
+                // ── MC 终端入口（设备状态卡片下方） ──
+                DashboardBootstrapCard(
+                    vm = vm,
+                    onShowHelp = onShowDownloadHelp,
+                    onShowMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
+                )
+            }
 
-                    // 一键安装依赖（依赖未装齐时在页面显眼位置展示；装齐后移到底部）
-                    DashboardDependenciesCard(vm = vm, onShowHelp = onShowDownloadHelp)
+            item {
+                // 一键安装依赖（依赖未装齐时在页面显眼位置展示；装齐后移到底部）
+                DashboardDependenciesCard(vm = vm, onShowHelp = onShowDownloadHelp)
+            }
 
-                    DashboardCoreSelectionCard(
-                        vm = vm,
-                        onShowMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
-                    )
+            item {
+                DashboardCoreSelectionCard(
+                    vm = vm,
+                    onShowMessage = { message -> scope.launch { snackbarHostState.showSnackbar(message) } }
+                )
+            }
 
-                    DashboardServerControlCard(
-                        vm = vm,
-                        isBootstrapped = isBootstrapped,
-                        onShowSettings = { showStartSettings = true }
-                    )
+            item {
+                DashboardServerControlCard(
+                    vm = vm,
+                    isBootstrapped = isBootstrapped,
+                    onShowSettings = { showStartSettings = true }
+                )
+            }
 
-                    AdvancedStartupCard(vm = vm)
-                    DashboardAddressCard(vm = vm)
-                    DashboardPluginsCard(vm = vm)
-                    QqGroupCard()
-                }
+            item {
+                AdvancedStartupCard(vm = vm)
+            }
+
+            item {
+                DashboardAddressCard(vm = vm)
+            }
+
+            item {
+                DashboardPluginsCard(vm = vm)
+            }
+
+            item {
+                QqGroupCard()
             }
         }
 
