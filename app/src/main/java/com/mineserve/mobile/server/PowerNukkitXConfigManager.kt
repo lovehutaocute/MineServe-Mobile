@@ -88,4 +88,13 @@ class PowerNukkitXConfigManager(private val termux: TermuxRuntime) {
         if (!source.isFile) return false
         return write(dirName, mapOf("server-port" to port.toString()))
     }
+
+    /**
+     * pnx.yml 是否已由服务端生成。
+     *
+     * PNX 首次启动前该文件不存在，此时页面里展示的都是我们预设的默认值，
+     * 并非服务端真实生效值；编辑保存会写出一份不完整的 YAML，与服务端自动
+     * 补齐的字段错位。UI 应改为引导用户先启动一次服务端。
+     */
+    fun exists(dirName: String): Boolean = file(dirName).isFile
 }

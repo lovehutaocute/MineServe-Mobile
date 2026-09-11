@@ -149,6 +149,52 @@ enum class JavaVersion(val displayName: String, val packageName: String, val dir
     Java25("Java 25", "openjdk-25", "java-25-openjdk")
 }
 
+/**
+ * 运行环境大类：Java 系核心跑 JVM，PocketMine-MP 跑 PHP。
+ *
+ * 启动控制卡片的模式下拉、运行环境列表、依赖管理页的 PHP 版本选择共用这一个枚举，
+ * 避免各处各写一套判断。
+ */
+enum class RuntimeKind { Java, Php }
+
+/**
+ * PocketMine-MP 使用的 PHP 运行时。
+ *
+ * 说明：目前上游（ItzxDwi/AndroidPHP）只发布了 **一个** aarch64 预编译包，
+ * PHP 版本固定为 8.2 —— 这同时是 PocketMine-MP 5 的硬性要求
+ * （需要 chunkutils2 / encoding / leveldb / pmmpthread 等扩展，官方不发布
+ * Linux ARM64 的 PHP 构建）。因此这里只提供真实可安装的版本，不虚构选项；
+ * 将来上游若发布多版本，只需在枚举里追加一项并在 [PhpVersion.runtimeDirName]
+ * 里给出对应目录即可，UI 与状态逻辑无需改动。
+ */
+@Serializable
+enum class PhpVersion(
+    val displayName: String,
+    /** 上游发布 tag，用于拼接下载地址 */
+    val releaseTag: String,
+    /** 运行时安装目录名（相对 home/） */
+    val runtimeDirName: String,
+    /** 说明文案资源 id，null 表示不展示 */
+    val noteRes: Int? = null
+) {
+    /**
+     * PocketMine-MP 5 官方要求：PHP 8.2 + 内置 pmmp/ext-encoding 0.4.x。
+     * 对应可兼容的最高 PocketMine 版本为 5.33.1（见 McServerController）。
+     */
+    Php82("PHP 8.2", "pm5-latest", "php-pmmp", com.mineserve.mobile.R.string.php_note_pmmp_required);
+
+    /** 下载地址文件名（上游资产命名固定） */
+    val tarballAsset: String get() = "php-android-$releaseTag.tar.gz"
+
+    companion object {
+        /** 默认（也是当前唯一）版本：PocketMine-MP 强制使用 */
+        val Default: PhpVersion = Php82
+
+        fun fromName(name: String?): PhpVersion? =
+            entries.firstOrNull { it.name == name }
+    }
+}
+
 @Serializable
 enum class AutoBackupType(val displayName: String) {
     World("世界备份"),
@@ -203,6 +249,16 @@ data class McConfig(
     val maxHeapMb: Int = 1024,            // -Xmx JVM 堆上限，按设备 RAM 给推荐值
     val autoRestartOnCrash: Boolean = false, // 默认关闭省电，避免误触发
     val selectedJavaVersion: JavaVersion = JavaVersion.Java17,
+    /**
+     * 启动控制卡片的运行模式（Java / PHP）。
+     *
+     * 仅作为"用户想看哪一类运行环境"的界面状态；真正决定用哪个运行时的是
+     * 当前核心类型 —— PocketMine-MP 一律走 PHP，其他核心一律走 JVM。
+     * 切换核心时会自动纠正该字段，避免出现 Java 模式配 PHP 核心的非法组合。
+     */
+    val runtimeKind: RuntimeKind = RuntimeKind.Java,
+    /** 所选 PHP 运行时版本（PocketMine-MP 使用） */
+    val selectedPhpVersion: PhpVersion = PhpVersion.Default,
     /** 用户手动将 Java 管理卡片固定到概览页底部。 */
     val javaCardAtBottom: Boolean = false,
     val keepWifiLock: Boolean = true,

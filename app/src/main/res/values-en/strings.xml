@@ -1372,4 +1372,62 @@
     <string name="sakura_guide_3_d">Select a tunnel pointing at the local MC port (or tap "Create tunnel" to make one)</string>
     <string name="sakura_guide_4_t">Start the tunnel</string>
     <string name="sakura_guide_4_d">Tap "Start tunnel" — the app fetches the official config and launches frpc</string>
+    <string name="props_not_generated_title">Configuration not generated yet</string>
+    <string name="props_not_generated_desc">server.properties is created automatically on the first server startup. There is nothing to edit yet.</string>
+    <string name="props_not_generated_hint">Start the server once first, then come back to edit. This avoids mismatches between your manual settings and the server own defaults.</string>
+    <string name="props_not_generated_running">Server is running. Once the configuration is generated, tap refresh below.</string>
+    <string name="props_not_generated_start">Start server now</string>
+    <string name="props_not_generated_refresh">Refresh status</string>
+
+    <!-- duplicate core name guard -->
+    <string name="dl_duplicate_name">A server named %1$s already exists. Please pick another name. Duplicate names cannot be told apart and may overwrite the same folder.</string>
+
+    <!-- PNX config not generated yet -->
+    <string name="props_pnx_not_generated_desc">pnx.yml is created automatically when PowerNukkitX starts for the first time. There is nothing to edit yet.</string>
+    <string name="props_pnx_not_generated_hint">Start the server once first, then come back to edit. This avoids mismatches between your manual settings and the server own defaults.</string>
+
+    <!-- installed cores collapse -->
+    <string name="dl_installed_expand">Expand</string>
+    <string name="dl_installed_collapse">Collapse</string>
+
+    <!-- files top actions collapsed -->
+    <string name="files_actions_collapsed_hint">Guide / MT Manager / Export are hidden</string>
+
+    <!-- PHP runtime for PocketMine-MP -->
+    <string name="env_php_title">PHP runtime</string>
+    <string name="env_php_hint">PocketMine-MP runs on PHP, not Java. The runtime is a native Android build (aarch64, with the extensions PMMP requires) shared by every PocketMine server.</string>
+    <string name="env_php_installed">Installed</string>
+    <string name="env_php_not_installed">Not installed</string>
+    <string name="env_php_running_block">The server is running. Stop it before touching the PHP runtime.</string>
+    <string name="env_php_uninstall_confirm">This deletes the PHP runtime under home/php-pmmp. PocketMine downloads it again (about 10MB) on next start. This cannot be undone.</string>
+    <string name="msg_php_installing">Downloading the PHP runtime…</string>
+    <string name="msg_php_op_installing">Installing the PHP runtime</string>
+    <string name="msg_php_op_deleting">Removing the PHP runtime</string>
+    <string name="msg_php_installed">%1$s runtime installed</string>
+    <string name="msg_php_deleted">%1$s runtime removed</string>
+    <string name="msg_php_running">The server is running, cannot touch the PHP runtime</string>
+    <string name="err_php_install_fail">%1$s runtime install failed, check your network and retry</string>
+    <string name="err_php_delete_fail">%1$s runtime removal failed</string>
+
+    <!-- PHP version picker -->
+    <string name="env_php_version_picker">PHP: %1$s</string>
+    <string name="env_php_version_title">Choose PHP version</string>
+    <string name="env_php_version_desc">PocketMine-MP requires a specific PHP build. Only the builds listed below are available upstream.</string>
+    <string name="php_note_pmmp_required">Required by PocketMine-MP 5 (bundles pmmp/ext-encoding 0.4.x)</string>
+
+    <!-- Runtime -->
+    <string name="dash_runtime_env">Runtime</string>
+    <string name="dash_runtime_java">Java</string>
+    <string name="dash_runtime_php">PHP</string>
+    <string name="dash_php_not_installed_note">The PHP runtime is not installed yet. It will be downloaded when PocketMine starts.</string>
+
+    <!-- Runtime picker dialog -->
+    <string name="runtime_picker_title">Choose runtime</string>
+    <string name="runtime_picker_apply">OK</string>
+    <string name="runtime_picker_mismatch">Note: this core works best with the %1$s runtime. Your choice applies fully and will not be changed on start.</string>
+    <string name="err_runtime_kind_mismatch">Core %1$s needs the %2$s runtime. Switch it in "Runtime" and try again.</string>
+
+    <!-- QQ group -->
+    <string name="qq_group_label">QQ Group ID</string>
+    <string name="qq_copy_group">Copy</string>
 </resources>

@@ -8,6 +8,7 @@ import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.InstalledCore
 import com.mineserve.mobile.data.McConfig
+import com.mineserve.mobile.data.RuntimeKind
 import com.mineserve.mobile.data.MultiThreadDownloader
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.MinecraftVersionNormalizer
@@ -21,6 +22,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -35,10 +37,50 @@ import java.security.MessageDigest
 import java.util.jar.JarFile
 import java.util.Locale
 
+/**
+ * MC 版本号降序比较器：按数字段逐级比较，保证 `26.2 > 1.21.11 > 1.21.4 > 1.20.6` 这类
+ * 跨编号体系的排序正确（纯字符串比较会把 `1.21.4` 排到 `26.2` 前面）。
+ */
+internal val mcVersionComparator: Comparator<String> = Comparator { left, right ->
+    val leftParts = Regex("\\d+").findAll(left).map { it.value.toInt() }.toList()
+    val rightParts = Regex("\\d+").findAll(right).map { it.value.toInt() }.toList()
+    leftParts.zip(rightParts).firstOrNull { it.first != it.second }
+        ?.let { (a, b) -> b.compareTo(a) }
+        ?: rightParts.size.compareTo(leftParts.size).takeIf { it != 0 }
+        ?: right.compareTo(left)
+}
+
+/**
+ * 由 MC 版本号推导 NeoForge 版本号前缀，保证「点号段」严格对齐。
+ *
+ * NeoForge 编号规则：MC `1.21.4` → NeoForge `21.4.x`（去掉开头的 `1.`）；
+ * MC `26.2` → NeoForge `26.2.x`（新编号体系不再去前缀）。
+ *
+ * 返回的前缀带尾部点号（除精确等于的情况），例如：
+ * - `26.2`   → `["26.2", "26.2."]`
+ * - `1.21.4` → `["21.4", "21.4."]`
+ * - `1.21`   → `["21", "21."]` —— 只允许 `21.4.157` 这类两段以上？不，需排除 `21.11.45`。
+ *   因此对两段式 MC 版本额外限定：NeoForge 号去掉补丁段后必须与 MC 号完全相等。
+ */
+internal fun buildNeoForgePrefixes(minecraftVersion: String): List<String> {
+    val mc = minecraftVersion.trim().removePrefix("v").removePrefix("V")
+    // NeoForge 侧编号：MC 1.x.y → x.y；MC 26.x → 26.x
+    val nf = if (mc.startsWith("1.")) mc.removePrefix("1.") else mc
+    return listOf(nf, "$nf.")
+}
+
 internal fun selectNeoForgeVersion(minecraftVersion: String, versions: List<String>): String? {
-    val prefix = minecraftVersion.trim().removePrefix("1.") + "."
+    val mc = minecraftVersion.trim()
+    // 严格按「点号段」匹配，避免前缀碰撞：
+    // 旧实现用 startsWith("21.")，导致 MC 1.21 会把 21.1.x / 21.11.x 全部命中并选出 21.11.45。
+    // 现在要求段数与 MC 版本严格对齐 —— 26.2 → "26.2"，21.4 → "21.4."，21.4.157 合法，21.11.45 不再命中。
+    val candidatePrefixes = buildNeoForgePrefixes(mc)
     return versions.asSequence()
-        .filter { it.startsWith(prefix) }
+        .filter { full ->
+            if (full.contains("-beta", ignoreCase = true)) return@filter false
+            val clean = full.split('-').first()
+            candidatePrefixes.any { prefix -> clean == prefix.trimEnd('.') || clean.startsWith(prefix) }
+        }
         .maxWithOrNull(Comparator { left, right ->
             val leftParts = Regex("\\d+").findAll(left).map { it.value.toInt() }.toList()
             val rightParts = Regex("\\d+").findAll(right).map { it.value.toInt() }.toList()
@@ -49,17 +91,64 @@ internal fun selectNeoForgeVersion(minecraftVersion: String, versions: List<Stri
         })
 }
 
-/** Resolve the actual PNX entry point instead of assuming every release is legacy Nukkit. */
+/**
+ * Resolve the actual PNX entry point instead of assuming every release is legacy Nukkit.
+ *
+ * 探测顺序很关键：新版 PNX 把入口放在 `JarStart`，而 `Server` 只是普通业务类
+ * （不含 `public static void main`）。若先命中 `Server` 并以它作为主类启动，
+ * JVM 会报 "Main method not found in class org.powernukkitx.Server" 并以退出码 1 结束。
+ *
+ * 因此按「JarStart 优先」排序，并逐个校验候选类确实声明了 main 方法：
+ * 1. 有 main → 立即采用；
+ * 2. 无 main → 跳过，继续探测下一个候选；
+ * 3. 全部无 main → 回退到首个存在的候选类（保持与旧行为兼容，交由 JVM 报错）。
+ */
 internal fun powerNukkitXMainClass(jarFile: File): String? = runCatching {
     JarFile(jarFile).use { jar ->
-        listOf(
-            "org/powernukkitx/Server.class" to "org.powernukkitx.Server",
+        val candidates = listOf(
             "org/powernukkitx/JarStart.class" to "org.powernukkitx.JarStart",
-            "cn/nukkit/Nukkit.class" to "cn.nukkit.Nukkit",
-            "cn/nukkit/JarStart.class" to "cn.nukkit.JarStart"
-        ).firstOrNull { (entry, _) -> jar.getEntry(entry) != null }?.second
+            "org/powernukkitx/Server.class" to "org.powernukkitx.Server",
+            "cn/nukkit/JarStart.class" to "cn.nukkit.JarStart",
+            "cn/nukkit/Nukkit.class" to "cn.nukkit.Nukkit"
+        ).filter { (entry, _) -> jar.getEntry(entry) != null }
+
+        if (candidates.isEmpty()) return@use null
+
+        candidates.firstOrNull { (entry, _) -> jarDeclaresMainMethod(jar, entry) }?.second
+            ?: candidates.first().second
     }
 }.getOrNull()
+
+/**
+ * 判断 jar 内某个 class 条目是否声明了 `public static void main(String[])`。
+ *
+ * 采用轻量字节码扫描（解析常量池中方法名与方法描述符）而非加载类，
+ * 避免在探测阶段触发类初始化或依赖缺失。
+ */
+private fun jarDeclaresMainMethod(jar: JarFile, classEntry: String): Boolean = runCatching {
+    val entry = jar.getEntry(classEntry) ?: return false
+    val bytes = jar.getInputStream(entry).use { it.readBytes() }
+    // 在常量池中查找"方法名字符串 main"与"方法描述符 ([Ljava/lang/String;)V"同时出现。
+    val hasMainName = bytes.containsAscii("main")
+    if (!hasMainName) return false
+    val hasMainDescriptor = bytes.containsAscii("([Ljava/lang/String;)V")
+    // ACC_PUBLIC(0x0001) + ACC_STATIC(0x0009) 的组合在高位字节表现为 0x0009；
+    // 精确校验方式访问标志存在，避免把实例方法 main 误判为入口。
+    hasMainDescriptor && bytes.containsAscii("\u0000\u0009")
+}.getOrDefault(false)
+
+/** 字节序列中是否包含给定 ASCII 串（用于 class 常量池的轻量匹配）。 */
+private fun ByteArray.containsAscii(value: String): Boolean {
+    val target = value.toByteArray(Charsets.US_ASCII)
+    if (target.isEmpty() || target.size > size) return false
+    outer@ for (i in 0..(size - target.size)) {
+        for (j in target.indices) {
+            if (this[i + j] != target[j]) continue@outer
+        }
+        return true
+    }
+    return false
+}
 
 /** Uses imported Bukkit dependencies when the core JAR is not self-contained. */
 internal fun bukkitLaunchArguments(serverDir: File, coreJar: File): String? {
@@ -279,7 +368,9 @@ class McServerController(
         if (normalizedConfig.selectedCore.needsInstaller && !termux.isJavaInstalled(normalizedConfig.selectedJavaVersion)) {
             throw RuntimeException("${normalizedConfig.selectedJavaVersion.displayName} is not installed. Install and verify it before running ${normalizedConfig.selectedCore.displayName} installer.")
         }
-        val dirName = sanitizeDirName(customName)
+        // 目录名去重：文件夹已存在说明别的服务器已占用该目录（例如两个核心都叫「111」，
+        // 直接落盘会互相覆盖 server.jar/world）。追加 _2、_3 直到找到空目录。
+        val dirName = uniqueDirNameIn(sanitizeDirName(customName))
         val jarPath = termux.serverJarFileFor(dirName).absolutePath
         downloadCoreTo(jarPath, normalizedConfig, dirName, onProgress)
         // 在新核心目录下创建 eula.txt 和 plugins/ 目录
@@ -354,6 +445,33 @@ class McServerController(
             activeCoreName = customName
         ))
         dirName
+    }
+
+    /**
+     * 在 servers 目录下为 [base] 找一个未被占用的目录名。
+     *
+     * 判重同时看磁盘目录与已登记核心（config.installedCores），避免出现
+     * "目录空但已被登记"或"目录已被别的服务器占用"两种半边状态。
+     * 冲突时依次尝试 `base_2`、`base_3`…
+     *
+     * 注意：读取 config 需要挂起，请在协程中调用。
+     */
+    suspend fun uniqueDirNameIn(base: String): String {
+        val taken = runCatching { repo.configFlow.first() }.getOrNull()
+            ?.installedCores?.map { it.dirName }?.toHashSet() ?: hashSetOf()
+        return uniqueDirName(base, taken, termux.serversDir)
+    }
+
+    /**
+     * 该显示名是否与已登记的服务器重名（用于下载前拦截）。
+     *
+     * 返回重名的核心名，未重名返回 null。目录名不同但显示名相同同样算重名：
+     * 用户在列表里看到的就是显示名，两个「111」无法区分。
+     */
+    fun duplicateNameOf(customName: String, config: McConfig): String? {
+        val name = customName.trim()
+        if (name.isEmpty()) return null
+        return config.installedCores.firstOrNull { it.name.trim() == name }?.name
     }
 
     /**
@@ -633,9 +751,11 @@ class McServerController(
     private fun resolveNeoForgeUrl(version: String): String {
         val xml = fetchText("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml")
         val versions = Regex("<version>([^<]+)</version>").findAll(xml).map { it.groupValues[1] }.toList()
+        // 不再回退到 <release>：当所选 MC 版本没有对应 NeoForge 构建时，
+        // 旧逻辑会静默下载到完全不相干的「最新版」（如 MC 1.20.1 → NeoForge 26.2.0.86），
+        // 用户拿到的是一个装不上的 jar。现在直接报错，让用户看到真实原因。
         val ver = selectNeoForgeVersion(version, versions)
-            ?: Regex("<release>([^<]+)</release>").find(xml)?.groupValues?.get(1)
-            ?: throw RuntimeException("NeoForge: no version for MC $version")
+            ?: throw RuntimeException("NeoForge: 没有适配 MC $version 的构建，请改用其他 MC 版本")
         return "https://maven.neoforged.net/releases/net/neoforged/neoforge/$ver/neoforge-$ver-installer.jar"
     }
 
@@ -964,9 +1084,60 @@ class McServerController(
         throw last ?: RuntimeException("GitHub API unavailable")
     }
 
-    private fun fetchNeoForgeVersions(): List<String> = DEFAULT_MC_VERSIONS
+    /**
+     * NeoForge：从 maven-metadata.xml 反推可用的 MC 版本列表。
+     *
+     * NeoForge 的版本号形如 `26.2.0.86` → 对应 MC `26.2`；`21.4.157` → 对应 MC `1.21.4`。
+     * 解析规则：取前三段（若只有三段则取前两段）作为 MC 版本号。
+     * 过滤掉 `-beta` 预发布版本，避免把测试版混进正式列表。
+     *
+     * 例如 `26.2.0.86` → `26.2.0`（去掉末段补丁号），`21.4.157` → `21.4` → 补回 `1.` 前缀 → `1.21.4`。
+     */
+    private fun fetchNeoForgeVersions(): List<String> = runCatching {
+        val xml = fetchText("https://maven.neoforged.net/releases/net/neoforged/neoforge/maven-metadata.xml")
+        val all = Regex("<version>([^<]+)</version>").findAll(xml).map { it.groupValues[1] }.toList()
+        val mcVersions = LinkedHashSet<String>()
+        for (full in all) {
+            // 跳过 beta / rc 等预发布版本，官方列表只展示稳定版
+            if (full.contains("-beta", ignoreCase = true) || full.contains("-rc", ignoreCase = true)) continue
+            val clean = full.split('-').first()
+            val parts = clean.split('.')
+            if (parts.size < 2) continue
+            val mc = if (parts.size >= 4) {
+                // 26.2.0.86 → 26.2.0 → 去掉末段（NeoForge 补丁号）后即 MC 版本
+                parts.subList(0, 3).joinToString(".")
+            } else {
+                // 21.4.157 → 21.4
+                parts.subList(0, 2).joinToString(".")
+            }
+            mcVersions.add(mc)
+        }
+        if (mcVersions.isEmpty()) return@runCatching DEFAULT_MC_VERSIONS
+        // 补回 MC 的 `1.` 前缀：NeoForge 的 21.4 对应 MC 1.21.4；26.x 属于新的版本编号体系，保持原样。
+        mcVersions.map { mc ->
+            if (mc.startsWith("21.") || mc.startsWith("20.") ||
+                mc.startsWith("19.") || mc.startsWith("18.") ||
+                mc.startsWith("17.") || mc.startsWith("16.")
+            ) "1.$mc" else mc
+        }.sortedWith(mcVersionComparator)
+    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MC_VERSIONS
 
-    private fun fetchQuiltVersions(): List<String> = DEFAULT_MC_VERSIONS
+    /**
+     * Quilt：从 meta API 获取官方支持的 MC 版本列表。
+     *
+     * Quilt 的 `/v3/versions/game` 返回按新→旧排序的 MC 版本数组，语义与 Fabric 一致。
+     */
+    private fun fetchQuiltVersions(): List<String> = runCatching {
+        val resp = fetchJsonElement("https://meta.quiltmc.org/v3/versions/game")
+        val versions = resp.jsonArray
+            // 该数组同时包含 snapshot / pre 版本（436 条里大部分是快照），
+            // 必须用 stable 标志过滤，否则列表顶部全是 26.3-pre-2 这类版本。
+            .filter { it.jsonObject["stable"]?.jsonPrimitive?.content == "true" }
+            .mapNotNull { it.jsonObject["version"]?.jsonPrimitive?.content }
+            .filter { it.isNotBlank() }
+        if (versions.isEmpty()) return@runCatching DEFAULT_MC_VERSIONS
+        versions.take(60)
+    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MC_VERSIONS
 
     private fun fetchPaperVersions(): List<String> {
         // PaperMC v3 API：返回 {versions: {major: [subversions]}}，需平铺
@@ -995,16 +1166,38 @@ class McServerController(
             .take(30)  // 只取前30个正式版
     }
 
-    private fun fetchFabricVersions(): List<String> {
-        // Fabric 不提供 MC 版本列表 API，返回主流版本
-        return DEFAULT_MC_VERSIONS
-    }
+    /**
+     * Fabric：从 meta API 获取官方支持的 MC 版本列表。
+     *
+     * `https://meta.fabricmc.net/v2/versions/game` 返回 `[{version, stable}, ...]`，
+     * 按新→旧排序。只保留 `stable == true` 的正式版，避免把快照混进列表。
+     */
+    private fun fetchFabricVersions(): List<String> = runCatching {
+        val resp = fetchJsonElement("https://meta.fabricmc.net/v2/versions/game")
+        val versions = resp.jsonArray
+            .filter { it.jsonObject["stable"]?.jsonPrimitive?.boolean ?: false }
+            .mapNotNull { it.jsonObject["version"]?.jsonPrimitive?.content }
+            .filter { it.isNotBlank() }
+        if (versions.isEmpty()) return@runCatching DEFAULT_MC_VERSIONS
+        versions.take(60)
+    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MC_VERSIONS
 
-    private fun fetchForgeVersions(): List<String> {
-        // Forge promotions API 不直接返回 MC 版本列表
-        // 返回 Forge 支持的主流 MC 版本
-        return DEFAULT_MC_VERSIONS
-    }
+    /**
+     * Forge：从 promotions_slim.json 提取所有可用的 MC 版本。
+     *
+     * 该接口返回 `{promos: {"1.21.4-recommended": "65.1.0", "1.21.4-latest": "65.1.3", ...}}`，
+     * 键去掉 `-recommended` / `-latest` 后缀即为 MC 版本。共 76 个版本。
+     */
+    private fun fetchForgeVersions(): List<String> = runCatching {
+        val resp = fetchJson("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json")
+        val promos = resp["promos"]?.jsonObject ?: return@runCatching DEFAULT_MC_VERSIONS
+        val mcVersions = promos.keys
+            .map { it.substringBeforeLast('-') }
+            .filter { it.isNotBlank() && it.count { c -> c == '.' } >= 1 }
+            .toSet()
+        if (mcVersions.isEmpty()) return@runCatching DEFAULT_MC_VERSIONS
+        mcVersions.sortedWith(mcVersionComparator)
+    }.getOrNull()?.takeIf { it.isNotEmpty() } ?: DEFAULT_MC_VERSIONS
 
     /**
      * 下载服务端核心到指定路径（独立方法，供 DownloadScreen 调用）。
@@ -1266,6 +1459,21 @@ class McServerController(
             return
         }
 
+        // 运行时以**用户选择的运行模式**（config.runtimeKind）为准，核心只决定启动哪些文件。
+        // 用户选 PHP 就走 PHP 路径，选 Java 就走 JVM 路径；组合不成立时在这里明确报错，
+        // 而不是替用户改掉选择。
+        val usePhp = config.runtimeKind == RuntimeKind.Php
+        if (usePhp && coreType != ServerCore.PocketMine) {
+            throw RuntimeException(
+                "${coreType.displayName} 核心无法用 PHP 运行，请在「运行环境」中切换为 Java，或改用 PocketMine-MP 核心"
+            )
+        }
+        if (!usePhp && coreType == ServerCore.PocketMine) {
+            throw RuntimeException(
+                "PocketMine-MP 核心需要 PHP 运行环境，请在「运行环境」中切换为 PHP 后重试"
+            )
+        }
+
         if (coreType == ServerCore.PowerNukkitX) {
             val properties = File(serverDir, "server.properties")
             val current = if (properties.exists()) properties.readText() else ""
@@ -1296,37 +1504,18 @@ class McServerController(
             }
         }
         // PocketMine：需要官方定制 PHP（含 chunkutils2/encoding/leveldb/pmmpthread 等扩展）。
-        // PMMP 官方不发布 Linux ARM64 PHP，使用社区 Android 原生编译版（ItzxDwi/AndroidPHP，aarch64 PM5），
-        // 首次启动时下载到共享运行时目录 home/php-pmmp/，多服务器复用。
+        // PMMP 官方不发布 Linux ARM64 PHP，使用社区 Android 原生编译版（ItzxDwi/AndroidPHP，aarch64），
+        // 首次启动时下载到共享运行时目录，多服务器复用。运行时版本取用户所选 selectedPhpVersion。
         if (coreType == ServerCore.PocketMine) {
-            val phpBin = File(termux.installer.rootDir, "home/php-pmmp/php")
-            if (!phpBin.isFile) {
-                val runtimeDir = phpBin.parentFile?.apply { mkdirs() } ?: throw RuntimeException("无法创建 PHP 运行时目录")
-                termux.emitLog("[startMc] 正在下载 PocketMine 专用 PHP 运行环境（Android 原生构建，约 10MB）...")
-                val tarball = File(termux.installer.rootDir, "tmp/php-pmmp.tar.gz").apply { parentFile?.mkdirs() }
-                val mirrors = listOf(
-                    "https://ghfast.top/",
-                    "https://gh-proxy.com/",
-                    "https://mirror.ghproxy.com/",
-                    "https://ghproxy.net/",
-                    "https://github.moeyy.xyz/",
-                    ""
-                ).map { it + PMMP_PHP_TARBALL_URL }
-                var downloaded = false
-                for (url in mirrors) {
-                    if (downloadToFile(url, tarball)) { downloaded = true; break }
-                    termux.emitLog("[startMc] 镜像下载失败，尝试下一个源...")
-                }
-                if (!downloaded || tarball.length() < 1_000_000L) {
-                    tarball.delete()
-                    throw RuntimeException("PHP 运行环境下载失败，请检查网络后重试")
-                }
-                extractTarGz(tarball, runtimeDir)
-                tarball.delete()
-                termux.execOnce("chmod", "-R", "755", runtimeDir.absolutePath)
+            val phpVersion = config.selectedPhpVersion
+            if (!termux.isPhpInstalled(phpVersion) &&
+                !termux.installPhp(phpVersion) { line -> termux.emitLog(line) }
+            ) {
+                throw RuntimeException("${phpVersion.displayName} 运行环境下载失败，请检查网络后重试")
             }
+            val phpBin = termux.phpBinaryFor(phpVersion)
             if (!phpBin.isFile || !phpBin.canExecute()) {
-                throw RuntimeException("PHP 运行环境不完整，请删除 home/php-pmmp 目录后重试")
+                throw RuntimeException("${phpVersion.displayName} 运行环境不完整，请删除 ${phpVersion.runtimeDirName} 目录后重试")
             }
             val phar = serverDir.listFiles { f -> f.isFile && f.name.endsWith(".phar", ignoreCase = true) }
                 ?.maxByOrNull { it.lastModified() }
@@ -1675,53 +1864,25 @@ class McServerController(
     companion object {
         private const val TAG = "McServerController"
 
-        /** PocketMine-MP 专用 PHP 运行时（Android aarch64 原生构建，含 PM5 全部必需扩展） */
-        private const val PMMP_PHP_TARBALL_URL =
-            "https://github.com/ItzxDwi/AndroidPHP/releases/download/pm5-latest/php-android-pm5-latest.tar.gz"
-
         /**
          * 该 PHP 构建内置 pmmp/ext-encoding 0.4.x，PocketMine 5.34.0 起要求 ~1.0.0，
          * 因此可兼容的最高 PocketMine 版本为 5.33.1（实测其 composer 要求）。
          */
         private const val PMMP_MAX_COMPAT_VERSION = "5.33.1"
 
-        /** 下载文件到指定路径（跟随重定向），返回是否成功且文件大于 1KB */
-        private fun downloadToFile(url: String, target: File): Boolean = runCatching {
-            val conn = URL(url).openConnection() as HttpURLConnection
-            try {
-                conn.connectTimeout = 20_000
-                conn.readTimeout = 60_000
-                conn.instanceFollowRedirects = true
-                conn.setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
-                if (conn.responseCode !in 200..299) return false
-                conn.inputStream.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
-                }
-            } finally {
-                conn.disconnect()
+        /**
+         * 在 servers 目录下为 [base] 找一个未被占用的目录名（静态版，需自行传入已占用集合）。
+         *
+         * 冲突时依次尝试 `base_2`、`base_3`… 判重同时看磁盘目录与 [taken]（已登记的核心）。
+         */
+        fun uniqueDirName(base: String, taken: Set<String>, serversDir: File): String {
+            var candidate = base
+            var i = 2
+            while (candidate in taken || File(serversDir, candidate).exists()) {
+                candidate = "${base}_$i"
+                i++
             }
-            target.length() > 1024
-        }.getOrElse { false }
-
-        /** 解压 tar.gz 到目标目录（不处理符号链接，防逃逸由调用方保证目录可信） */
-        private fun extractTarGz(tarball: File, destDir: File) {
-            java.util.zip.GZIPInputStream(tarball.inputStream().buffered()).use { gzip ->
-                org.apache.commons.compress.archivers.tar.TarArchiveInputStream(gzip).use { tar ->
-                    while (true) {
-                        val entry = tar.nextTarEntry ?: break
-                        val target = File(destDir, entry.name)
-                        if (!target.canonicalPath.startsWith(destDir.canonicalFile.path + File.separator) &&
-                            target.canonicalPath != destDir.canonicalFile.path
-                        ) continue
-                        if (entry.isDirectory) {
-                            target.mkdirs()
-                            continue
-                        }
-                        target.parentFile?.mkdirs()
-                        target.outputStream().use { output -> tar.copyTo(output, 64 * 1024) }
-                    }
-                }
-            }
+            return candidate
         }
 
         /** 默认 MC 版本列表（当 API 获取失败时回退使用） */

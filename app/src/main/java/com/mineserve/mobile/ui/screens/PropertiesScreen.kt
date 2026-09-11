@@ -166,6 +166,7 @@ private val propertySpecs: List<PropertySpec> = listOf(
 @Composable
 fun JavaPropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
     val loaded by vm.serverProperties.collectAsState()
+    val propertiesExist by vm.serverPropertiesExist.collectAsState()
     val serverState by vm.serverState.collectAsState()
     val config by vm.config.collectAsState()
 
@@ -178,11 +179,49 @@ fun JavaPropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boole
     // ViewModel 加载完成后同步到本地编辑状态
     LaunchedEffect(loaded) { props = loaded }
 
+    // 配置页头部（返回栏 + 标题 + 当前核心提示），各状态分支共用
+    val header: @Composable () -> Unit = {
+        if (showBackBar) BackBar(title = stringResource(R.string.s541), onBack = onBack)
+    }
+
+    // 配置文件尚未生成：不展示可编辑表单。
+    // 此处的预设值并非服务端真实生效值，编辑后保存会写出一份不完整配置，
+    // 与服务端首启自动补全的默认值产生错位。改为引导用户先启动服务端。
+    if (propertiesExist == false) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            header()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                HeaderBlock(
+                    eyebrow = stringResource(R.string.eyebrow_properties),
+                    title = stringResource(R.string.s997),
+                    statusBarPadding = !showBackBar
+                )
+                val activeCore = config.installedCores.find { it.name == config.activeCoreName }
+                Text(
+                    stringResource(R.string.s998, activeCore?.name ?: stringResource(R.string.s999)),
+                    color = Muted,
+                    fontSize = 10.sp,
+                    modifier = Modifier.padding(horizontal = 20.dp)
+                )
+                Spacer(Modifier.height(12.dp))
+                PropertiesNotGeneratedCard(
+                    isRunning = serverState.isRunning,
+                    onStartServer = { vm.startServer() },
+                    onRefresh = { vm.loadServerProperties() }
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        return
+    }
+
     Column(modifier = Modifier.fillMaxSize()) {
         // 统一返回栏；作为底部导航 tab 时隐藏
-        if (showBackBar) {
-            BackBar(title = stringResource(R.string.s541), onBack = onBack)
-        }
+        header()
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -488,14 +527,108 @@ private fun PropertiesEmptyScreen(onBack: () -> Unit, showBackBar: Boolean) {
     }
 }
 
+/**
+ * 配置文件尚未生成时的引导卡片。
+ *
+ * 不渲染可编辑表单，避免用户在"预设值 ≠ 服务端真实值"的情况下做出错误修改。
+ * 提供两条路径：直接启动服务端（推荐），或启动后回来刷新。
+ */
 @Composable
-private fun PowerNukkitXPropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean) {
+private fun PropertiesNotGeneratedCard(
+    isRunning: Boolean,
+    onStartServer: () -> Unit,
+    onRefresh: () -> Unit,
+    desc: String = stringResource(R.string.props_not_generated_desc),
+    hint: String = stringResource(R.string.props_not_generated_hint)
+) {
+    McCard(title = stringResource(R.string.props_not_generated_title)) {
+        Text(
+            desc,
+            color = Muted,
+            fontSize = 12.sp
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            hint,
+            color = Muted,
+            fontSize = 11.sp
+        )
+        Spacer(Modifier.height(12.dp))
+        if (isRunning) {
+            // 服务端已在启动/运行中，给出刷新入口等待配置文件写出
+            Text(
+                stringResource(R.string.props_not_generated_running),
+                color = Indigo,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Spacer(Modifier.height(8.dp))
+            Button(
+                onClick = onRefresh,
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    stringResource(R.string.props_not_generated_refresh),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        } else {
+            Button(
+                onClick = onStartServer,
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    stringResource(R.string.props_not_generated_start),
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+            TextButton(onClick = onRefresh, modifier = Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.props_not_generated_refresh),
+                    color = Indigo,
+                    fontSize = 12.sp
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PowerNukkitXPropertiesScreen(vm: McViewModel, onBack: () -> Unit, showBackBar: Boolean = true) {
     val loaded by vm.serverProperties.collectAsState()
+    val propertiesExist by vm.serverPropertiesExist.collectAsState()
     val state by vm.serverState.collectAsState()
     var props by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     var restartConfirm by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { vm.loadServerProperties() }
     LaunchedEffect(loaded) { props = loaded }
+
+    // 配置文件尚未生成：与 Java 版一致，引导先启动服务端而非编辑预设值。
+    if (propertiesExist == false) {
+        Column(Modifier.fillMaxSize()) {
+            if (showBackBar) BackBar(title = stringResource(R.string.props_pnx_back), onBack = onBack)
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                HeaderBlock("POWERNUKKITX", stringResource(R.string.props_pnx_title), statusBarPadding = !showBackBar)
+                Spacer(Modifier.height(12.dp))
+                PropertiesNotGeneratedCard(
+                    isRunning = state.isRunning,
+                    onStartServer = { vm.startServer() },
+                    onRefresh = { vm.loadServerProperties() },
+                    desc = stringResource(R.string.props_pnx_not_generated_desc),
+                    hint = stringResource(R.string.props_pnx_not_generated_hint)
+                )
+                Spacer(Modifier.height(16.dp))
+            }
+        }
+        return
+    }
 
     Column(Modifier.fillMaxSize()) {
         if (showBackBar) BackBar(title = stringResource(R.string.props_pnx_back), onBack = onBack)

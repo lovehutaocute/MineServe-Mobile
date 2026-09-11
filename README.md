@@ -6,21 +6,22 @@
 
 **Run a Minecraft server directly on your Android phone — no root required.**
 
-[中文文档](./README.zh-CN.md) · [Architecture](./ARCHITECTURE.md) · [Changelog](./CHANGELOG.md)
+[中文文档](./README.zh-CN.md) · [Architecture](./ARCHITECTURE.md) · [Changelog](./CHANGELOG.md) · [Background Tasks](./docs/AUTOMATION-TASKS.md)
 
 </div>
 
-MineServe Mobile is a native Android app for Minecraft Java Edition servers, with PowerNukkitX support for Bedrock Edition. It includes multi-server management, plugins and mods, Modrinth integration, tunneling, backups, crash reports, keep-alive tools, MCP remote control, and no-root data access.
+MineServe Mobile is a native Android app for Minecraft Java Edition servers, with Bedrock Edition support through PowerNukkitX, PocketMine-MP, and Allay. It includes multi-server management, plugins and mods, Modrinth integration, tunneling, backups, crash reports, keep-alive tools, MCP remote control, and no-root data access.
 
 ## ✨ Features
 
 - **No root required** — built-in Termux bootstrap runtime; Java 17/21/25 run directly, while legacy Java 8 servers use ARM64 Ubuntu PRoot.
+- **Choice of runtime** — Java and PHP runtimes coexist. You pick the environment in the UI and that choice is honoured at launch; PocketMine-MP uses a bundled native PHP runtime, everything else runs on the JVM.
 - **16 core types** — Paper, Purpur, Leaves, Leaf, Spigot, CraftBukkit, Fabric, Forge, NeoForge, Quilt, Vanilla, Velocity, BungeeCord, PowerNukkitX, PocketMine-MP, and Allay.
 - **Multi-server management** — isolated cores, worlds, configuration, plugins, and mods with one-tap switching.
 - **Server import** — independent folder, archive, JAR, and Modrinth `.mrpack` actions with core/version detection.
 - **Plugins and mods** — scan, enable/disable, SAF upload, URL install, and Modrinth search/download.
 - **Tunneling** — frp and bore with LAN and public address display.
-- **Backup and crash reports** — world/full-server backup, SAF export, abnormal-exit logs, native-report aggregation, and offline analysis.
+- **Backup and crash reports** — world/full-server backup, SAF export, abnormal-exit logs, native-report aggregation, and offline analysis. Reports keep Watchdog/thread-dump highlights so the real blocking point is never truncated away.
 - **Keep-alive** — foreground service, wake locks, boot/periodic recovery, and an optional status overlay.
 - **MCP remote control** — embedded Model Context Protocol server (Streamable HTTP) so LAN AI assistants can check status, start/stop the server, send console commands, and read logs; protected by a bearer token.
 - **Material 3 UI** — Jetpack Compose with compact core and version selection.
@@ -74,10 +75,12 @@ Use frp/bore or router port forwarding for public access.
 
 ### 🧩 Cores and downloads
 
-- Version lists come from official core APIs; custom version strings are supported.
+- Version lists come from official core APIs for every core — Fabric, Forge, NeoForge, and Quilt included, so brand-new releases show up as soon as upstream publishes them. Custom version strings are also supported.
 - The Download screen shows the newest eight versions first and can reveal all versions.
 - Changing a core clears the old versions and rejects late responses from the previous request.
 - Forge, NeoForge, and Quilt run their matching installer after download.
+- Version ordering compares numeric segments, so `26.2` correctly ranks above `1.21.11`.
+- Core names must be unique — duplicate names are rejected before download starts.
 
 ### 📥 Server and modpack import
 
@@ -93,17 +96,26 @@ Use frp/bore or router port forwarding for public access.
 - Colored MC console, quick commands, copy, and smart auto-scroll.
 - Runtime state for uptime, players, TPS, and memory.
 
+### ⚙️ Runtime environments
+
+- A single "Runtime environment" entry on the Dashboard switches between Java and PHP and lists the versions available in each.
+- Your selection is authoritative — the app never silently rewrites it. If the choice does not match the active core, the launch reports it instead of changing anything behind your back.
+- Java versions 17/21/25 install into the Termux runtime; legacy Java 8 uses ARM64 Ubuntu PRoot.
+- The PHP runtime is an Android aarch64 native build with the extensions PocketMine-MP requires. It downloads on demand (~10 MB) and is shared by every PocketMine server.
+- Environment & dependency management groups Java, dependencies, the Termux environment, and PHP into separate tabs, with install/uninstall and live status for each.
+
 ### 🔌 Plugins, mods, and files
 
 - Plugin/mod scan, enable/disable, delete, SAF upload, and URL install.
 - Modrinth search with Minecraft-version and loader matching.
 - Server file browse, directory creation, text editing, import/export, and full-server archive backup.
 - The bundled DocumentsProvider gives compatible file managers no-root access to app data.
+- Server properties are detected per core (`server.properties` for Java, `pnx.yml` for PowerNukkitX). Before the first launch generates them, the screen shows guidance instead of an empty editable form.
 
 ### 💾 Backup, crash reports, and network
 
 - Backup, restore, delete, and SAF export for overworld, nether, and end.
-- On abnormal exit, saves the last 200 `latest.log` lines and the newest native report; the crash screen aggregates native reports from all installed servers and analyzes them locally.
+- On abnormal exit, saves key log excerpts (Watchdog dumps, exception stacks, fatal errors) plus the most recent 800 `latest.log` lines, together with the newest native report; the crash screen aggregates native reports from all installed servers and analyzes them locally.
 - frp and bore tunnels, with one-tap LAN/public address copy.
 
 ### 🛡️ Keep-alive
@@ -115,7 +127,7 @@ Use frp/bore or router port forwarding for public access.
 
 ## 📱 How does a phone run the server?
 
-First setup installs a Termux-compatible runtime and Java into app-private storage. Java 17/21/25 servers are started by the Android shell; legacy Java 8 servers run inside ARM64 Ubuntu PRoot. Both are ordinary Java child processes managed by the app, not root processes.
+First setup installs a Termux-compatible runtime and Java into app-private storage. Java 17/21/25 servers are started by the Android shell; legacy Java 8 servers run inside ARM64 Ubuntu PRoot. PocketMine-MP instead runs on a bundled native PHP runtime. All of them are ordinary child processes managed by the app, not root processes.
 
 Console commands go to process stdin and output is displayed live and saved to `logs/latest.log`. Minecraft listens on normal device network ports: use the phone LAN IP locally, or a tunnel/port mapping publicly. The app cannot bypass NAT, carrier CGNAT, or firewalls.
 

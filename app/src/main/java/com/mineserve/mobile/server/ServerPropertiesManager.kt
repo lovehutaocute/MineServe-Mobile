@@ -9,6 +9,7 @@ import java.io.File
  * - 标准格式：`#` 开头为注释，`key=value` 每行一个
  * - 手动逐行解析（不使用 java.util.Properties，避免破坏顺序与类型）
  * - 服务器未首次启动时该文件可能不存在，readProperties 返回空 Map
+ * - 通过 [exists] 判断配置文件是否已生成，供 UI 决定是否展示编辑表单
  *
  * @param termux Termux 运行时，用于定位 server 目录
  */
@@ -19,6 +20,15 @@ class ServerPropertiesManager(private val termux: TermuxRuntime) {
         File(termux.installer.rootDir, "home/servers/$dirName/server.properties")
 
     fun propertiesPath(dirName: String): File = propertiesFile(dirName)
+
+    /**
+     * 配置文件是否已由服务端生成。
+     *
+     * 服务端首次启动前该文件不存在。此状态下 UI 不应展示可编辑表单：
+     * 界面里的预设值并非服务端真实生效值，编辑并保存会生成一份不完整配置，
+     * 与服务端自动补齐的默认值产生错位。应引导用户先启动一次服务端。
+     */
+    fun exists(dirName: String): Boolean = propertiesFile(dirName).isFile
 
     fun configPaths(dirName: String, powerNukkitX: Boolean): List<File> {
         val dir = propertiesFile(dirName).parentFile ?: return emptyList()

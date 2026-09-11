@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.CircleShape
@@ -25,7 +26,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -37,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -52,9 +56,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
@@ -97,7 +104,7 @@ fun HeaderBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(if (statusBarPadding) Modifier.statusBarsPadding() else Modifier)
-                .padding(horizontal = 14.dp, vertical = 20.dp)
+                .padding(horizontal = 14.dp, vertical = 10.dp)
         ) {
             Text(
                 text = eyebrow,
@@ -133,11 +140,15 @@ fun BackBar(title: String, onBack: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 6.dp),
+                .padding(horizontal = 16.dp, vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = stringResource(R.string.s404))
+            IconButton(onClick = onBack, modifier = Modifier.size(36.dp)) {
+                Icon(
+                    Icons.AutoMirrored.Outlined.ArrowBack,
+                    contentDescription = stringResource(R.string.s404),
+                    modifier = Modifier.size(20.dp)
+                )
             }
             Text(
                 title,
@@ -589,6 +600,18 @@ fun DebouncedTextField(
 private const val QQ_GROUP_URL =
     "https://qun.qq.com/universal-share/share?ac=1&authKey=ISbTtN7IFJ0ItNdgzSlZ68hWxg136HpWhwOjj%2BRcl55agd85N3DCzBU82z7U8dQT&busi_data=eyJncm91cENvZGUiOiI1OTM2ODIwMzMiLCJ0b2tlbiI6ImJBS1d3WHRabHRBNUJXcHE5d1EzK01SbUZsVXg5ajM4SVdCeGhBZTVBQXNhMGlpck5DWE04azFKWWhSVW1JbTYiLCJ1aW4iOiIxNjcyNDU0ODQifQ%3D%3D&data=mDeXPqhlgK8JWPqiG2MpojgJuRaMiLLUN_czFSB2Yuhhl2mi9r-v-f6C6DzXxyXQY_Nog12BLMt6kJ8aanRlfg&svctype=4&tempid=h5_group_info"
 
+/** QQ 群号（纯数字，用于复制与展示） */
+private const val QQ_GROUP_NUMBER = "593682033"
+
+/** 打开 QQ 加群页面；无浏览器/QQ 时静默失败 */
+private fun openQqGroup(context: android.content.Context) {
+    try {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(QQ_GROUP_URL)))
+    } catch (_: Exception) {
+        // 无可用应用时静默
+    }
+}
+
 /**
  * QQ 交流群入口卡片：显示群号并提供一键加群按钮。
  */
@@ -610,13 +633,7 @@ fun QqGroupCard() {
         )
         Spacer(Modifier.height(10.dp))
         Button(
-            onClick = {
-                try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(QQ_GROUP_URL)))
-                } catch (_: Exception) {
-                    // 无浏览器时静默
-                }
-            },
+            onClick = { openQqGroup(context) },
             colors = ButtonDefaults.buttonColors(containerColor = Indigo),
             shape = RoundedCornerShape(10.dp),
             modifier = Modifier.fillMaxWidth()
@@ -629,4 +646,99 @@ fun QqGroupCard() {
             )
         }
     }
+}
+
+/**
+ * QQ 交流群弹窗：概览页顶部企鹅图标点击后弹出。
+ *
+ * 显示群号，提供「复制群号」与「一键加群」两个操作。
+ */
+@Composable
+fun QqGroupDialog(onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+        icon = {
+            Icon(
+                painter = painterResource(R.drawable.ic_qq_penguin),
+                contentDescription = null,
+                tint = Indigo,
+                modifier = Modifier.size(40.dp)
+            )
+        },
+        title = {
+            Text(
+                stringResource(R.string.s1051),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                Text(
+                    stringResource(R.string.s1053),
+                    color = Muted,
+                    fontSize = 11.sp
+                )
+                Spacer(Modifier.height(12.dp))
+                // 群号展示块
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(FieldGray)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.qq_group_label),
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                        Text(
+                            QQ_GROUP_NUMBER,
+                            color = MaterialTheme.colorScheme.onBackground,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    TextButton(onClick = { clipboard.setText(AnnotatedString(QQ_GROUP_NUMBER)) }) {
+                        Icon(
+                            Icons.Outlined.ContentCopy,
+                            contentDescription = null,
+                            tint = Indigo,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(stringResource(R.string.qq_copy_group), color = Indigo, fontSize = 12.sp)
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { openQqGroup(context) },
+                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                shape = RoundedCornerShape(10.dp)
+            ) {
+                Text(
+                    stringResource(R.string.s1054),
+                    color = Color.White,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.env_cancel), color = Muted)
+            }
+        }
+    )
 }

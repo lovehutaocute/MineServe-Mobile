@@ -5,6 +5,7 @@ import android.util.Log
 import android.system.Os
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.PhpVersion
 import com.mineserve.mobile.data.AptMirror
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.StepState
@@ -209,9 +210,132 @@ class TermuxRuntime(context: Context) {
         return deleted
     }
 
+    // ── PocketMine-MP 专用 PHP 运行时 ─────────────────────────────
+    //
+    // PMMP 官方不发布 Linux ARM64 的 PHP 构建，首次启动时会下载社区 Android
+    // 原生构建（ItzxDwi/AndroidPHP，aarch64，含 chunkutils2 / encoding /
+    // leveldb / pmmpthread 等必需扩展）到共享目录，多个 PocketMine 服务器复用。
+    //
+    // 目录按版本区分（home/<PhpVersion.runtimeDirName>）。当前上游只发布一个
+    // 版本，故只有一个目录；结构上预留多版本，无需改动调用方。
+
+    /** 指定 PHP 版本的运行时目录：home/{runtimeDirName} */
+    fun phpRuntimeDirFor(version: PhpVersion): File =
+        File(installer.rootDir, "home/${version.runtimeDirName}")
+
+    /** 指定 PHP 版本的可执行文件 */
+    fun phpBinaryFor(version: PhpVersion): File = File(phpRuntimeDirFor(version), "php")
+
+    /** 默认（PocketMine 使用）PHP 运行时目录，等价于 phpRuntimeDirFor(Default) */
+    val phpRuntimeDir: File get() = phpRuntimeDirFor(PhpVersion.Default)
+
+    /** 默认 PHP 可执行文件 */
+    val phpBinary: File get() = phpBinaryFor(PhpVersion.Default)
+
+    /** 指定 PHP 版本是否已就绪 */
+    fun isPhpInstalled(version: PhpVersion = PhpVersion.Default): Boolean =
+        phpBinaryFor(version).let { it.isFile && it.canExecute() }
+
+    /** 已安装的 PHP 版本集合（两处 UI 共用同一探测来源） */
+    fun installedPhpVersions(): Set<PhpVersion> =
+        PhpVersion.entries.filter { isPhpInstalled(it) }.toSet()
+
+    /**
+     * 下载并解压指定版本的 PHP 运行环境。
+     *
+     * 依次尝试多个 GitHub 镜像；成功后 chmod 755 并校验可执行位。
+     * 返回是否安装成功，失败原因通过 [onLog] 输出。
+     */
+    fun installPhp(version: PhpVersion = PhpVersion.Default, onLog: (String) -> Unit = {}): Boolean {
+        val target = phpBinaryFor(version)
+        if (isPhpInstalled(version)) return true
+        val runtimeDir = phpRuntimeDirFor(version).apply { mkdirs() }
+        onLog("[php] 正在下载 ${version.displayName} 运行环境（Android 原生构建，约 10MB）...")
+        val tarball = File(installer.rootDir, "tmp/php-${version.releaseTag}.tar.gz").apply { parentFile?.mkdirs() }
+        val url = "https://github.com/ItzxDwi/AndroidPHP/releases/download/${version.releaseTag}/${version.tarballAsset}"
+        val mirrors = listOf(
+            "https://ghfast.top/",
+            "https://gh-proxy.com/",
+            "https://mirror.ghproxy.com/",
+            "https://ghproxy.net/",
+            "https://github.moeyy.xyz/",
+            ""
+        ).map { it + url }
+        var downloaded = false
+        for (mirror in mirrors) {
+            if (downloadFile(mirror, tarball)) { downloaded = true; break }
+            onLog("[php] 镜像下载失败，尝试下一个源...")
+        }
+        if (!downloaded || tarball.length() < 1_000_000L) {
+            tarball.delete()
+            onLog("[php] ${version.displayName} 运行环境下载失败，请检查网络后重试")
+            return false
+        }
+        try {
+            extractTarGz(tarball, runtimeDir)
+        } catch (e: Exception) {
+            tarball.delete()
+            onLog("[php] 解压失败: ${e.message}")
+            return false
+        }
+        tarball.delete()
+        execOnce("chmod", "-R", "755", runtimeDir.absolutePath)
+        val ok = isPhpInstalled(version)
+        onLog(
+            if (ok) "[php] ${version.displayName} 运行环境就绪"
+            else "[php] ${version.displayName} 运行环境不完整，请删除 ${version.runtimeDirName} 目录后重试"
+        )
+        return ok
+    }
+
+    /** 直接删除指定版本的 PHP 运行环境。返回是否有文件被删除。 */
+    fun deletePhp(version: PhpVersion = PhpVersion.Default): Boolean {
+        if (isMcRunning()) return false
+        val dir = phpRuntimeDirFor(version)
+        return if (dir.exists()) dir.deleteRecursively() else false
+    }
+
+    /** 下载文件到指定路径（跟随重定向），返回是否成功且文件大于 1KB */
+    private fun downloadFile(url: String, target: File): Boolean = runCatching {
+        val conn = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+        try {
+            conn.connectTimeout = 20_000
+            conn.readTimeout = 60_000
+            conn.instanceFollowRedirects = true
+            conn.setRequestProperty("User-Agent", "MineServeMobile/1.0 (Android)")
+            if (conn.responseCode !in 200..299) return false
+            conn.inputStream.use { input ->
+                target.outputStream().use { output -> input.copyTo(output, 64 * 1024) }
+            }
+        } finally {
+            conn.disconnect()
+        }
+        target.length() > 1024
+    }.getOrElse { false }
+
+    /** 解压 tar.gz 到目标目录（防目录逃逸） */
+    private fun extractTarGz(tarball: File, destDir: File) {
+        java.util.zip.GZIPInputStream(tarball.inputStream().buffered()).use { gzip ->
+            org.apache.commons.compress.archivers.tar.TarArchiveInputStream(gzip).use { tar ->
+                while (true) {
+                    val entry = tar.nextTarEntry ?: break
+                    val out = File(destDir, entry.name)
+                    if (!out.canonicalPath.startsWith(destDir.canonicalFile.path + File.separator) &&
+                        out.canonicalPath != destDir.canonicalFile.path
+                    ) continue
+                    if (entry.isDirectory) {
+                        out.mkdirs()
+                        continue
+                    }
+                    out.parentFile?.mkdirs()
+                    out.outputStream().use { output -> tar.copyTo(output, 64 * 1024) }
+                }
+            }
+        }
+    }
+
     /** 直接删除依赖文件（wget/frpc/rclone/proot）。返回删除的组件数。 */
-    fun deleteDependencies(): Int {
-        val prefix = installer.rootDir
+    fun deleteDependencies(): Int {        val prefix = installer.rootDir
         val targets = listOf(
             listOf("bin/wget", "usr/bin/wget", "data/data/com.termux/files/usr/bin/wget"),
             listOf("bin/frpc", "usr/bin/frpc", "data/data/com.termux/files/usr/bin/frpc"),

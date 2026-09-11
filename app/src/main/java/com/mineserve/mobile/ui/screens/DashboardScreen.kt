@@ -1,12 +1,20 @@
 package com.mineserve.mobile.ui.screens
 
 // 性能修改理由：资源订阅保持局部化，输入框使用本地编辑状态，并让概览内容避让输入法。
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import com.mineserve.mobile.R
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Construction
@@ -16,6 +24,7 @@ import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,17 +32,22 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -79,6 +93,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.data.InstalledCore
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.PhpVersion
+import com.mineserve.mobile.data.RuntimeKind
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.ui.HeaderBlock
@@ -88,10 +104,11 @@ import com.mineserve.mobile.ui.McCard
 import com.mineserve.mobile.ui.McViewModel
 import com.mineserve.mobile.ui.PillButton
 import com.mineserve.mobile.ui.ProgressTrack
-import com.mineserve.mobile.ui.QqGroupCard
+import com.mineserve.mobile.ui.QqGroupDialog
 import com.mineserve.mobile.ui.SegPill
 import com.mineserve.mobile.ui.StepRow
 import com.mineserve.mobile.ui.theme.Coral
+import com.mineserve.mobile.ui.theme.FieldGray
 import com.mineserve.mobile.ui.theme.Indigo
 import com.mineserve.mobile.ui.theme.IndigoSoft
 import com.mineserve.mobile.ui.theme.Mint
@@ -120,6 +137,8 @@ fun DashboardScreen(
     val scope = rememberCoroutineScope()
 
     var showStartSettings by remember { mutableStateOf(false) }
+    // QQ 群弹窗（顶部企鹅图标触发）
+    var showQqDialog by remember { mutableStateOf(false) }
     // 服务器图标选择器
     val iconPickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.GetContent()
@@ -158,28 +177,43 @@ fun DashboardScreen(
                     eyebrow = stringResource(R.string.eyebrow_dashboard),
                     title = stringResource(R.string.s340),
                     trailing = {
-                        // 视觉突出的「依赖与环境管理」入口（靛蓝填充 + 图标，高对比）
-                        Button(
-                            onClick = { onEnvManager(0) },
-                            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                            shape = RoundedCornerShape(14.dp),
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
-                        ) {
-                            Icon(
-                                Icons.Outlined.Construction,
-                                contentDescription = stringResource(R.string.env_entry_desc),
-                                tint = androidx.compose.ui.graphics.Color.White,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Text(
-                                stringResource(R.string.env_title),
-                                color = androidx.compose.ui.graphics.Color.White,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            // QQ 群入口：企鹅图标，点开弹窗显示群号 / 复制 / 加群
+                            IconButton(
+                                onClick = { showQqDialog = true },
+                                modifier = Modifier.size(34.dp)
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_qq_penguin),
+                                    contentDescription = stringResource(R.string.s1051),
+                                    tint = Indigo,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(Modifier.width(6.dp))
+                            // 视觉突出的「依赖与环境管理」入口（靛蓝填充 + 图标，高对比）
+                            Button(
+                                onClick = { onEnvManager(0) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                                shape = RoundedCornerShape(14.dp),
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(
+                                    Icons.Outlined.Construction,
+                                    contentDescription = stringResource(R.string.env_entry_desc),
+                                    tint = androidx.compose.ui.graphics.Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(4.dp))
+                                Text(
+                                    stringResource(R.string.env_title),
+                                    color = androidx.compose.ui.graphics.Color.White,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
                         }
                     }
                 )
@@ -233,9 +267,13 @@ fun DashboardScreen(
                     AdvancedStartupCard(vm = vm)
                     DashboardAddressCard(vm = vm)
                     DashboardPluginsCard(vm = vm)
-                    QqGroupCard()
                 }
             }
+        }
+
+        // QQ 交流群弹窗
+        if (showQqDialog) {
+            QqGroupDialog(onDismiss = { showQqDialog = false })
         }
 
         // 服务器启动设置弹窗
@@ -446,14 +484,40 @@ private fun DashboardServerControlCard(
         .map { it.selectedJavaVersion }
         .distinctUntilChanged()
         .collectAsState(initial = JavaVersion.Java17)
+    val installedPhp by vm.installedPhp.collectAsState()
+    val runtimeKind by vm.config
+        .map { it.runtimeKind }
+        .distinctUntilChanged()
+        .collectAsState(initial = RuntimeKind.Java)
+    val selectedPhpVersion by vm.config
+        .map { it.selectedPhpVersion }
+        .distinctUntilChanged()
+        .collectAsState(initial = PhpVersion.Default)
     val isRunning by vm.serverState
         .map { it.isRunning }
         .distinctUntilChanged()
         .collectAsState(initial = false)
     var isStopping by remember { mutableStateOf(false) }
-    var showJavaDropdown by remember { mutableStateOf(false) }
+    var showEnvPicker by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val activeServerCore = installedCores.find { it.name == activeCoreName }
+    // 当前核心更适配的运行环境。仅用于弹窗里给一句提示 —— 切换与否完全由用户决定。
+    val requiredKind = if (activeServerCore?.core == ServerCore.PocketMine) RuntimeKind.Php else RuntimeKind.Java
+    val phpInstalled = selectedPhpVersion in installedPhp
+
+    LaunchedEffect(isBootstrapped) { if (isBootstrapped) vm.refreshPhp() }
+
+    if (showEnvPicker) {
+        RuntimeEnvPickerDialog(
+            vm = vm,
+            initialKind = runtimeKind,
+            requiredKind = requiredKind,
+            installedPhp = installedPhp,
+            selectedJavaVersion = selectedJavaVersion,
+            selectedPhpVersion = selectedPhpVersion,
+            onDismiss = { showEnvPicker = false }
+        )
+    }
 
     McCard(
         title = stringResource(R.string.s377),
@@ -464,30 +528,43 @@ private fun DashboardServerControlCard(
             }
         }
     ) {
+        // ── 运行环境（点击打开选择弹窗）──
+        // 注意：不再有独立的运行模式下拉框；Java / PHP 的切换放在弹窗顶部的长条切换器里。
+        Text(
+            stringResource(R.string.dash_runtime_env),
+            color = Muted,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+        Spacer(Modifier.height(4.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.weight(0.9f)) {
-                OutlinedButton(
-                    onClick = { showJavaDropdown = true },
-                    enabled = !isRunning,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp)
-                ) { Text(selectedJavaVersion.displayName, color = Indigo, fontSize = 12.sp) }
-                DropdownMenu(
-                    expanded = showJavaDropdown,
-                    onDismissRequest = { showJavaDropdown = false }
-                ) {
-                    JavaVersion.values().forEach { version ->
-                        DropdownMenuItem(
-                            text = { Text(version.displayName) },
-                            onClick = { vm.setJavaVersion(version); showJavaDropdown = false }
-                        )
-                    }
-                }
+            OutlinedButton(
+                onClick = { showEnvPicker = true },
+                enabled = !isRunning,
+                modifier = Modifier.weight(0.9f),
+                shape = RoundedCornerShape(8.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    when (runtimeKind) {
+                        RuntimeKind.Java -> selectedJavaVersion.displayName
+                        RuntimeKind.Php -> selectedPhpVersion.displayName
+                    },
+                    color = Indigo,
+                    fontSize = 12.sp,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(
+                    Icons.Outlined.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = Indigo,
+                    modifier = Modifier.size(16.dp)
+                )
             }
             Button(
                 onClick = {
@@ -533,6 +610,239 @@ private fun DashboardServerControlCard(
             (selectedJavaVersion == JavaVersion.Java8 || selectedJavaVersion == JavaVersion.Java17)) {
             Spacer(Modifier.height(6.dp))
             Text(stringResource(R.string.dash_pnx_java_note), color = Coral, fontSize = 11.sp)
+        }
+        if (runtimeKind == RuntimeKind.Php && !phpInstalled) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                stringResource(R.string.dash_php_not_installed_note),
+                color = Coral,
+                fontSize = 11.sp
+            )
+        }
+    }
+}
+
+/**
+ * 运行环境选择弹窗。
+ *
+ * 顶部是一条 Java / PHP 长条切换器，绿色高亮块用 [animateFloatAsState] 在两个
+ * 选项卡之间平滑滑动；下方版本列表随所选环境切换（Java 只列 Java，PHP 只列 PHP）。
+ *
+ * 版本数据直接复用 JavaVersion / PhpVersion 枚举与 ViewModel 的既有状态，
+ * 选中后写回 config，启动逻辑读取的就是同一份数据。
+ */
+@Composable
+private fun RuntimeEnvPickerDialog(
+    vm: McViewModel,
+    initialKind: RuntimeKind,
+    requiredKind: RuntimeKind,
+    installedPhp: Set<PhpVersion>,
+    selectedJavaVersion: JavaVersion,
+    selectedPhpVersion: PhpVersion,
+    onDismiss: () -> Unit
+) {
+    // 弹窗内的临时选择态：打开时对齐当前运行环境，关闭后才真正写回
+    var kind by remember { mutableStateOf(initialKind) }
+    var pendingJava by remember { mutableStateOf(selectedJavaVersion) }
+    var pendingPhp by remember { mutableStateOf(selectedPhpVersion) }
+
+    // 绿色高亮块位置：0f = Java，1f = PHP，切换时平滑过渡
+    val targetFraction = if (kind == RuntimeKind.Php) 1f else 0f
+    val indicatorFraction by animateFloatAsState(
+        targetValue = targetFraction,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "runtimeTabIndicator"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(20.dp),
+        // 弹窗自带淡入/缩放（AlertDialog 默认），这里只补内容切换的过渡
+        containerColor = MaterialTheme.colorScheme.surface,
+        title = {
+            Text(
+                stringResource(R.string.runtime_picker_title),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        },
+        text = {
+            Column(Modifier.fillMaxWidth()) {
+                // ── Java / PHP 长条切换器 ──
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(FieldGray)
+                        .padding(3.dp)
+                ) {
+                    val tabWidth = maxWidth / 2
+                    // 滑动的高亮块
+                    Box(
+                        modifier = Modifier
+                            .offset(x = tabWidth * indicatorFraction)
+                            .width(tabWidth)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Mint.copy(alpha = 0.18f))
+                            .border(
+                                width = 1.5.dp,
+                                color = Mint,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                    )
+                    Row(Modifier.fillMaxSize()) {
+                        RuntimeKind.entries.forEach { entry ->
+                            val selectedTab = kind == entry
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { kind = entry },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    when (entry) {
+                                        RuntimeKind.Java -> stringResource(R.string.dash_runtime_java)
+                                        RuntimeKind.Php -> stringResource(R.string.dash_runtime_php)
+                                    },
+                                    color = if (selectedTab) Mint else Muted,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selectedTab) FontWeight.Bold else FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (kind != requiredKind) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        stringResource(
+                            R.string.runtime_picker_mismatch,
+                            when (requiredKind) {
+                                RuntimeKind.Java -> stringResource(R.string.dash_runtime_java)
+                                RuntimeKind.Php -> stringResource(R.string.dash_runtime_php)
+                            }
+                        ),
+                        color = Coral,
+                        fontSize = 10.sp
+                    )
+                }
+
+                Spacer(Modifier.height(12.dp))
+
+                // ── 版本列表 ──
+                // 关键：动画不能驱动容器尺寸。
+                // Java 有 5 行、PHP 只有 1 行，若用 AnimatedContent 直接包裹高度可变的内容，
+                // 过渡期间新旧内容会同时参与测量，弹窗高度就会来回抽搐。
+                // 这里把版本列表放进一个**固定高度**的滚动容器里，外层尺寸恒定，
+                // 切换只在容器内部做淡入淡出 —— 弹窗整体高度一动不动。
+                val listHeight = 232.dp
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(listHeight)
+                ) {
+                    AnimatedContent(
+                        targetState = kind,
+                        transitionSpec = {
+                            (fadeIn(tween(200))).togetherWith(fadeOut(tween(140)))
+                        },
+                        label = "runtimeVersionList"
+                    ) { current ->
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .fillMaxHeight()
+                                .verticalScroll(rememberScrollState())
+                        ) {
+                            when (current) {
+                                RuntimeKind.Java -> JavaVersion.entries.forEach { version ->
+                                    RuntimeVersionRow(
+                                        label = version.displayName,
+                                        note = null,
+                                        status = null,
+                                        selected = version == pendingJava,
+                                        onClick = { pendingJava = version }
+                                    )
+                                }
+                                RuntimeKind.Php -> PhpVersion.entries.forEach { version ->
+                                    val installed = version in installedPhp
+                                    RuntimeVersionRow(
+                                        label = version.displayName,
+                                        note = version.noteRes?.let { stringResource(it) },
+                                        status = if (installed) stringResource(R.string.env_php_installed)
+                                        else stringResource(R.string.env_php_not_installed),
+                                        statusColor = if (installed) Mint else Muted,
+                                        selected = version == pendingPhp,
+                                        onClick = { pendingPhp = version }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                // 单次原子写入运行模式 + 两个版本。
+                // 不能拆成 setRuntimeKind()/setPhpVersion() 两次调用：config 落盘有 300ms debounce，
+                // 第二次调用读到的仍是旧快照，会把刚写入的 runtimeKind 覆盖回 Java。
+                vm.applyRuntimeSelection(kind, pendingJava, pendingPhp)
+                onDismiss()
+            }) {
+                Text(stringResource(R.string.runtime_picker_apply), color = Indigo, fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.env_cancel), color = Muted)
+            }
+        }
+    )
+}
+
+/** 弹窗里的单个版本行：选中态用 Mint 边框 + 淡底，点击立即反馈 */
+@Composable
+private fun RuntimeVersionRow(
+    label: String,
+    note: String?,
+    status: String?,
+    statusColor: Color = Muted,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) Mint.copy(alpha = 0.12f) else Color.Transparent)
+            .border(
+                width = if (selected) 1.5.dp else 0.dp,
+                color = if (selected) Mint else Color.Transparent,
+                shape = RoundedCornerShape(10.dp)
+            )
+            .clickable { onClick() }
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(
+                label,
+                fontSize = 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (selected) Mint else Color.Unspecified
+            )
+            note?.let {
+                Text(it, color = Muted, fontSize = 10.sp)
+            }
+        }
+        status?.let {
+            Text(it, color = statusColor, fontSize = 11.sp)
         }
     }
 }

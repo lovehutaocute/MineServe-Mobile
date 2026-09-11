@@ -1,5 +1,6 @@
 package com.mineserve.mobile.ui.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -15,11 +16,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -35,12 +39,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mineserve.mobile.R
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.PhpVersion
 import com.mineserve.mobile.data.StepStatus
 import com.mineserve.mobile.ui.BackBar
 import com.mineserve.mobile.ui.McCard
@@ -58,6 +64,7 @@ import kotlinx.coroutines.flow.map
 const val ENV_TAB_JAVA = 0
 const val ENV_TAB_DEPS = 1
 const val ENV_TAB_TERMUX = 2
+const val ENV_TAB_PHP = 3
 
 /**
  * 依赖与环境管理：Java 版本 / 依赖 / Termux 环境三组模块，
@@ -65,11 +72,12 @@ const val ENV_TAB_TERMUX = 2
  */
 @Composable
 fun EnvManagerScreen(vm: McViewModel, initialTab: Int, onBack: () -> Unit) {
-    var tab by remember { mutableStateOf(initialTab.coerceIn(0, 2)) }
+    var tab by remember { mutableStateOf(initialTab.coerceIn(0, 3)) }
     var confirmText by remember { mutableStateOf<String?>(null) }
     var confirmAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
+    LaunchedEffect(Unit) { vm.refreshPhp() }
     LaunchedEffect(Unit) {
         vm.errorFlow.collectLatest { snackbarHostState.showSnackbar(it) }
     }
@@ -96,7 +104,8 @@ fun EnvManagerScreen(vm: McViewModel, initialTab: Int, onBack: () -> Unit) {
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 FilterChip(
                     selected = tab == ENV_TAB_JAVA,
@@ -113,7 +122,14 @@ fun EnvManagerScreen(vm: McViewModel, initialTab: Int, onBack: () -> Unit) {
                     onClick = { tab = ENV_TAB_TERMUX },
                     label = { Text(stringResource(R.string.env_tab_termux)) }
                 )
+                // 四个原有按钮：PHP 版本自成一个分类
+                FilterChip(
+                    selected = tab == ENV_TAB_PHP,
+                    onClick = { tab = ENV_TAB_PHP },
+                    label = { Text(stringResource(R.string.env_tab_php)) }
+                )
             }
+
             Column(
                 Modifier
                     .fillMaxSize()
@@ -124,6 +140,7 @@ fun EnvManagerScreen(vm: McViewModel, initialTab: Int, onBack: () -> Unit) {
                 when (tab) {
                     ENV_TAB_JAVA -> JavaModule(vm, ::requestConfirm)
                     ENV_TAB_DEPS -> DependenciesModule(vm, ::requestConfirm)
+                    ENV_TAB_PHP -> PhpModule(vm, ::requestConfirm)
                     else -> TermuxModule(vm, ::requestConfirm)
                 }
             }
@@ -304,6 +321,166 @@ private fun DependenciesModule(vm: McViewModel, requestConfirm: (String, () -> U
             },
             onReinstall = { vm.reinstallDependencies() },
             onInstall = { vm.installDependencies() }
+        )
+    }
+}
+
+// ── PHP 运行环境（PocketMine-MP 专用）──────────────────────────
+
+/**
+ * PocketMine-MP 用 PHP 运行，不依赖 Java。
+ *
+ * PMMP 官方不发布 Linux ARM64 的 PHP 构建，这里统一管理社区 Android 原生构建
+ * （aarch64 PM5，含 chunkutils2 / encoding / leveldb / pmmpthread 等必需扩展），
+ * 下载到 home/php-pmmp/，多个 PocketMine 服务器共享同一份。
+ */
+@Composable
+private fun PhpModule(vm: McViewModel, requestConfirm: (String, () -> Unit) -> Unit) {
+    val isBootstrapped by vm.isBootstrapped.collectAsState()
+    val isInstalling by vm.isInstalling.collectAsState()
+    val serverState by vm.serverState.collectAsState()
+    val installedPhp by vm.installedPhp.collectAsState()
+    val selectedPhpVersion by vm.selectedPhpVersion.collectAsState()
+    val busy = isInstalling || serverState.isRunning
+    val phpUninstallConfirm = stringResource(R.string.env_php_uninstall_confirm)
+
+    LaunchedEffect(Unit) { vm.refreshPhp() }
+
+    // ── 版本选择（PHP 分类内一行）：点开选择 PHP 版本 ──
+    var showPhpVersionDialog by remember { mutableStateOf(false) }
+    McCard(title = stringResource(R.string.env_php_version_title)) {
+        Text(stringResource(R.string.env_php_version_desc), color = Muted, fontSize = 11.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .border(1.dp, Indigo.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
+                .clickable { showPhpVersionDialog = true }
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    selectedPhpVersion.displayName,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Indigo
+                )
+                selectedPhpVersion.noteRes?.let { note ->
+                    Text(stringResource(note), color = Muted, fontSize = 10.sp)
+                }
+            }
+            Text(
+                if (selectedPhpVersion in installedPhp) stringResource(R.string.env_php_installed)
+                else stringResource(R.string.env_php_not_installed),
+                color = if (selectedPhpVersion in installedPhp) Mint else Muted,
+                fontSize = 11.sp
+            )
+            Spacer(Modifier.width(6.dp))
+            Icon(
+                Icons.Outlined.KeyboardArrowDown,
+                contentDescription = stringResource(R.string.env_php_version_title),
+                tint = Indigo,
+                modifier = Modifier.size(16.dp)
+            )
+        }
+    }
+
+    if (showPhpVersionDialog) {
+        AlertDialog(
+            onDismissRequest = { showPhpVersionDialog = false },
+            title = { Text(stringResource(R.string.env_php_version_title), fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text(stringResource(R.string.env_php_version_desc), color = Muted, fontSize = 11.sp)
+                    Spacer(Modifier.height(8.dp))
+                    // 版本数据来自 PhpVersion 枚举，与启动控制卡片的运行环境列表共用同一份状态
+                    PhpVersion.entries.forEach { version ->
+                        val installed = version in installedPhp
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    vm.setPhpVersion(version)
+                                    showPhpVersionDialog = false
+                                }
+                                .padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    version.displayName,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (version == selectedPhpVersion) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (version == selectedPhpVersion) Indigo else androidx.compose.ui.graphics.Color.Unspecified
+                                )
+                                version.noteRes?.let { note ->
+                                    Text(stringResource(note), color = Muted, fontSize = 10.sp)
+                                }
+                            }
+                            Text(
+                                if (installed) stringResource(R.string.env_php_installed)
+                                else stringResource(R.string.env_php_not_installed),
+                                color = if (installed) Mint else Muted,
+                                fontSize = 11.sp
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showPhpVersionDialog = false }) {
+                    Text(stringResource(R.string.env_confirm_ok), color = Indigo)
+                }
+            }
+        )
+    }
+
+    // ── PHP 运行环境本体：安装 / 卸载 / 重装 ──
+    McCard(title = stringResource(R.string.env_php_title)) {
+        Text(stringResource(R.string.env_php_hint), color = Muted, fontSize = 11.sp)
+        Spacer(Modifier.height(8.dp))
+        if (serverState.isRunning) {
+            Text(stringResource(R.string.env_php_running_block), color = Coral, fontSize = 11.sp)
+            Spacer(Modifier.height(6.dp))
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                // 当前所选版本，与启动控制卡片的运行环境列表同源
+                Text(
+                    selectedPhpVersion.displayName,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Indigo
+                )
+                selectedPhpVersion.noteRes?.let { note ->
+                    Text(stringResource(note), color = Muted, fontSize = 10.sp)
+                }
+            }
+            Text(
+                if (selectedPhpVersion in installedPhp) stringResource(R.string.env_php_installed)
+                else stringResource(R.string.env_php_not_installed),
+                color = if (selectedPhpVersion in installedPhp) Mint else Muted,
+                fontSize = 11.sp
+            )
+            if (isInstalling) {
+                Spacer(Modifier.width(8.dp))
+                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Indigo)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        ActionButtonsRow(
+            uninstallEnabled = !busy && (selectedPhpVersion in installedPhp),
+            reinstallEnabled = !busy && isBootstrapped && (selectedPhpVersion in installedPhp),
+            installEnabled = !busy && isBootstrapped && (selectedPhpVersion !in installedPhp),
+            onUninstall = {
+                requestConfirm(phpUninstallConfirm) { vm.deletePhp(selectedPhpVersion) }
+            },
+            onReinstall = {
+                requestConfirm(phpUninstallConfirm) { vm.deletePhp(selectedPhpVersion) }
+            },
+            onInstall = { vm.installPhp(selectedPhpVersion) }
         )
     }
 }

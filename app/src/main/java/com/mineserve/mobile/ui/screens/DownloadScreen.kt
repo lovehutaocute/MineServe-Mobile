@@ -27,10 +27,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -153,17 +157,55 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_download), title = stringResource(R.string.s450))
 
-            // 当前下载状态
-            McCard(title = stringResource(R.string.s451), compact = true) {
+            // 当前下载状态（已安装核心列表，默认折叠，展开状态持久化）
+            val prefs = context.getSharedPreferences("mc_config_meta", android.content.Context.MODE_PRIVATE)
+            var installedExpanded by remember {
+                mutableStateOf(prefs.getBoolean("download_installed_cores_expanded", false))
+            }
+            McCard(
+                title = stringResource(R.string.s451),
+                compact = true,
+                trailing = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clickable {
+                                installedExpanded = !installedExpanded
+                                prefs.edit()
+                                    .putBoolean("download_installed_cores_expanded", installedExpanded)
+                                    .apply()
+                            }
+                            .padding(horizontal = 8.dp, vertical = 14.dp)
+                    ) {
+                        Text(
+                            stringResource(
+                                if (installedExpanded) R.string.dl_installed_collapse
+                                else R.string.dl_installed_expand
+                            ),
+                            color = Muted,
+                            fontSize = 9.sp
+                        )
+                        Icon(
+                            if (installedExpanded) Icons.Outlined.KeyboardArrowUp
+                            else Icons.Outlined.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = Muted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            ) {
                 val installed = config.installedCores
-                if (installed.isEmpty()) {
-                    Text(
-                        stringResource(R.string.s452),
-                        color = Muted,
-                        fontSize = 13.sp
-                    )
-                } else {
-                    installed.forEach { core ->
+                androidx.compose.animation.AnimatedVisibility(visible = installedExpanded) {
+                    Column {
+                        if (installed.isEmpty()) {
+                            Text(
+                                stringResource(R.string.s452),
+                                color = Muted,
+                                fontSize = 13.sp
+                            )
+                        } else {
+                            installed.forEach { core ->
                         val versionText = "${core.core.displayName} ${core.version}" +
                             (if (core.core == ServerCore.PowerNukkitX) {
                                 stringResource(R.string.dl_supported_game, versionHints[core.version] ?: stringResource(R.string.dl_official_unknown))
@@ -223,6 +265,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                             ) { Text(stringResource(R.string.s339), color = Coral, fontSize = 11.sp) }
                         }
                     }
+                    }
                 }
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -231,6 +274,7 @@ fun DownloadScreen(vm: McViewModel, onShowDownloadHelp: () -> Unit = {}) {
                     fontSize = 11.sp
                 )
             }
+}
 
             // 选择核心类型
             McCard(

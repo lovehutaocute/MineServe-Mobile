@@ -6,21 +6,22 @@
 
 **在安卓手机上直接运行 Minecraft 服务端，无需 root。**
 
-[English](./README.md) · [架构文档](./ARCHITECTURE.md) · [更新日志](./CHANGELOG.md)
+[English](./README.md) · [架构文档](./ARCHITECTURE.md) · [更新日志](./CHANGELOG.md) · [自动任务梳理](./docs/AUTOMATION-TASKS.md)
 
 </div>
 
-MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraft Java 版服务端，也支持 PowerNukkitX 基岩版核心。它提供多核心管理、插件与模组管理、Modrinth 对接、内网穿透、自动备份、崩溃报告、后台保活、MCP 远程管理，以及免 Root 数据访问。
+MineServe Mobile 是一款 Android 原生应用，可在手机上运行 Minecraft Java 版服务端，并通过 PowerNukkitX、PocketMine-MP、Allay 支持基岩版。它提供多核心管理、插件与模组管理、Modrinth 对接、内网穿透、自动备份、崩溃报告、后台保活、MCP 远程管理，以及免 Root 数据访问。
 
 ## ✨ 特性
 
 - **无需 root**：内置 Termux bootstrap 运行时；Java 17/21/25 直接运行，旧版 Java 8 服务端使用 ARM64 Ubuntu PRoot。
+- **运行环境可选**：Java 与 PHP 两套运行时并存，在界面上选定后启动时即按所选环境执行；PocketMine-MP 使用内置的原生 PHP 运行时，其余核心走 JVM。
 - **16 类核心**：Paper、Purpur、Leaves、Leaf、Spigot、CraftBukkit、Fabric、Forge、NeoForge、Quilt、Vanilla、Velocity、BungeeCord、PowerNukkitX、PocketMine-MP、Allay。
 - **多核心管理**：多个服务器隔离存放，一键切换；世界、配置、插件和模组互不干扰。
 - **导入服务器**：文件夹、压缩包、单个 JAR 与 Modrinth `.mrpack` 独立导入入口，自动识别核心和版本。
 - **插件与模组**：扫描、启停、SAF 上传、URL 安装和 Modrinth 搜索下载。
 - **内网穿透**：frp 与 bore；概览页展示局域网和公网地址。
-- **备份与崩溃报告**：世界/整服备份、SAF 导出；异常退出保存最近日志与原生报告，并汇总已安装服务器的原生崩溃报告。
+- **备份与崩溃报告**：世界/整服备份、SAF 导出；异常退出保存关键日志片段与原生报告，并汇总已安装服务器的原生崩溃报告。报告会完整保留 Watchdog / 线程栈等关键片段，不会被截断。
 - **后台保活**：前台服务、唤醒锁、开机自启、周期检查和可选状态悬浮条。
 - **MCP 远程管理**：内嵌 Model Context Protocol 服务器（Streamable HTTP），局域网内 AI 助手可查询状态、开关服、发控制台命令、读日志；Bearer 令牌鉴权。
 - **Material 3 UI**：Jetpack Compose 构建，紧凑核心选择和版本列表。
@@ -78,10 +79,12 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ### 🧩 服务端核心与下载
 
-- 版本列表从各核心的官方 API 获取；支持自定义版本字符串。
+- 版本列表**全部**从各核心官方 API 实时获取（含 Fabric、Forge、NeoForge、Quilt），上游一发布新版本即可检测到；同时支持自定义版本字符串。
 - 下载页默认显示最近 8 个版本，可展开完整列表。
 - 切换核心会立即清空旧版本，并忽略晚到的旧请求结果。
 - Forge、NeoForge、Quilt 会在下载后执行对应 installer。
+- 版本排序按数字段比较，`26.2` 能正确排在 `1.21.11` 之前。
+- 核心名称不允许重名，重名会在下载前直接拦截。
 
 ### 📥 导入服务器与整合包
 
@@ -97,17 +100,26 @@ APK 位于 `app/build/outputs/apk/debug/`。
 - 彩色 MC 终端、快捷指令、日志复制和智能自动滚动。
 - 实时展示运行时长、在线玩家、TPS 与内存等服务状态。
 
+### ⚙️ 运行环境
+
+- 概览页的「运行环境」入口可切换 Java / PHP，并列出该环境下的可用版本。
+- **你的选择完全生效**，应用不会私自改写。若所选环境与当前核心不匹配，启动时会明确提示，而不是悄悄替你更换。
+- Java 17/21/25 安装到 Termux 运行时；旧版 Java 8 服务端使用 ARM64 Ubuntu PRoot。
+- PHP 运行时为 Android aarch64 原生构建，含 PocketMine-MP 必需扩展，约 10MB 按需下载，多个 PocketMine 服务端共享同一份。
+- 环境与依赖管理页把 Java、依赖、Termux 环境、PHP 分为独立分类，各自提供安装/卸载与实时状态。
+
 ### 🔌 插件、模组与文件
 
 - 插件和模组扫描、启停、删除、SAF 上传、URL 安装。
 - Modrinth 搜索与按 Minecraft 版本、加载器匹配下载。
 - 浏览服务端文件、创建目录、编辑文本、导入导出与整服压缩备份。
 - 通过内置 DocumentsProvider，兼容的文件管理器可在免 Root 条件下访问应用数据。
+- 服务端配置按核心区分检测：Java 系读取 `server.properties`，PowerNukkitX 读取 `pnx.yml`。首次启动生成之前，页面给出引导提示，而不是展示一个空的可编辑表单。
 
 ### 💾 备份、崩溃与网络
 
 - 主世界、地狱、末地的快照备份、还原、删除和 SAF 导出。
-- 异常退出时保存 `latest.log` 最后 200 行和最新原生报告；报告页面汇总全部服务器的原生 `crash-reports/` 并提供离线分析。
+- 异常退出时保存关键日志片段（Watchdog 转储、异常栈、致命错误）与 `latest.log` 最后 800 行，并附最新原生报告；报告页面汇总全部服务器的原生 `crash-reports/` 并提供离线分析。
 - frp 与 bore 隧道支持；局域网地址和公网地址均可一键复制。
 
 ### 🛡️ 后台保活
@@ -119,7 +131,7 @@ APK 位于 `app/build/outputs/apk/debug/`。
 
 ## 📱 手机是如何运行 MC 服务端的？
 
-首次初始化时，应用会在私有目录部署 Termux 兼容运行时和 Java。Java 17/21/25 服务端通过 Android shell 启动；需要 Java 8 的旧服务端则在 ARM64 Ubuntu PRoot 中运行。服务端始终是应用管理的普通 Java 子进程，不需要 Root。
+首次初始化时，应用会在私有目录部署 Termux 兼容运行时和 Java。Java 17/21/25 服务端通过 Android shell 启动；需要 Java 8 的旧服务端则在 ARM64 Ubuntu PRoot 中运行；PocketMine-MP 则由内置的原生 PHP 运行时执行。它们都是应用管理的普通子进程，不需要 Root。
 
 控制台命令写入进程 stdin，输出实时显示并保存为 `logs/latest.log`。服务端监听手机正常网络端口：局域网使用手机 IP 连接；公网则依赖隧道或端口映射，无法绕过 NAT、CGNAT 和防火墙。
 

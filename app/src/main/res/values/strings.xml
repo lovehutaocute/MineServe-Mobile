@@ -1078,6 +1078,8 @@
     <string name="s1052">群号：593682033</string>
     <string name="s1053">点击加入 QQ 交流群，获取最新动态、问题反馈与使用帮助</string>
     <string name="s1054">加入群聊</string>
+    <string name="qq_group_label">QQ 群号</string>
+    <string name="qq_copy_group">复制</string>
     <string name="s1055">已为 %1$s 添加 OP（默认等级）</string>
     <string name="s1056">已为 %1$s 设置 OP（等级 %2$s），重启后生效</string>
     <string name="s1057">当前镜像源：%1$s</string>
@@ -1633,9 +1635,14 @@
     <string name="pnx_enable_status">启用查询</string>
     <string name="props_back_title">服务器配置</string>
     <string name="props_no_core">请先下载并选择一个服务端核心。</string>
+    <string name="props_not_generated_title">配置尚未生成</string>
+    <string name="props_not_generated_desc">server.properties 会在服务端首次启动时自动生成。当前无可编辑的配置内容。</string>
+    <string name="props_not_generated_hint">建议先启动一次服务端，待其生成完整配置后再回来修改，可避免手动配置与服务端默认值不一致。</string>
+    <string name="props_not_generated_running">服务端正在运行，配置生成后可点击下方按钮刷新。</string>
+    <string name="props_not_generated_start">立即启动服务端</string>
+    <string name="props_not_generated_refresh">刷新配置状态</string>
     <string name="props_pnx_back">基岩版配置</string>
-    <string name="props_pnx_title">基岩版服务器配置</string>
-    <string name="props_pnx_source">配置来源为 pnx.yml。端口会同步保存到 server.properties；其他未列出内容保持原样。</string>
+    <string name="props_pnx_title">基岩版服务器配置</string>    <string name="props_pnx_source">配置来源为 pnx.yml。端口会同步保存到 server.properties；其他未列出内容保持原样。</string>
     <string name="props_advanced">高级</string>
     <string name="props_advanced_hint">未确认的高级 YAML 项不会在此编辑，避免覆盖 PowerNukkitX 的原始配置。</string>
     <string name="props_save">保存配置</string>
@@ -1787,6 +1794,7 @@
     <string name="env_tab_java">Java 版本</string>
     <string name="env_tab_deps">依赖</string>
     <string name="env_tab_termux">Termux</string>
+    <string name="env_tab_php">PHP</string>
     <string name="env_uninstall">卸载</string>
     <string name="env_reinstall">重装</string>
     <string name="env_install">安装</string>
@@ -1847,4 +1855,52 @@
     <string name="sakura_guide_3_d">在列表中点选一条指向本机 MC 端口的隧道（也可点「创建隧道」新建）</string>
     <string name="sakura_guide_4_t">启动隧道</string>
     <string name="sakura_guide_4_d">点击「启动隧道」，应用会自动拉取官方配置并启动 frpc</string>
+
+    <!-- ③ 下载核心重名拦截 -->
+    <string name="dl_duplicate_name">已存在同名服务器「%1$s」，请换一个名称（同名会导致列表无法区分，且容易误操作覆盖同一目录）。</string>
+
+    <!-- ④ PNX 配置文件尚未生成 -->
+    <string name="props_pnx_not_generated_desc">pnx.yml 会在 PowerNukkitX 首次启动时自动生成。当前无可编辑的配置内容。</string>
+    <string name="props_pnx_not_generated_hint">建议先启动一次服务端，待其写出完整 pnx.yml 后再回来修改，可避免手动配置与服务端默认值不一致。</string>
+
+    <!-- ⑤ 已安装核心列表折叠 -->
+    <string name="dl_installed_expand">展开</string>
+    <string name="dl_installed_collapse">收起</string>
+
+    <!-- ⑥ 文件页顶部三个按钮统一折叠 -->
+    <string name="files_actions_collapsed_hint">教程 / MT管理器 / 导出服务器 已收起</string>
+
+    <!-- ①② PHP 依赖分类（PocketMine-MP 专用运行环境） -->
+    <string name="env_php_title">PHP 运行环境</string>
+    <string name="env_php_hint">PocketMine-MP 用 PHP 运行，不依赖 Java。运行时为 Android 原生构建（aarch64，含 PMMP 必需扩展），下载后多个 PocketMine 服务器共享同一份。</string>
+    <string name="env_php_installed">已安装</string>
+    <string name="env_php_not_installed">未安装</string>
+    <string name="env_php_running_block">服务端运行中，请先停止服务端再操作 PHP 运行环境。</string>
+    <string name="env_php_uninstall_confirm">将直接删除 home/php-pmmp 目录下的 PHP 运行环境。PocketMine 服务端下次启动会重新下载（约 10MB）。此操作不可撤销。</string>
+    <string name="msg_php_installing">正在下载 PHP 运行环境…</string>
+    <string name="msg_php_op_installing">正在安装 PHP 运行环境</string>
+    <string name="msg_php_op_deleting">正在卸载 PHP 运行环境</string>
+    <string name="msg_php_installed">%1$s 运行环境安装完成</string>
+    <string name="msg_php_deleted">%1$s 运行环境已删除</string>
+    <string name="msg_php_running">服务端运行中，无法操作 PHP 运行环境</string>
+    <string name="err_php_install_fail">%1$s 运行环境安装失败，请检查网络后重试</string>
+    <string name="err_php_delete_fail">%1$s 运行环境删除失败</string>
+
+    <!-- PHP 版本选择（环境与依赖管理顶部入口，与启动控制卡片同源） -->
+    <string name="env_php_version_picker">PHP 版本：%1$s</string>
+    <string name="env_php_version_title">选择 PHP 版本</string>
+    <string name="env_php_version_desc">PocketMine-MP 对 PHP 版本有硬性要求，目前上游只提供以下构建。</string>
+    <string name="php_note_pmmp_required">PocketMine-MP 5 要求的运行时（内置 pmmp/ext-encoding 0.4.x）</string>
+
+    <!-- 启动控制卡片：运行环境 -->
+    <string name="dash_runtime_env">运行环境</string>
+    <string name="dash_runtime_java">Java</string>
+    <string name="dash_runtime_php">PHP</string>
+    <string name="dash_php_not_installed_note">PHP 运行环境尚未安装，启动 PocketMine 服务端时会自动下载。</string>
+
+    <!-- 运行环境选择弹窗 -->
+    <string name="runtime_picker_title">选择运行环境</string>
+    <string name="runtime_picker_apply">确定</string>
+    <string name="runtime_picker_mismatch">注意：当前核心更适配 %1$s 环境。你的选择会完全生效，启动时不再自动更改。</string>
+    <string name="err_runtime_kind_mismatch">核心 %1$s 需要 %2$s 运行环境，请在「运行环境」中切换后重试。</string>
 </resources>

@@ -14,6 +14,8 @@ import com.mineserve.mobile.service.McForegroundService
 import android.net.Uri
 import com.mineserve.mobile.data.McConfig
 import com.mineserve.mobile.data.JavaVersion
+import com.mineserve.mobile.data.PhpVersion
+import com.mineserve.mobile.data.RuntimeKind
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.data.MinecraftVersionNormalizer
 import com.mineserve.mobile.data.ServerRepository
@@ -822,6 +824,7 @@ class McViewModel(
                 }
                 refreshJava()
                 refreshDependencies()
+                refreshPhp()
                 _messageFlow.tryEmit(str(R.string.msg_repair_done))
             } catch (e: Exception) {
                 _errorFlow.tryEmit(e.message ?: str(R.string.msg_repair_fail))
@@ -1002,6 +1005,11 @@ class McViewModel(
         private const val MAX_LOG_LINES = 1500
         private const val LOG_FLUSH_MS = 200L
         private const val CONSOLE_PREVIEW_FLUSH_MS = 750L
+        /**
+         * 配置合并窗口：略大于 ServerRepository 的 300ms debounce。
+         * 窗口内的连续 updateConfig 会以前一次结果为基准叠加，避免互相覆盖。
+         */
+        private const val PENDING_WINDOW_MS = 800L
         /** 下载阶段锁定超时：60 秒无 post-download 消息则强制解锁 */
         private const val DOWNLOAD_LOCK_TIMEOUT_MS = 60_000L
         // 预编译正则，避免每行重新编译
@@ -1178,10 +1186,30 @@ class McViewModel(
         }
     }
 
+    /**
+     * 待写入的配置快照（仅在 debounce 窗口内有意义）。
+     *
+     * 消除 read-modify-write 竞态：config 落盘带 300ms debounce，若连续两次 updateConfig，
+     * 第二次读到的 config.value 仍是旧值，会把第一次的改动整体覆盖掉
+     * （典型表现：切到 PHP 后 runtimeKind 又被写回 Java）。
+     */
+    @Volatile
+    private var pendingConfig: McConfig? = null
+
+    @Volatile
+    private var pendingUntilMs: Long = 0L
+
+    @Synchronized
     fun updateConfig(transform: (McConfig) -> McConfig) {
+        // debounce 窗口内的连续修改，基准取上一次的意图值，保证叠加而非互相覆盖
+        val now = System.currentTimeMillis()
+        val base = pendingConfig?.takeIf { now < pendingUntilMs } ?: config.value
+        val updated = transform(base)
+        pendingConfig = updated
+        pendingUntilMs = now + PENDING_WINDOW_MS
         viewModelScope.launch {
             try {
-                repo.saveConfig(transform(config.value))
+                repo.saveConfig(updated)
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s191, e.message))
             }
@@ -1271,6 +1299,145 @@ class McViewModel(
 
     fun setJavaVersion(version: JavaVersion) = updateConfig {
         it.copy(selectedJavaVersion = version)
+    }
+
+    // ── PocketMine-MP 专用 PHP 运行时 ─────────────────────────────
+    //
+    // PMMP 用 PHP 运行（不是 Java），首次启动时按需下载。
+    // 依赖管理页的「PHP 版本选择」与启动控制卡片的运行环境列表共用这一份状态。
+
+    private val _installedPhp = MutableStateFlow<Set<PhpVersion>>(emptySet())
+    val installedPhp: StateFlow<Set<PhpVersion>> = _installedPhp.asStateFlow()
+
+    /** 当前所选 PHP 版本（来自 config，配置未加载时回退默认） */
+    val selectedPhpVersion: StateFlow<PhpVersion> = config
+        .map { it.selectedPhpVersion }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, PhpVersion.Default)
+
+    /** 当前 PHP 版本是否已安装 */
+    val phpInstalled: StateFlow<Boolean> = combine(_installedPhp, selectedPhpVersion) { installed, selected ->
+        selected in installed
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
+    fun refreshPhp() {
+        if (!isBootstrapped.value) { _installedPhp.value = emptySet(); return }
+        viewModelScope.launch(Dispatchers.IO) {
+            _installedPhp.value = repo.termuxRuntime.installedPhpVersions()
+        }
+    }
+
+    /** 选择 PHP 版本（依赖管理页与启动控制卡片共用） */
+    fun setPhpVersion(version: PhpVersion) = updateConfig { it.copy(selectedPhpVersion = version) }
+
+    /** 安装指定 PHP 运行环境（~10MB，含 PMMP 必需扩展） */
+    fun installPhp(version: PhpVersion = config.value.selectedPhpVersion) {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        if (repo.termuxRuntime.isMcRunning()) {
+            _errorFlow.tryEmit(str(R.string.msg_php_running))
+            return
+        }
+        _isInstalling.value = true
+        _javaOperation.value = str(R.string.msg_php_op_installing)
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) {
+                    repo.termuxRuntime.installPhp(version) { line -> repo.termuxRuntime.emitLog(line) }
+                }
+                refreshPhp()
+                if (ok) _messageFlow.tryEmit(str(R.string.msg_php_installed, version.displayName))
+                else _errorFlow.tryEmit(str(R.string.err_php_install_fail, version.displayName))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(e.message ?: str(R.string.err_php_install_fail, version.displayName))
+            } finally {
+                _javaOperation.value = null
+                _isInstalling.value = false
+            }
+        }
+    }
+
+    /** 卸载指定 PHP 运行环境（直接删除对应目录，PocketMine 下次启动会重新下载） */
+    fun deletePhp(version: PhpVersion = config.value.selectedPhpVersion) {
+        if (!isBootstrapped.value || _isInstalling.value) return
+        _isInstalling.value = true
+        _javaOperation.value = str(R.string.msg_php_op_deleting)
+        viewModelScope.launch {
+            try {
+                val ok = withContext(Dispatchers.IO) { repo.termuxRuntime.deletePhp(version) }
+                refreshPhp()
+                if (ok) _messageFlow.tryEmit(str(R.string.msg_php_deleted, version.displayName))
+                else _errorFlow.tryEmit(str(R.string.err_php_delete_fail, version.displayName))
+            } catch (e: Exception) {
+                _errorFlow.tryEmit(e.message ?: str(R.string.err_php_delete_fail, version.displayName))
+            } finally {
+                _javaOperation.value = null
+                _isInstalling.value = false
+            }
+        }
+    }
+
+    // ── 运行模式（Java / PHP）─────────────────────────────────────
+    //
+    // 运行模式完全由用户决定，不再被核心类型反向纠正。
+    // 用户选了 PHP，就用 PHP；选了 Java，就用 Java —— 即便当前核心是 PocketMine
+    // （反之亦然）。启动时若所选运行时与该核心不匹配，由启动流程给出明确报错，
+    // 而不是悄悄替用户改掉选择。
+
+    /**
+     * 切换运行模式。
+     *
+     * 立即写入 config（UI 会自动重组刷新运行环境按钮与版本列表，无需刷新页面），
+     * 并确保当前所选版本属于该模式 —— 不属于时回退到该模式的默认版本。
+     */
+    fun setRuntimeKind(kind: RuntimeKind) {
+        updateConfig { cfg ->
+            when (kind) {
+                RuntimeKind.Java -> {
+                    // Java 模式下 selectedJavaVersion 本身就是 JavaVersion，天然合法，
+                    // 只需保证 runtimeKind 落位。
+                    cfg.copy(runtimeKind = RuntimeKind.Java)
+                }
+                RuntimeKind.Php -> {
+                    val valid = cfg.selectedPhpVersion.takeIf { it in PhpVersion.entries } ?: PhpVersion.Default
+                    cfg.copy(runtimeKind = RuntimeKind.Php, selectedPhpVersion = valid)
+                }
+            }
+        }
+    }
+
+    /**
+     * 一次性写入运行模式与对应版本。
+     *
+     * **必须用这个方法来设置运行环境**：`setRuntimeKind` 与 `setJavaVersion`/`setPhpVersion`
+     * 是两次独立的 read-modify-write，而 config 的落盘带 300ms debounce，
+     * 第二次调用读到的 config.value 仍是旧快照，会把第一次写入的 runtimeKind 覆盖掉
+     * （表现为「切到 PHP 后按钮又变回 Java」）。这里合并为单次 copy，杜绝竞态。
+     */
+    fun applyRuntimeSelection(kind: RuntimeKind, javaVersion: JavaVersion, phpVersion: PhpVersion) {
+        updateConfig { cfg ->
+            cfg.copy(
+                runtimeKind = kind,
+                selectedJavaVersion = javaVersion.takeIf { it in JavaVersion.entries } ?: JavaVersion.Java17,
+                selectedPhpVersion = phpVersion.takeIf { it in PhpVersion.entries } ?: PhpVersion.Default
+            )
+        }
+    }
+
+    /**
+     * 校验运行模式与当前核心是否匹配，返回不匹配时的提示文案，匹配则返回 null。
+     *
+     * 只用于启动前提醒，**不修改**用户的任何选择 —— 用户选择优先。
+     */
+    fun runtimeKindMismatchMessage(): String? {
+        val cfg = config.value
+        val core = cfg.installedCores.firstOrNull { it.name == cfg.activeCoreName } ?: return null
+        val required = if (core.core == ServerCore.PocketMine) RuntimeKind.Php else RuntimeKind.Java
+        if (cfg.runtimeKind == required) return null
+        val requiredLabel = when (required) {
+            RuntimeKind.Java -> str(R.string.dash_runtime_java)
+            RuntimeKind.Php -> str(R.string.dash_runtime_php)
+        }
+        return str(R.string.err_runtime_kind_mismatch, core.name, requiredLabel)
     }
 
     fun setJavaCardAtBottom(atBottom: Boolean) =
@@ -1484,6 +1651,11 @@ class McViewModel(
     fun startServer() {
         if (!isBootstrapped.value) {
             _errorFlow.tryEmit(str(R.string.s192))
+            return
+        }
+        // 运行模式由用户选择，启动前只做一致性校验：不匹配就报错，绝不替用户改选择。
+        runtimeKindMismatchMessage()?.let {
+            _errorFlow.tryEmit(it)
             return
         }
         viewModelScope.launch {
@@ -2733,14 +2905,30 @@ class McViewModel(
     private val _serverProperties = MutableStateFlow<Map<String, String>>(emptyMap())
     val serverProperties: StateFlow<Map<String, String>> = _serverProperties.asStateFlow()
 
-    /** 加载 server.properties */
+    /**
+     * 配置文件当前是否已生成（服务端首次启动后才会由服务端写出）。
+     *
+     * null 表示尚未检测完成，UI 应展示加载态而非误判为"未生成"。
+     */
+    private val _serverPropertiesExist = MutableStateFlow<Boolean?>(null)
+    val serverPropertiesExist: StateFlow<Boolean?> = _serverPropertiesExist.asStateFlow()
+
+    /** 加载 server.properties，并同步更新配置文件是否已生成的状态 */
     fun loadServerProperties() {
         if (!isBootstrapped.value) return
         val dirName = activeDirName() ?: return
         viewModelScope.launch {
             try {
+                val pnx = isPowerNukkitXActive()
+                // PNX 的真实配置是 pnx.yml，Java 系是 server.properties，两者要分别判定，
+                // 否则 PNX 下永远看 server.properties 的存在性，导致 pnx.yml 还没生成就放行表单。
+                val exists = withContext(Dispatchers.IO) {
+                    if (pnx) powerNukkitXConfigManager.exists(dirName)
+                    else propertiesManager.exists(dirName)
+                }
+                _serverPropertiesExist.value = exists
                 _serverProperties.value = withContext(Dispatchers.IO) {
-                    if (isPowerNukkitXActive()) powerNukkitXConfigManager.read(dirName)
+                    if (pnx) powerNukkitXConfigManager.read(dirName)
                     else propertiesManager.readProperties(dirName)
                 }
             } catch (e: Exception) {
@@ -3375,6 +3563,12 @@ class McViewModel(
             _errorFlow.tryEmit(str(R.string.s295))
             return
         }
+        // 重名拦截：重名会让列表里出现两个无法区分的条目，且历史上会共用同一目录。
+        // 这里在下载前直接拒绝，并提示改用别的名字（目录名即便被去重，显示名仍会撞车）。
+        controller.duplicateNameOf(customName, config.value)?.let { existing ->
+            _errorFlow.tryEmit(str(R.string.dl_duplicate_name, existing))
+            return
+        }
         _isDownloadingCore.value = true
         _downloadProgress.value = DownloadProgress()
         viewModelScope.launch {
@@ -3394,13 +3588,8 @@ class McViewModel(
 
     /** 选择要启动的核心（按名称） */
     fun setActiveCore(name: String) {
-        updateConfig {
-            val core = it.installedCores.firstOrNull { installed -> installed.name == name }
-            it.copy(
-                activeCoreName = name,
-                selectedJavaVersion = it.selectedJavaVersion
-            )
-        }
+        // 只切核心，不动运行模式 —— 运行模式由用户在「运行环境」弹窗里决定并完全生效。
+        updateConfig { it.copy(activeCoreName = name) }
     }
 
     /** 删除一个已安装的核心（按名称） */

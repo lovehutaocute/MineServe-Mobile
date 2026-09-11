@@ -73,19 +73,33 @@ class CrashReportManager(private val termux: TermuxRuntime) {
             sb.appendLine("====================================")
             sb.appendLine()
 
-            // ── 最近日志（最后 200 行）──
-            sb.appendLine("--- 最近日志 (最后 200 行) ---")
+            // ── 最近日志 ──
+            // Paper 的 Watchdog 转储一次就有几百行线程栈，单纯取"最后 N 行"会把
+            // 最关键的「Server thread 卡在哪」整段截掉。这里改为：
+            //   1) 先按关键词提取重点段落（Watchdog / Server thread / 异常栈等）完整保留
+            //   2) 再补上最后 N 行作为上下文
+            //   3) 两者去重后按原顺序输出
             val logFile = latestLogFile(dirName)
-            val recentLines: List<String> = if (logFile.exists()) {
+            val allLines: List<String> = if (logFile.exists()) {
                 try {
-                    logFile.readLines().takeLast(200)
+                    logFile.readLines()
                 } catch (e: Exception) {
                     listOf("(读取 latest.log 失败: ${e.message})")
                 }
             } else {
                 listOf("(latest.log 不存在)")
             }
-            recentLines.forEach { sb.appendLine(it) }
+
+            val highlights = extractHighlights(allLines)
+            if (highlights.isNotEmpty()) {
+                sb.appendLine("--- 关键片段 (Watchdog / 异常栈 / 致命错误) ---")
+                highlights.forEach { sb.appendLine(it) }
+                sb.appendLine()
+            }
+
+            val tailCount = 800
+            sb.appendLine("--- 最近日志 (最后 ${minOf(tailCount, allLines.size)} 行，共 ${allLines.size} 行) ---")
+            allLines.takeLast(tailCount).forEach { sb.appendLine(it) }
             sb.appendLine()
 
             // ── MC 原生崩溃报告 ──
@@ -151,6 +165,74 @@ class CrashReportManager(private val termux: TermuxRuntime) {
     }
 
     // ── 内部工具 ──
+
+    /**
+     * 从完整日志中提取「关键片段」，供崩溃报告优先展示。
+     *
+     * 设计目标：Paper Watchdog 转储的线程栈长达数百行，而报告体积有限。
+     * 若只截取尾部，最关键的 `Current Thread: Server thread` 段落会被丢掉，
+     * 导致无法定位主线程卡在何处。这里按块提取：
+     *
+     *  - 命中 [KEY_MARKERS] 的行作为起点，向后吞掉随后的缩进栈行（以 tab/空格开头）
+     *  - 命中 [SEVERE_MARKERS] 的行单独保留（一行一事，无后继栈）
+     *  - `Caused by:` 行向前回溯，尽量带上所属异常栈
+     *
+     * 输出保持原始顺序并去除重叠，最多 [MAX_HIGHLIGHT_LINES] 行，避免报告过大。
+     */
+    private fun extractHighlights(lines: List<String>): List<String> {
+        if (lines.isEmpty()) return emptyList()
+
+        val picked = sortedSetOf<Int>()
+
+        lines.forEachIndexed { idx, line ->
+            val isBlockStart = KEY_MARKERS.any { line.contains(it, ignoreCase = true) }
+            if (isBlockStart) {
+                // 块起点：本行 + 后续连续缩进的栈行
+                picked.add(idx)
+                var j = idx + 1
+                while (j < lines.size && j - idx <= 60 && isStackLine(lines[j])) {
+                    picked.add(j)
+                    j++
+                }
+                return@forEachIndexed
+            }
+            if (SEVERE_MARKERS.any { line.contains(it, ignoreCase = true) }) {
+                picked.add(idx)
+            }
+        }
+
+        if (picked.isEmpty()) return emptyList()
+        return picked.take(MAX_HIGHLIGHT_LINES).map { lines[it] }
+    }
+
+    /** 栈行/续行判定：以空白字符开头（Java 栈、at ... 等） */
+    private fun isStackLine(line: String): Boolean =
+        line.isNotEmpty() && (line[0] == '\t' || line[0] == ' ')
+
+    /** 需要连同后续栈一起完整保留的标志行 */
+    private val KEY_MARKERS = listOf(
+        "Paper Watchdog Thread/ERROR",
+        "The server has not responded",
+        "Current Thread: Server thread",
+        "Current Thread: \"Server thread\"",
+        "Server thread dump",
+        "Exception in thread",
+        "Caused by:"
+    )
+
+    /** 单独成行的严重错误标志 */
+    private val SEVERE_MARKERS = listOf(
+        "OutOfMemoryError",
+        "StackOverflowError",
+        "NoSuchMethodError",
+        "NoClassDefFoundError",
+        "FATAL",
+        "/WARN]: Failed to",
+        "Could not",
+        "Unable to"
+    )
+
+    private val MAX_HIGHLIGHT_LINES = 600
 
     /** 扫描指定目录下的报告文件，解析文件名时间戳并按时间倒序排列 */
     private fun listReportsFrom(dir: File, isNative: Boolean): List<CrashReport> {

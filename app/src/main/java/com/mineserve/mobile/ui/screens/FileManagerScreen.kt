@@ -153,13 +153,14 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
         ) {
             HeaderBlock(eyebrow = stringResource(R.string.eyebrow_files), title = stringResource(R.string.s488))
 
-            // MT 管理器 + 导出服务器（教程按钮可统一收起/展开，状态持久化）
+            // 教程 + MT 管理器 + 导出服务器（三个按钮统一收起/展开，状态持久化）
             val prefs = androidx.compose.ui.platform.LocalContext.current.getSharedPreferences(
                 "mc_config_meta", android.content.Context.MODE_PRIVATE
             )
             var topActionsExpanded by remember {
                 mutableStateOf(prefs.getBoolean("files_top_actions_expanded", true))
             }
+            // 折叠时只保留一行提示，三个入口一起收起，避免误点
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -167,22 +168,55 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(
-                    onClick = onOpenMtGuide,
-                    colors = ButtonDefaults.buttonColors(containerColor = Indigo),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(stringResource(R.string.s489), fontSize = 13.sp)
+                if (!topActionsExpanded) {
+                    Text(
+                        stringResource(R.string.files_actions_collapsed_hint),
+                        color = Muted,
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
-                OutlinedButton(
-                    onClick = { exportServerLauncher.launch(exportServerFileName) },
-                    shape = RoundedCornerShape(8.dp),
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = topActionsExpanded,
                     modifier = Modifier.weight(1f)
                 ) {
-                    Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.size(4.dp))
-                    Text(stringResource(R.string.s491), fontSize = 12.sp, color = Indigo)
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // 教程（在线播放，不打包进安装包）
+                        Button(
+                            onClick = {
+                                try {
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TUTORIAL_VIDEO_URL)))
+                                } catch (e: Exception) {
+                                    // 无浏览器/网络异常时静默
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.s492), fontSize = 12.sp, maxLines = 1)
+                        }
+                        Button(
+                            onClick = onOpenMtGuide,
+                            colors = ButtonDefaults.buttonColors(containerColor = Indigo),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(stringResource(R.string.s489), fontSize = 12.sp, maxLines = 1)
+                        }
+                        OutlinedButton(
+                            onClick = { exportServerLauncher.launch(exportServerFileName) },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Icon(Icons.Outlined.FileDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.size(4.dp))
+                            Text(stringResource(R.string.s491), fontSize = 12.sp, color = Indigo, maxLines = 1)
+                        }
+                    }
                 }
                 IconButton(
                     onClick = {
@@ -197,25 +231,6 @@ fun FileManagerScreen(vm: McViewModel, onOpenMtGuide: () -> Unit = {}) {
                         tint = Muted,
                         modifier = Modifier.size(20.dp)
                     )
-                }
-            }
-
-            // MT 管理器教程视频入口（在线播放，不打包进安装包）；随顶部快捷操作统一收起/展开
-            androidx.compose.animation.AnimatedVisibility(visible = topActionsExpanded) {
-                OutlinedButton(
-                    onClick = {
-                        try {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(TUTORIAL_VIDEO_URL)))
-                        } catch (e: Exception) {
-                            // 无浏览器/网络异常时静默
-                        }
-                    },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 2.dp)
-                ) {
-                    Text(stringResource(R.string.s492), fontSize = 12.sp, color = Indigo)
                 }
             }
 
