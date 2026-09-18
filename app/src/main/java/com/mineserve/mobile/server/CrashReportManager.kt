@@ -80,7 +80,8 @@ class CrashReportManager(private val termux: TermuxRuntime) {
             //   2) 再补上最后 N 行作为上下文
             //   3) 两者去重后按原顺序输出
             val logFile = latestLogFile(dirName)
-            val allLines: List<String> = if (logFile.exists()) {
+            val logExists = logFile.exists()
+            val allLines: List<String> = if (logExists) {
                 try {
                     logFile.readLines()
                 } catch (e: Exception) {
@@ -88,6 +89,22 @@ class CrashReportManager(private val termux: TermuxRuntime) {
                 }
             } else {
                 listOf("(latest.log 不存在)")
+            }
+
+            // latest.log 是空的 / 不存在时，补上应用侧日志。
+            //
+            // 背景：latest.log 只装「MC 服务端自己输出的内容」。一旦服务端在启动阶段
+            // 就失败（例如启动命令不完整、Java 缺失、核心不匹配），它一个字节都不会输出，
+            // 报告就只剩「共 0 行」——没有任何诊断价值。而真正的原因往往记录在
+            // MineServe 自己的日志里（java 路径解析、启动命令、缺库警告）。
+            //
+            // 因此这里把 app 侧日志作为独立小节补出来，并明确标注状态，
+            // 避免读者再对着一个空文件猜。
+            val appLogLines = termux.readAppLogTail()
+            if (appLogLines.isNotEmpty()) {
+                sb.appendLine("--- MineServe 应用日志 (最后 ${minOf(400, appLogLines.size)} 行，共 ${appLogLines.size} 行) ---")
+                appLogLines.forEach { sb.appendLine(it) }
+                sb.appendLine()
             }
 
             val highlights = extractHighlights(allLines)
@@ -98,7 +115,17 @@ class CrashReportManager(private val termux: TermuxRuntime) {
             }
 
             val tailCount = 800
+            // 明确区分三种状态，不再输出无信息量的「共 0 行」
+            val logState = when {
+                !logExists -> "latest.log 不存在（服务端目录可能还没建好）"
+                allLines.isEmpty() -> "latest.log 存在但为空 —— 服务端进程从未产生任何输出，" +
+                    "说明它很可能根本没被启动起来；请结合上方「MineServe 应用日志」判断"
+                else -> null
+            }
             sb.appendLine("--- 最近日志 (最后 ${minOf(tailCount, allLines.size)} 行，共 ${allLines.size} 行) ---")
+            if (logState != null) {
+                sb.appendLine("(说明: $logState)")
+            }
             allLines.takeLast(tailCount).forEach { sb.appendLine(it) }
             sb.appendLine()
 

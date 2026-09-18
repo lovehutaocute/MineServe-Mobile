@@ -21,7 +21,7 @@ import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.StartupPhase
 import com.mineserve.mobile.data.StepStatus
 import com.mineserve.mobile.data.WidgetEventType
-import com.mineserve.mobile.data.startupPhaseForLog
+import com.mineserve.mobile.runtime.ConsoleLineParser
 import com.mineserve.mobile.runtime.TermuxRuntime
 import com.mineserve.mobile.server.BackupManager
 import com.mineserve.mobile.server.ExternalBackupStore
@@ -94,31 +94,28 @@ class McForegroundService : Service() {
         scope.launch {
             termux.consoleFlow.collect { line ->
                 try {
-                    when {
-                        line.contains("players online") -> PLAYERS_REGEX.find(line)?.let { m ->
-                            val online = m.groupValues[1].toIntOrNull() ?: return@let
-                            val max = m.groupValues[2].toIntOrNull() ?: return@let
-                            McApplication.get(this@McForegroundService).repository.updateServerState {
-                                it.copy(onlinePlayers = online, maxPlayers = max)
-                            }
+                    // 状态类解析统一走共享解析器，与 ViewModel 用同一份逻辑、同一份正则。
+                    val signals = ConsoleLineParser.parse(line)
+                    val repo = McApplication.get(this@McForegroundService).repository
+                    signals.players?.let { p ->
+                        repo.updateServerState { it.copy(onlinePlayers = p.online, maxPlayers = p.max) }
+                    }
+                    signals.tps?.let { value ->
+                        repo.updateServerState {
+                            it.copy(tps = value, healthPercent = ((value / 20.0) * 100).toInt().coerceIn(0, 100))
                         }
-                        line.contains("TPS from last 1m") -> TPS_REGEX.find(line)?.let { m ->
-                            val tps = m.groupValues[1].toDoubleOrNull() ?: return@let
-                            McApplication.get(this@McForegroundService).repository.updateServerState {
-                                it.copy(tps = tps, healthPercent = ((tps / 20.0) * 100).toInt().coerceIn(0, 100))
-                            }
+                    }
+                    // 启动完成检测下沉：App 退后台后无人设置 runningSinceMs，
+                    // 桌面组件会一直停留在"启动中"。
+                    if (signals.isReady) {
+                        repo.updateServerState { st ->
+                            if (!st.isRunning || st.startupPhase == StartupPhase.Ready) st
+                            else st.copy(
+                                startupPhase = StartupPhase.Ready,
+                                runningSinceMs = st.runningSinceMs.takeIf { it > 0L }
+                                    ?: android.os.SystemClock.elapsedRealtime()
+                            )
                         }
-                        // 启动完成检测下沉：App 退后台后无人设置 runningSinceMs，
-                        // 桌面组件会一直停留在“启动中”。
-                        startupPhaseForLog(line) == StartupPhase.Ready ->
-                            McApplication.get(this@McForegroundService).repository.updateServerState { st ->
-                                if (!st.isRunning || st.startupPhase == StartupPhase.Ready) st
-                                else st.copy(
-                                    startupPhase = StartupPhase.Ready,
-                                    runningSinceMs = st.runningSinceMs.takeIf { it > 0L }
-                                        ?: android.os.SystemClock.elapsedRealtime()
-                                )
-                            }
                     }
                     recordWidgetEvents(line)
                 } catch (_: Exception) {
@@ -293,10 +290,15 @@ class McForegroundService : Service() {
                         Log.w(TAG, "watchdog query failed: ${e.message}")
                     }
                 }
-            tick++
-            // 服务器运行中每 30s 同步一次桌面组件（停止/崩溃等事件由状态 diff 钩子驱动）
-            com.mineserve.mobile.data.WidgetUpdater.refresh(this@McForegroundService)
-            kotlinx.coroutines.delay(30_000L)
+                tick++
+                // 仅在服务器运行中周期刷新组件：组件展示的是 TPS/内存/在线人数等运行时数据，
+                // 停止状态下这些值不会变，盲刷只是白白重建 4 个 RemoteViews。
+                // 停止、崩溃、状态切换等事件已由 ServerRepository.updateServerState 的
+                // 字段 diff 钩子驱动刷新，这里不刷新也不会漏掉状态变化。
+                if (alive) {
+                    com.mineserve.mobile.data.WidgetUpdater.refresh(this@McForegroundService)
+                }
+                kotlinx.coroutines.delay(30_000L)
             }
         }
     }
@@ -460,8 +462,6 @@ class McForegroundService : Service() {
         const val ACTION_REFRESH_KEEP_ALIVE = "com.mineserve.mobile.action.REFRESH_KEEP_ALIVE"
         const val ACTION_REFRESH_STATUS = "com.mineserve.mobile.action.REFRESH_STATUS"
         private const val TAG = "McForegroundService"
-        private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
-        private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")
 
         /** 服务是否在运行（供保活检查） */
         @Volatile

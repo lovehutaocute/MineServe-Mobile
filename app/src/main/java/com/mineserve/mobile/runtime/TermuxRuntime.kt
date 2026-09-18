@@ -3,6 +3,7 @@ package com.mineserve.mobile.runtime
 import android.content.Context
 import android.util.Log
 import android.system.Os
+import com.mineserve.mobile.runtime.NativeLibraryBundler.BUNDLED_LIBRARIES
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.PhpVersion
@@ -46,7 +47,34 @@ class TermuxRuntime(context: Context) {
 
     private val appContext = context.applicationContext
     internal val installer = BootstrapInstaller(context)
-    private val executor = CommandExecutor(installer)
+
+    /**
+     * 随 APK 打包的 Termux 共享库在设备上的可读路径（nativeLibraryDir）。
+     *
+     * 缺库会导致 Termux 侧二进制在动态链接阶段直接失败：
+     *   F linker: CANNOT LINK EXECUTABLE ".../apt-get": library "libandroid-glob.so" not found
+     * 一旦 apt-get 起不来，apt/dpkg/proot/Java 8 全部连锁失效。
+     *
+     * targetSdk = 28 < 29，系统会把 jniLibs 下的 .so 解压到 nativeLibraryDir，
+     * 因此这里拿到的是真实可读文件路径（可直接 cp / 走 ELF 搜索路径），
+     * 而不是 targetSdk ≥ 29 时那种仅供 dlopen 的不可读映射。
+     *
+     * 见 NativeLibraryBundler：目录不存在或文件缺失时为 null，调用方需容忍。
+     */
+    private val bundledLibDir: String? by lazy {
+        NativeLibraryBundler.nativeLibraryDir(context)
+    }
+
+    private val executor = CommandExecutor(installer, bundledLibDir)
+
+    /** 关闭堆指针标签的注入库文件名（随 APK 打包在 jniLibs 下）。 */
+    private val HEAP_TAG_FIX_LIB = "libheaptagfix.so"
+
+    /** 应用侧日志落盘队列上限：异常刷屏时丢弃多余条目，避免内存膨胀。 */
+    private val APP_LOG_QUEUE_LIMIT = 4096
+
+    /** 库缺失只提示一次，避免每次启动命令都刷日志。 */
+    private val heapTagFixWarned = java.util.concurrent.atomic.AtomicBoolean(false)
 
     private val java8Rootfs: File
         get() = File(installer.rootDir, "var/lib/mineserve/java8-ubuntu-rootfs")
@@ -67,6 +95,12 @@ class TermuxRuntime(context: Context) {
     @Volatile private var lastMcLogStartOffset: Long = 0L
     private val mcProcessLock = Any()
 
+    init {
+        // 把打包的 libandroid-glob.so 落到 Termux 库目录，必须在任何命令执行前完成。
+        // 这里只做落盘，具体路径由 repairProotLibraries() 统一汇报。
+        provisionBundledLibraries()
+    }
+
     /** MC 进程的 stdin，用于发送命令 */
     @Volatile
     private var mcStdin: OutputStream? = null
@@ -78,14 +112,104 @@ class TermuxRuntime(context: Context) {
 
     val consoleFlow: SharedFlow<String> get() = executor.consoleFlow
 
+    /**
+     * 应用侧日志文件（`home/logs/mineserve.log`）。
+     *
+     * ## 为什么需要它
+     * [emitLog] 原先只把日志推给 [consoleFlow]（纯内存），**从不落盘**。
+     * 于是启动前那一大段关键诊断——Java 路径解析、依赖安装、库体检、
+     * 以及拼好的完整启动命令——只存在于内存里。一旦服务端启动失败，
+     * `logs/latest.log` 里只有「MC 服务端自己输出的内容」，必然是空的，
+     * 崩溃报告因此拿不出任何证据（实测出现过「最近日志 共 0 行」）。
+     *
+     * 现在所有 [emitLog] 同时追加到这里，即便服务端零输出，
+     * 也能看到 MineServe 自己走到了哪一步、启动命令长什么样。
+     */
+    private val appLogFile: File
+        get() = File(installer.rootDir, "home/logs/mineserve.log")
+
+    /**
+     * 日志落盘队列。
+     *
+     * [emitLog] 可能被高频调用（stdout 逐行、安装进度），**不能同步做 IO**，
+     * 否则会拖慢启动。这里用无界队列 + 单线程消费：
+     *   - `trySend` 是非阻塞的，调用方零等待
+     *   - 只有 WARN/ERROR 级或有明确诊断价值的行才入队，过滤掉噪声
+     *   - 队列上限保护：超过 [APP_LOG_QUEUE_LIMIT] 时丢弃，避免异常刷屏把内存撑爆
+     */
+    private val appLogQueue = java.util.concurrent.LinkedBlockingQueue<String>(APP_LOG_QUEUE_LIMIT)
+    @Volatile private var appLogWriterStarted = false
+    private val appLogLock = Any()
+
+    /** 需要落盘的日志特征（其余高频噪声不入队，避免日志膨胀） */
+    private val APP_LOG_KEEP_MARKERS = listOf(
+        "[startMc]", "[bootstrap]", "[java]", "[crash]", "[restart]", "[core]",
+        "[repair]", "[jvm]", "[proot]", "错误", "失败", "警告", "异常"
+    )
+
+    private fun persistAppLog(line: String) {
+        // 只留诊断价值高的行；其余（例如进度百分比）不入队
+        if (APP_LOG_KEEP_MARKERS.none { line.contains(it) }) return
+        startAppLogWriterIfNeeded()
+        // offer 不阻塞：队列满时直接丢弃，绝不反压调用方
+        appLogQueue.offer(line)
+    }
+
+    private fun startAppLogWriterIfNeeded() {
+        if (appLogWriterStarted) return
+        synchronized(appLogLock) {
+            if (appLogWriterStarted) return
+            appLogWriterStarted = true
+            Thread({
+                while (true) {
+                    val line = try {
+                        // 带超时的取，便于在无日志时也能定期 flush
+                        appLogQueue.poll(1, TimeUnit.SECONDS)
+                    } catch (e: InterruptedException) {
+                        return@Thread
+                    }
+                    try {
+                        if (line != null) {
+                            val file = appLogFile
+                            file.parentFile?.mkdirs()
+                            // 单条即 flush：崩溃场景下缓冲区里的内容很容易随进程消失
+                            file.appendText(line + "\n")
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "写入 mineserve.log 失败: ${e.message}")
+                    }
+                }
+            }, "mineserve-app-log").apply { isDaemon = true }.start()
+        }
+    }
+
+    /**
+     * 读取应用侧日志的尾部若干行，供崩溃报告补充「MineServe 视角」的上下文。
+     * 文件不存在或为空时返回空列表（调用方据此区分「没有」和「空」）。
+     */
+    fun readAppLogTail(maxLines: Int = 400): List<String> {
+        val file = appLogFile
+        if (!file.isFile) return emptyList()
+        return runCatching {
+            file.useLines { lines -> lines.toList().takeLast(maxLines) }
+        }.getOrDefault(emptyList())
+    }
+
+    /** 清空应用侧日志（避免无限增长）。 */
+    fun clearAppLog() {
+        runCatching { appLogFile.takeIf { it.isFile }?.writeText("") }
+    }
+
     /** 设置日志回调，bootstrap 过程的日志会通过此回调输出 */
     fun setBootstrapLogCallback(cb: (String) -> Unit) {
         installer.onLog = cb
     }
 
-    /** 向 consoleFlow 推送一条日志 */
+    /** 向 consoleFlow 推送一条日志，并异步落盘到 mineserve.log */
     fun emitLog(line: String) {
         executor.emit(line)
+        // 落盘是「尽力而为」：任何异常都不能影响主流程
+        runCatching { persistAppLog(line) }
     }
 
     fun isReady(): Boolean = installer.isReady()
@@ -914,26 +1038,132 @@ class TermuxRuntime(context: Context) {
         return candidates
     }
 
+    /**
+     * Termux 侧被 apt/dpkg/proot 依赖的共享库清单。
+     *
+     * 每一项：库文件名（运行时名）→ 历史曾出现过的落点（按优先级）。
+     * 前者是 Termux 标准库目录，后者是 dpkg-deb -x 解包时 compat 符号链接被覆盖后的实际落点。
+     *
+     * 清单直接由 [BUNDLED_LIBRARIES] 派生，保证「打包的库」与「修复时就位的库」永远一致，
+     * 不会出现「打包了但没落盘」或「落盘了但没打包」的错位。
+     */
+    private val termuxLibraryCandidates: Map<String, List<String>> =
+        BUNDLED_LIBRARIES.values.distinct().associateWith { name ->
+            listOf(
+                "usr/lib/$name",
+                "data/data/com.termux/files/usr/lib/$name"
+            )
+        }
+
+    /** 把随 APK 打包的共享库落到 Termux 能加载到的位置（幂等）。 */
+    private fun provisionBundledLibraries(): List<String> {
+        val prefix = installer.rootDir
+        return NativeLibraryBundler.provision(
+            bundledDir = bundledLibDir,
+            targetDirs = listOf(
+                File(prefix, "lib"),
+                File(prefix, "usr/lib"),
+                File(prefix, "data/data/com.termux/files/usr/lib")
+            )
+        )
+    }
+
     private fun repairProotLibraries(): Boolean {
         val prefix = installer.rootDir
-        val targetDir = File(prefix, "lib").apply { mkdirs() }
-        val sources = listOf(
-            File(prefix, "usr/lib/libtalloc.so.2"),
-            File(prefix, "data/data/com.termux/files/usr/lib/libtalloc.so.2"),
-            File(prefix, "usr/lib/libtalloc.so.2.4.3"),
-            File(prefix, "data/data/com.termux/files/usr/lib/libtalloc.so.2.4.3")
-        )
-        val target = File(targetDir, "libtalloc.so.2")
-        if (!target.isFile) {
-            val source = sources.firstOrNull { it.isFile }
-            if (source != null) runCatching { source.copyTo(target, overwrite = false) }
+        // 打包的库先落盘，再走下面统一的就位/汇报逻辑
+        provisionBundledLibraries()
+
+        val allReady = termuxLibraryCandidates.map { (name, relativeCandidates) ->
+            val sources = relativeCandidates.map { File(prefix, it) }
+            val target = File(File(prefix, "lib").apply { mkdirs() }, name)
+
+            // 1. 先补 canonical 位置（proot 启动包装脚本的 LD_LIBRARY_PATH 首项）
+            if (!target.isFile) {
+                sources.firstOrNull { it.isFile }
+                    ?.let { source -> runCatching { source.copyTo(target, overwrite = false) } }
+            }
+            // 2. 再把 canonical 副本回填到各历史落点，保证无论从哪条路径搜索都能命中
+            if (target.isFile) {
+                sources.filterNot { it.absolutePath == target.absolutePath }.forEach { dest ->
+                    if (!dest.isFile) {
+                        runCatching {
+                            dest.parentFile?.mkdirs()
+                            target.copyTo(dest, overwrite = false)
+                        }
+                    }
+                }
+            }
+
+            val ready = target.isFile || sources.any { it.isFile }
+            emitLog(
+                if (ready) "[bootstrap] 依赖已就绪: $name"
+                else "[bootstrap] 警告: 依赖 $name 未找到"
+            )
+            ready
+        }.all { it }
+
+        // apt-get 缺库是硬失败，必须探测出来而不是继续往下走流程
+        auditTermuxLibraries()
+        return allReady
+    }
+
+    /**
+     * 对 Termux 侧关键命令做一次「缺库体检」。
+     *
+     * 背景：`F linker: CANNOT LINK EXECUTABLE ".../apt-get": library "libandroid-glob.so"
+     * not found` 之后，既有兜底链路会把链接失败伪装成「权限问题」，反复输出
+     * Permission denied / exec 探针 / 复制副本执行等无关诊断，把真因完全盖住。
+     * 这里在 apt 真正动手之前，用 linker 自己把每个关键命令的依赖解析一遍，
+     * 缺什么直接列出来 —— 结论明确，不再需要用户猜。
+     *
+     * ## 只警告，不拦截（重要）
+     * 早期版本把这里的返回值当作**门禁**：一旦探测到任何「缺库」就 `return false`，
+     * 直接放弃 apt 安装。这个设计是错的，理由是：
+     *  1. 探测本身可能误报 —— 例如 bash 依赖 `libreadline.so.8`（仅 Tab 补全用），
+     *     但 apt-get 根本不依赖 readline。把非关键命令的瑕疵当成致命错误，
+     *     会让一个**完全正常的环境**被判为不可用。
+     *  2. 探测是在 App 侧拼 LD_LIBRARY_PATH 做的静态解析，与 apt 实际执行时的
+     *     环境（proot / 包装脚本 / shebang 解释器）并不完全一致，本就存在偏差。
+     *  3. 代价极不对称：放行最多是 apt 自己报错（信息更准确）；拦错则整个初始化失败。
+     *
+     * 因此现在**永远返回 true**，仅把结果写进日志。真正的失败交给 apt 自己反馈。
+     *
+     * @return 恒为 true（保留返回值是为了兼容既有调用点）
+     */
+    private fun auditTermuxLibraries(): Boolean {
+        val prefix = installer.rootDir
+        val (blocking, advisory) = NativeLibraryBundler.auditIfEnabled(prefix, bundledLibDir)
+
+        advisory.forEach { (binary, libs) ->
+            // 非致命：这些命令即使缺库也不影响包管理
+            emitLog("[bootstrap] 提示: $binary 依赖 ${libs.joinToString()}（非关键，不影响安装）")
         }
-        val repaired = target.isFile
-        emitLog(
-            if (repaired) "[bootstrap] proot 依赖已就绪: libtalloc.so.2"
-            else "[bootstrap] 警告: proot 依赖 libtalloc.so.2 未找到"
-        )
-        return repaired
+        blocking.forEach { (binary, libs) ->
+            emitLog("[bootstrap] 警告: $binary 可能缺少 ${libs.joinToString()}")
+        }
+        if (blocking.isNotEmpty()) {
+            emitLog("[bootstrap] 将继续尝试安装；若确实失败，请把上面的清单连同 apt 报错一起反馈")
+        }
+        return true
+    }
+
+    /**
+     * 在 apt 确实失败后，给出「是否因为缺库」的明确结论。
+     *
+     * 与 [auditTermuxLibraries] 的区别：那个是**事前**猜测（只写日志），
+     * 这个是**事后**归因 —— 已经确认失败了，此时把缺库清单摆出来才有意义，
+     * 也不会再有机会误伤正常流程。
+     */
+    private fun reportLinkingFailure() {
+        runCatching {
+            val missing = NativeLibraryBundler.auditTermuxBinaries(installer.rootDir, bundledLibDir)
+            if (missing.isEmpty()) return
+            emitLog("[apt] 结论: 以下命令的依赖库在设备上找不到，这通常就是失败原因：")
+            missing.forEach { (binary, libs) ->
+                emitLog("[apt]   - $binary 需要 ${libs.joinToString()}")
+            }
+            emitLog("[apt] 这些是随 APK 打包的补充库；若清单里有打包清单未覆盖的项，请反馈这一行")
+        }.onFailure { emitLog("[apt] 缺库归因失败: ${it.message}") }
     }
 
     /**
@@ -966,13 +1196,21 @@ class TermuxRuntime(context: Context) {
         if (!binary.isFile) return
         binary.setExecutable(true, false)
         val compatUsrLib = "$prefix/data/data/com.termux/files/usr/lib"
+        // 打包的库目录一并注入：修复过旧版本的设备上 usr/lib 可能仍缺 libandroid-glob.so
+        val libPath = listOfNotNull(
+            "$prefix/lib",
+            "$prefix/usr/lib",
+            compatUsrLib,
+            bundledLibDir,
+            "/system/lib64"
+        ).joinToString(":")
         launcher.writeText(
             "#!/system/bin/sh\n" +
                 "export PROOT_TMP_DIR='$prefix/tmp'\n" +
                 "export TMPDIR='$prefix/tmp'\n" +
                 "export PROOT_LOADER='$prefix/libexec/proot/loader'\n" +
                 "export PROOT_LOADER_32='$prefix/libexec/proot/loader32'\n" +
-                "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'\n" +
+                "export LD_LIBRARY_PATH='$libPath'\n" +
                 "exec '$binary' \"${'$'}@\"\n"
         )
         launcher.setExecutable(true, false)
@@ -1152,9 +1390,22 @@ class TermuxRuntime(context: Context) {
         }
         // 4. 校验 shebang 解释器（缺失时尝试从 compat 路径补全）
         ensureScriptInterpreter(real)
-        // 5. 终检：跟随链接判定可执行
+        // 5. 先排掉「缺库」这个更靠前的原因：missing lib 会让二进制在任何权限检查前
+        //    就被 linker 拒绝，现象酷似 Permission denied，会把后续兜底链路带偏
+        val missingLibs = if (real.isFile) {
+            NativeLibraryBundler.missingLibrariesFor(real, bundledLibDir)
+        } else emptyList()
+        // 6. 终检：跟随链接判定可执行
         val ok = link.canExecute()
-        if (!ok) emitLog("[apt] apt-get 仍不可执行，诊断如下：\n" + diagnoseCommand("apt-get"))
+        if (!ok) {
+            if (missingLibs.isNotEmpty()) {
+                emitLog("[apt] 根因: apt-get 缺少动态库 ${missingLibs.joinToString()}（非权限问题）")
+            }
+            emitLog("[apt] apt-get 仍不可执行，诊断如下：\n" + diagnoseCommand("apt-get"))
+        } else if (missingLibs.isNotEmpty()) {
+            // canExecute 只看权限位，缺库要到 exec 时才炸，这里提前告警
+            emitLog("[apt] 警告: apt-get 权限正常但缺少动态库 ${missingLibs.joinToString()}，执行会失败")
+        }
         return ok
     }
 
@@ -1193,6 +1444,11 @@ class TermuxRuntime(context: Context) {
     fun prepareAptPackages(vararg packages: String): Boolean {
         if (!isReady()) return false
         repairInstalledCommands()
+        // 缺库体检：只写日志，不拦截。
+        // 早期版本这里会 return false 中止安装，导致「bash 缺 readline」这种
+        // 无关紧要的瑕疵把整个初始化搞挂。现在先补库、再记录，然后一切照常往下走。
+        auditTermuxLibraries()
+        provisionBundledLibraries()
         // apt-get 偶发 Permission denied（126）：先强制自愈并校验 bin/usr/bin 下的可执行位与 shebang 解释器
         if (!ensureAptWorking()) return false
         var update = execOnce(
@@ -1263,6 +1519,8 @@ class TermuxRuntime(context: Context) {
         if (update != 0) {
             emitLog("[apt] 软件源更新失败，未继续安装；请切换软件源或检查网络后重试")
             emitLog(diagnoseCommand("apt-get"))
+            // 链接失败（而非网络/权限）时，把缺失库清单直接摆在最后，避免被淹没在上面一长串兜底日志里
+            reportLinkingFailure()
             return false
         }
         val missing = packages.filter {
@@ -2091,7 +2349,8 @@ class TermuxRuntime(context: Context) {
         onExit: (Int) -> Unit,
         launchArgs: String?,
         logFile: File,
-        appendNogui: Boolean
+        appendNogui: Boolean,
+        moduleCompatMode: Boolean = false
     ): Process {
         if (!java8UbuntuReady()) {
             emitLog("[startMc] Java 8 Ubuntu ARM64 运行环境未安装或不完整")
@@ -2125,14 +2384,17 @@ class TermuxRuntime(context: Context) {
         } else {
             guestLaunchArgs ?: "-jar '$guestJar'"
         }
+        // 注意：此处**有意不使用** heapTagPreloadEnv()。
+        // proot 会把 rootfs 之外的路径映射掉，libheaptagfix.so 位于 App 的
+        // nativeLibraryDir，在 guest 内没有对应的可访问路径。若强行设置
+        // LD_PRELOAD，linker 找不到该库会直接导致 java 无法启动。
+        // 该分支是 Java 8 + proot 场景，本就不依赖这项优化，故留空。
         val command = "export JAVA_HOME=$ubuntuJava8Home; " +
             "export PATH=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"; " +
             "export TMPDIR=/tmp; export HOME=/root; export FONTCONFIG_PATH=/etc/fonts; " +
             "cd '$guestDir' && $forgeLibraryRepair$forgeServerClasspath exec /usr/bin/java " +
-            "-Djava.awt.headless=true -Djava.io.tmpdir=/tmp " +
-            "-Doshi.util.use.jna=false -Djna.nosys=true " +
-            "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
-            "-Dio.netty.transport.kqueue.enabled=false " +
+            "-Djava.io.tmpdir=/tmp " +
+            baseJvmProperties(moduleCompatMode) +
             "-Xmx${maxHeapMb}m $javaArguments" + if (appendNogui) " nogui" else ""
         val rootfs = java8Rootfs
         // PRoot creates glue files outside the guest rootfs. Keep this path in
@@ -2169,6 +2431,8 @@ class TermuxRuntime(context: Context) {
             "/usr/bin/env", "-i",
             "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
             "HOME=/root", "TMPDIR=/tmp", "LANG=C.UTF-8", "DEBIAN_FRONTEND=noninteractive",
+            // Android 无 /etc/localtime，容器内同样需要显式给时区
+            (systemTimeZoneId()?.let { "TZ=$it" } ?: "TZ=UTC"),
             "/bin/sh", "-lc", command
                 ).joinToString(" ") { shellQuote(it) }
         ).apply {
@@ -2180,6 +2444,7 @@ class TermuxRuntime(context: Context) {
         }.start()
         emitLog("[startMc] Java 8 PRoot 临时目录: ${prootTmp.absolutePath}")
         Log.i(TAG, "startMc Ubuntu Java 8 command: $command")
+        assertLaunchCommandComplete(command, "startMcInUbuntu")
         if (isLegacyForgeLaunch) emitLog("[startMc] Java 8 Forge: validating launch jar from verified library")
         if (launchesVerifiedLibraryJar) {
             emitLog("[startMc] Java 8 Forge: using ServerLaunchWrapper classpath mode")
@@ -2218,6 +2483,235 @@ class TermuxRuntime(context: Context) {
     private fun shellQuote(value: String): String = "'${value.replace("'", "'\\''")}'"
 
     /**
+     * 生成 `export LD_PRELOAD='...libheaptagfix.so'; ` 片段（不可用时返回空串）。
+     *
+     * ## 为什么需要这个
+     *
+     * Android 11+ 的 bionic 默认给堆分配打指针标签（TBI/MTE），指针高 8 位被
+     * 用作元数据。JVM 内部会改写指针高位做标记，在带标签的堆上会导致：
+     *   1. 释放时标签校验失败 → SIGABRT（退出码 134）
+     *   2. 分配器无法复用被改写过的内存块 → 常驻内存显著升高
+     *   3. 每个分配多出标签元数据，JVM 启动期海量小对象分配累计开销可观
+     *
+     * 第 2、3 条正是「同一个服务端、同一份 jar，内存却比别人高 100MB 左右」的原因。
+     *
+     * ## 为什么必须用 LD_PRELOAD
+     *
+     * `mallopt(M_BIONIC_SET_HEAP_TAGGING_LEVEL, 0)` 只对调用它的进程生效，
+     * 且必须在任何 malloc 之前执行。服务端是独立进程，App 自己调用影响不到它。
+     *
+     * LD_PRELOAD 让 linker 在加载其他库之前先执行 [libheaptagfix.so] 的构造函数，
+     * 正好赶在 JVM 所有分配之前。这样无需改动任何启动方式。
+     *
+     * 库缺失（降级环境）时返回空串 —— 功能不受影响，只是没有这项优化。
+     */
+    private fun heapTagPreloadEnv(): String {
+        val lib = bundledLibDir?.let { File(it, HEAP_TAG_FIX_LIB) }
+        if (lib == null || !lib.isFile) {
+            // 只在首次缺失时提示一次，避免每条启动命令都刷日志
+            if (heapTagFixWarned.compareAndSet(false, true)) {
+                emitLog("[startMc] 提示: $HEAP_TAG_FIX_LIB 不可用，将不关闭堆指针标签（可能多占内存）")
+            }
+            return ""
+        }
+        return "export LD_PRELOAD='${lib.absolutePath}'; "
+    }
+
+    /**
+     * 启动命令完整性自检：确认拼出来的 shell 命令里**真的有一个要执行的程序**。
+     *
+     * ## 为什么需要这个
+     * 这些命令是十几段字符串用 `+` 拼起来的，只要**漏掉一个 `+`**，Kotlin 就会把
+     * 后半截当成独立语句（以运算符结尾的行会继续到下一行，编译器不报错），
+     * 且后续字符串因为「无副作用的纯表达式」被优化阶段直接丢弃。
+     *
+     * 真实故障（1.2.8 及更早）：`heapTagPreloadEnv()` 后漏了 `+`，
+     * 导致 `cd '<serverDir>' && exec '<javaPath>' ... -jar server.jar nogui`
+     * **整段消失**。最终命令只剩一串 `export` 赋值：
+     *   - `sh -c` 执行完这些赋值后脚本自然结束 → 退出码 0
+     *   - java 从未运行 → stdout 为空 → latest.log 0 字节、控制台无输出
+     *   - 表现为「点启动秒退、无任何日志」，极难排查
+     *
+     * 编译期无法发现这类错误，所以改为**运行期断言**：
+     * 命令里必须出现 `exec `，且必须能看出要启动什么（`-jar` / classpath 主类 / 自定义命令）。
+     * 不满足就直接抛错，并把完整命令打进日志 —— 宁可启动失败且留下明确原因，
+     * 也不要静默秒退。
+     *
+     * @param command 拼好的完整 shell 命令
+     * @param tag 调用方标记，用于日志定位
+     * @param requireLauncherMarker 是否要求出现启动器特征（自定义命令模式传 false）
+     */
+    private fun assertLaunchCommandComplete(
+        command: String,
+        tag: String,
+        requireLauncherMarker: Boolean = true
+    ) {
+        val problems = mutableListOf<String>()
+        if (!command.contains("exec ")) {
+            problems += "缺少 'exec '（没有任何要执行的程序，shell 会执行完赋值后直接退出）"
+        }
+        if (requireLauncherMarker) {
+            val hasJar = command.contains("-jar ")
+            val hasClasspath = command.contains(" -cp ") || command.contains(" -classpath ")
+            if (!hasJar && !hasClasspath) {
+                problems += "缺少 '-jar' 或 '-cp'（看不出要启动哪个服务端）"
+            }
+        }
+        // 命令必须以可执行语句收尾，而不是以环境变量赋值收尾
+        val tail = command.substringAfterLast("&&").trim()
+        if (tail.isEmpty()) {
+            problems += "命令以 '&&' 结尾，末尾没有可执行语句"
+        }
+        if (problems.isEmpty()) return
+
+        val detail = problems.joinToString("；")
+        // 完整命令一并落盘，便于直接对比「应该是什么」和「拼出来是什么」
+        emitLog("[startMc] 启动命令不完整（$tag）：$detail")
+        emitLog("[startMc] 实际命令: $command")
+        Log.e(TAG, "launch command incomplete ($tag): $detail\ncommand=$command")
+        throw RuntimeException("启动命令不完整（$tag）：$detail。请反馈此问题，日志中已记录完整命令。")
+    }
+
+    /**
+     * 组装所有 Java 服务器共用的 JVM 属性。
+     *
+     * @param moduleCompatMode 开启后额外注入一组「对 Android/bionic 更友好」的属性，
+     *        用于缓解 OSHI/JNA 系模组因 `libc.so.6` 缺失而崩服的问题。
+     */
+    private fun baseJvmProperties(moduleCompatMode: Boolean): String = buildString {
+        append("-Djava.awt.headless=true ")
+        // Android 没有 /etc/localtime，且未设 TZ 时 JVM 默认时区会回退成 UTC，
+        // 导致服务端日志时间戳比本地时间慢 8 小时（东八区）。
+        // 显式注入系统时区，JVM 与服务器派生的子命令都能拿到正确时区。
+        systemTimeZoneId()?.let { append("-Duser.timezone=$it ") }
+        append("-Dio.netty.transport.noNative=true ")
+        append("-Dio.netty.transport.epoll.enabled=false ")
+        append("-Dio.netty.transport.kqueue.enabled=false ")
+        /*
+         * 关键修复：把 JLine 的 JNA provider 从候选列表里摘掉。
+         *
+         * 崩溃实测栈（Forge 服务端日志）：
+         *   Launcher.<clinit>
+         *     → LogManager.getLogger
+         *       → LoggerContext.start → PatternParser.createConverter   ← 还在解析 log4j 日志格式串
+         *         → ForgeHighlight.newInstance
+         *           → TerminalConsoleAppender.initializeTerminal        ← Forge/NeoForge 自带的控制台组件
+         *             → TerminalBuilder.doBuild → checkProvider
+         *               → JnaTerminalProvider.<init>
+         *                 → LinuxNativePty.<clinit>
+         *                   → com.sun.jna.Native.<clinit>               ← 这里炸
+         *
+         * 也就是说：崩溃发生在「日志系统配置格式」阶段，模组一个都还没加载。
+         * 因此删模组、换 Java 版本都无效。
+         *
+         * JLine 的 TerminalBuilder.checkProvider() 会按系统属性
+         * `org.jline.terminal.providers` 过滤可用 provider（逗号分隔的 provider 名称）。
+         * 把 `jna` 排除后就不会实例化 JnaTerminalProvider，也就不会触碰
+         * com.sun.jna.Native —— 从根上绕开这个必然失败的初始化。
+         *
+         * 保留 exec / jni / ffi：
+         *   - exec 是纯外部命令实现（stty），Android 上没有 stty 时会自行降级；
+         *   - jni / ffi 在缺库时 JLine 内部按 provider 名加载失败也只是跳过，
+         *     不会抛到调用方（与 JNA 的 <clinit> 硬失败不同）。
+         * 我们的服务端一律以 nogui 运行，终端探测失败是安全的。
+         */
+        append("-Dorg.jline.terminal.providers=exec,jni,ffi ")
+        append(memoryFootprintArgs())
+        if (moduleCompatMode) {
+            /*
+             * 这里的取值来自 OSHI 的 GlobalConfig 常量表，只使用真实存在的键。
+             *
+             * 历史遗留的两个参数已移除，它们都是无效的：
+             *   -Doshi.util.use.jna=false   → OSHI 从未定义过该键，纯死参数
+             *   -Djna.nosys=true            → 禁止 JNA 加载「系统库」。libc 在 Android 上
+             *                                 就是系统库 libc.so，被禁后 JNA 只能退回按
+             *                                 Linux 习惯找 libc.so.6 → 必然失败。
+             *                                 这条很可能是崩溃的助推因素，故一并去掉。
+             */
+            // 不加载 udev：Android 无 systemd/udev，探测只会白白触发原生库加载
+            append("-Doshi.os.linux.allowudev=false ")
+            // 不探测 systemd 会话：Android 没有
+            append("-Doshi.os.linux.allowsystemd=false ")
+            // 不做 NFS 可达性探测：默认开启且会发起 TCP:2049 连接、单次最长阻塞 2 秒
+            append("-Doshi.os.linux.filesystem.checknfs=false ")
+            // 不记录 /proc 读取警告：Android 上大量 /proc 节点受限，告警会刷屏
+            append("-Doshi.os.linux.procfs.logwarning=false ")
+            // 关掉 Memoizer 缓存：避免 OSHI 缓存住首次探测失败的结果后反复重试
+            append("-Doshi.util.memoizer.expiration=0 ")
+            /*
+             * 历史遗留参数已移除（保留说明以免再次被加回来）：
+             *
+             *   -Doshi.util.use.jna=false
+             *       OSHI 从未定义过该键，纯死参数。
+             *
+             *   -Djna.nosys=true
+             *       禁止 JNA 加载「系统库」。libc 在 Android 上就是系统库 libc.so，
+             *       被禁后 JNA 只能退回按 Linux 习惯找 libc.so.6 → 必然失败。
+             *       这条是崩溃的助推因素，已去掉。
+             *
+             *   -Djna.nounpack=true   ← 本次移除
+             *       禁止 JNA 从自己的 jar 里解包 libjnidispatch.so。但 jar 解包是
+             *       JNA 三层加载顺序里唯一「还可能成功」的一层：
+             *         1) jna.boot.library.path 目录
+             *         2) 系统库路径（受 jna.nosys 控制）
+             *         3) 从 jar 解包（受 jna.nounpack 控制）
+             *       关掉它并不会让 JNA 变得可用，只会让失败点后移、报错更难定位。
+             *       实测崩溃栈里的 /data/data/com.venti1112.edgecube/cache/jna*.tmp
+             *       就是第 3 步解包出来的文件——这个文件至少能被 dlopen 尝试打开，
+             *       关掉之后就只剩「找不到库」这种更含糊的报错。
+             */
+        }
+    }
+
+    /**
+     * 服务端运行期的临时目录（`<服务器目录>/.mineserve/tmp`）。
+     *
+     * 临时文件随服务器目录一起清理，不会污染 Termux 的公共 tmp。
+     */
+    private fun serverTmpDirFor(serverDir: File): File =
+        File(serverDir, ".mineserve/tmp")
+
+    /**
+     * 降低常驻内存的 `-XX` 参数。
+     *
+     * 背景：原先一个 `-XX` 参数都没有，全部走 JVM 默认值。而移动端 JVM 的默认值
+     * 是按「服务器/桌面」场景设计的，对手机来说普遍偏大。逐项说明：
+     *
+     * - `+UseSerialGC`：默认 GC 在 Android 上通常是 G1 或 Parallel。G1 会额外维护
+     *   并发标记线程、Remembered Set（卡表）、以及约 10% 堆大小的保留区。手机端
+     *   服务端通常玩家少、堆不大，Serial GC 单线程回收开销极小且无这些额外结构，
+     *   实际表现往往更快也更省内存。
+     *
+     * - `MaxMetaspaceSize=256m`：类元数据区，默认**无上限**。每个模组的类加载器
+     *   都会往这里放东西，不设上限时会只增不减。
+     *
+     * - `ReservedCodeCacheSize=128m`：JIT 编译后的机器码缓存，默认约 240MB。
+     *   手机端服务端长期运行的热点方法有限，砍到一半通常无感知。
+     *
+     * - `Xss768k`：每线程栈，arm64 默认 1MB。服务端网络/区块/IO 线程数量不少，
+     *   每个省 256KB，几十个线程即可省下十几 MB。
+     *   ⚠️ 不设得更小（如 512k）是因为部分模组递归较深，栈过小会 StackOverflow。
+     *
+     * 这些参数都是「只减不增」的安全项：不改变服务端行为，只压缩 JVM 的预留与开销。
+     */
+    private fun memoryFootprintArgs(): String = buildString {
+        append("-XX:+UseSerialGC ")
+        append("-XX:MaxMetaspaceSize=256m ")
+        append("-XX:ReservedCodeCacheSize=128m ")
+        append("-Xss768k ")
+    }
+
+    /**
+     * 当前设备时区（IANA 格式，如 `Asia/Shanghai`）；取不到时返回 null。
+     *
+     * Android 没有 /etc/localtime，JVM 无从推断时区，必须由 App 侧显式告知。
+     */
+    private fun systemTimeZoneId(): String? =
+        runCatching { java.util.TimeZone.getDefault().id }
+            .getOrNull()
+            ?.takeIf { it.isNotBlank() && it != "GMT" }
+
+    /**
      * 直接用 ProcessBuilder 启动 MC 服务（不再依赖 tmux）。
      * stdout/stderr 实时推送到 consoleFlow，同时写入日志文件。
      * onExit 回调在 MC 进程退出时触发。
@@ -2229,7 +2723,8 @@ class TermuxRuntime(context: Context) {
         javaVersion: JavaVersion = JavaVersion.Java17,
         onExit: (Int) -> Unit,
         launchArgs: String? = null,
-        appendNogui: Boolean = true
+        appendNogui: Boolean = true,
+        moduleCompatMode: Boolean = false
     ): Process {
         Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m dirName=$dirName")
 
@@ -2245,7 +2740,7 @@ class TermuxRuntime(context: Context) {
         killOrphanMcProcess(serverDir)
 
         if (javaVersion == JavaVersion.Java8) {
-            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile, appendNogui)
+            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile, appendNogui, moduleCompatMode)
         }
 
         // Java 17/25 continue to use the existing Termux-hosted launch path.
@@ -2265,28 +2760,32 @@ class TermuxRuntime(context: Context) {
         val jvmLibDir = File(javaPath).parentFile?.parentFile?.let { File(it, "lib") }?.absolutePath
             ?: "$prefix/lib/jvm/java-25-openjdk/lib"
         // 兜底：将每个受支持版本及 compat 路径加入库搜索路径。
-        val allJvmLibs = JavaVersion.values().flatMap { version ->
-            javaCandidates(version).flatMap { candidate ->
-                listOf("$candidate/lib", "$candidate/lib/server")
-            }
-        }.joinToString(":")
+        // 注意：这里**不再**把所有 Java 版本的 lib 目录都塞进 LD_LIBRARY_PATH。
+        // 原因：LD_LIBRARY_PATH 越长，linker 在每次 dlopen 时就要按序查找越多目录，
+        // 更重要的是可能命中「同名但属于另一个 JRE」的库，导致两份 JRE 原生库同时驻留，
+        // 白白多吃几十 MB 常驻内存。当前进程只会用一个 JRE，因此只保留它的路径。
         val nativeAccessArg = if (javaVersion == JavaVersion.Java25) "--enable-native-access=ALL-UNNAMED " else ""
+        // JLine/JNA 会把原生库解包到 java.io.tmpdir；显式指向自己的目录，
+        // 避免落到上一个宿主 App 的 cache（实测出现过 edgecube 的路径）。
+        val jvmTmpDir = serverTmpDirFor(serverDir).apply { mkdirs() }
         val javaCmd = "export PATH='$jvmBinDir:$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:$allJvmLibs:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$jvmLibDir:$jvmLibDir/server:/system/lib64'; " +
+            heapTagPreloadEnv() +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
             "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
             "export HOME='$prefix/home'; " +
-            "export TMPDIR='$prefix/tmp'; " +
+            "export TMPDIR='$jvmTmpDir'; " +
             "export JAVA_HOME='${File(javaPath).parentFile?.parent}'; " +
+            // Android 无 /etc/localtime，不设 TZ 时 JVM 与派生命令都会回退 UTC
+            (systemTimeZoneId()?.let { "export TZ='$it'; " } ?: "") +
             "cd '$serverDir' && " +
-            "exec '$javaPath' $nativeAccessArg-Djava.awt.headless=true -Djava.io.tmpdir='$prefix/tmp' " +
-            "-Doshi.util.use.jna=false -Djna.nosys=true " +
-            "-Dio.netty.transport.noNative=true -Dio.netty.transport.epoll.enabled=false " +
-            "-Dio.netty.transport.kqueue.enabled=false " +
+            "exec '$javaPath' $nativeAccessArg-Djava.io.tmpdir='$jvmTmpDir' -Djna.tmpdir='$jvmTmpDir' " +
+            baseJvmProperties(moduleCompatMode) +
             "-Xmx${maxHeapMb}m " + (launchArgs ?: "-jar $jarPath") + if (appendNogui) " nogui" else ""
 
         Log.i(TAG, "startMc command: $javaCmd")
+        assertLaunchCommandComplete(javaCmd, "startMc")
 
         val pb = ProcessBuilder("/system/bin/sh", "-c", javaCmd).apply {
             redirectErrorStream(true)
@@ -2413,13 +2912,10 @@ class TermuxRuntime(context: Context) {
         killOrphanMcProcess(serverDir)
 
         val compatUsr = "$prefix/data/data/com.termux/files/usr"
-        val allJvmLibs = JavaVersion.values().flatMap { version ->
-            javaCandidates(version).flatMap { candidate ->
-                listOf("$candidate/lib", "$candidate/lib/server")
-            }
-        }.joinToString(":")
+        // 同 startMc：只保留用得到的库路径，不把所有 Java 版本都塞进去（见该处注释）。
         val fullCmd = "export PATH='$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:$allJvmLibs:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$prefix/lib:$compatUsr/lib:$prefix/usr/lib:/system/lib64'; " +
+            heapTagPreloadEnv() +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
             "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
@@ -2428,6 +2924,7 @@ class TermuxRuntime(context: Context) {
             "cd '$serverDir' && $command"
 
         Log.i(TAG, "startMcCustom full command: $fullCmd")
+        assertLaunchCommandComplete(fullCmd, "startMcCustom", requireLauncherMarker = false)
         emitLog("[startMc] 自定义启动命令: $command")
 
         val pb = ProcessBuilder("/system/bin/sh", "-c", fullCmd).apply {
@@ -2467,8 +2964,37 @@ class TermuxRuntime(context: Context) {
         return process
     }
 
+    /**
+     * 最近一次「用户主动停止」请求的时间戳（0 = 从未请求过）。
+     *
+     * ## 为什么放在这里而不是 McServerController
+     * 主动停止的入口不止一个：通知栏停止按钮、删除运行环境、备份前暂停……
+     * 它们最终都汇聚到 [stopMc]。把标记打在**汇聚点**，就不会漏掉任何入口。
+     *
+     * 消费方是 `McServerController.createExitHandler`：它原本只凭
+     * "退出发生在 20s 启动窗口内"就判异常退出，导致**用户在启动后 20 秒内
+     * 点停止**时会误弹崩溃报告（报告里还会带上启动期间遗留的 JNA 报错日志，
+     * 让人误以为是停止操作把服务端搞崩了）。
+     */
+    @Volatile
+    var lastUserStopRequestAtMs: Long = 0L
+        private set
+
+    /** 标记"用户主动请求停止"，供崩溃判定区分「主动停」与「真崩溃」。 */
+    fun markUserStopRequested() {
+        lastUserStopRequestAtMs = System.currentTimeMillis()
+    }
+
+    /** 新一次启动时清掉标记，否则本轮真实崩溃会被误判成正常停止而漏报。 */
+    fun clearUserStopRequest() {
+        lastUserStopRequestAtMs = 0L
+    }
+
     /** 停止 MC：向 stdin 发送 stop 命令，等待最多 5 秒后强制 destroy */
     suspend fun stopMc(): Boolean = withContext(Dispatchers.IO) {
+        // 只要走到这里就一定是"主动停止"，先把标记打上，
+        // 再发停止命令 —— 否则进程可能在标记写入前就退出了。
+        markUserStopRequested()
         val proc = mcProcess ?: return@withContext true
         val serverDir = mcServerDir
         if (!proc.isAlive) {
@@ -2569,7 +3095,10 @@ class TermuxRuntime(context: Context) {
     fun mcProcessCpuPercent(): Int? {
         val running = mcProcess?.isAlive == true
         if (!running) {
+            // 进程已停止：把基线一并清空，避免下次启动复用陈旧基线算出离谱数字。
             cpuBaselinePid = null
+            cpuBaselineAtElapsedMs = 0L
+            cpuBaselineJiffies = 0L
             return null
         }
         return try {
@@ -2579,8 +3108,15 @@ class TermuxRuntime(context: Context) {
                 (stat.getOrNull(12)?.toLongOrNull() ?: 0L)
             val now = android.os.SystemClock.elapsedRealtime()
             val baselinePid = cpuBaselinePid
-            // PID 变化、进程重启或缺少有效基线时只建立基准，不产生第一个读数。
-            if (baselinePid != pid || cpuBaselineJiffies <= 0L) {
+            /*
+             * 判定是否需要重新建立基线。
+             *
+             * 注意这里**不能**用 `cpuBaselineJiffies <= 0L` 作为「基线缺失」的条件：
+             * 进程刚启动时 utime+stime 真的可能是 0，把 0 当成「没基线」会让
+             * 每次采样都重置基线、永远算不出读数（实测症状：CPU 一直显示 0%）。
+             * 改为用 cpuBaselineAtElapsedMs 判断「是否曾建立过基线」。
+             */
+            if (baselinePid != pid || cpuBaselineAtElapsedMs <= 0L) {
                 cpuBaselinePid = pid
                 cpuBaselineJiffies = jiffies
                 cpuBaselineAtElapsedMs = now

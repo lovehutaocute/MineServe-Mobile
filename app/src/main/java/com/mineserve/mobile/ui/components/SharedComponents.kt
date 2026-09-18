@@ -33,6 +33,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -185,6 +186,8 @@ fun HeroBlock(
     coreLabel: String,
     cpuPercent: Int? = null,
     onlineModeEnabled: Boolean = false,
+    isRefreshing: Boolean = false,
+    lastRefreshAtMs: Long = 0L,
     onRefresh: (() -> Unit)? = null
 ) {
     Box(
@@ -237,16 +240,31 @@ fun HeroBlock(
                     )
                 }
                 if (onRefresh != null) {
-                    IconButton(
-                        onClick = onRefresh,
-                        modifier = Modifier.size(30.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Outlined.Refresh,
-                            contentDescription = stringResource(R.string.hero_refresh),
-                            tint = Color.White.copy(alpha = 0.85f),
-                            modifier = Modifier.size(17.dp)
-                        )
+                    // 刷新中显示旋转进度圈，替代静态图标——
+                    // 采集本身很快，若没有这层反馈，用户无法区分「没反应」和「刷了但值没变」。
+                    if (isRefreshing) {
+                        Box(
+                            modifier = Modifier.size(30.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(16.dp),
+                                strokeWidth = 2.dp,
+                                color = Color.White.copy(alpha = 0.9f)
+                            )
+                        }
+                    } else {
+                        IconButton(
+                            onClick = onRefresh,
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Outlined.Refresh,
+                                contentDescription = stringResource(R.string.hero_refresh),
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(17.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -271,6 +289,16 @@ fun HeroBlock(
                     stringResource(R.string.hero_uptime)
                 )
                 HeroStat(cpuPercent?.let { "$it%" } ?: "--", stringResource(R.string.hero_cpu))
+            }
+            // 手动刷新完成反馈：明确告诉用户「已经更新过了」，
+            // 即使各项数值本身没有变化，也不会被误认为按钮失效。
+            if (!isRefreshing && lastRefreshAtMs > 0L) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "已更新 · ${formatRefreshAgo(lastRefreshAtMs)}",
+                    color = Color.White.copy(alpha = 0.55f),
+                    fontSize = 9.sp
+                )
             }
             if (onlineModeEnabled) {
                 Spacer(Modifier.height(6.dp))
@@ -339,6 +367,22 @@ private fun formatUptime(ms: Long): String {
         h > 0 -> "${h}h${m}m"
         m > 0 -> stringResource(R.string.sc_minutes, m)
         else -> stringResource(R.string.sc_seconds, totalSec)
+    }
+}
+
+/**
+ * 手动刷新的相对时间描述（「刚刚 / N 秒前 / N 分钟前」）。
+ *
+ * 存在的意义是让「刷新」这个动作**可被观察到**：采集带缓存，数值经常不变，
+ * 光看数字无法判断按钮是否生效。
+ */
+private fun formatRefreshAgo(refreshAtMs: Long): String {
+    val elapsedSec = ((System.currentTimeMillis() - refreshAtMs).coerceAtLeast(0L)) / 1000
+    return when {
+        elapsedSec < 5 -> "刚刚"
+        elapsedSec < 60 -> "${elapsedSec}秒前"
+        elapsedSec < 3600 -> "${elapsedSec / 60}分钟前"
+        else -> "${elapsedSec / 3600}小时前"
     }
 }
 

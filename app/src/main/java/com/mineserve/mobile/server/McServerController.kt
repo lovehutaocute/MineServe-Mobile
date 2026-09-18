@@ -247,10 +247,45 @@ class McServerController(
     private val maxRestartAttempts = 3
     @Volatile
     private var restartAttempts = 0
+
+    /**
+     * 崩溃重启的退避基准间隔：3s → 6s → 12s → 24s，封顶 60s。
+     *
+     * 固定 3s 间隔时，配置错误导致的"秒退"会形成启动风暴（每 3 秒拉起一次，
+     * 每次都写日志、打包崩溃报告），既拖慢机器又淹没用户判断。
+     * 指数退避让连续失败的重启成本迅速上升，同时保持首次重启依然很快。
+     */
+    private fun restartBackoffMs(attempt: Int): Long {
+        val base = 3_000L
+        // attempt 从 1 开始计数：1→3s, 2→6s, 3→12s
+        val shift = (attempt - 1).coerceIn(0, 5)
+        return (base shl shift).coerceAtMost(MAX_RESTART_BACKOFF_MS)
+    }
+
+    /** 进程存活超过该时长即视为"启动成功"，清零退避计数，避免下次崩溃从长间隔开始。 */
+    private fun resetRestartBackoffIfStable() {
+        val uptime = System.currentTimeMillis() - processStartedAtMs
+        if (restartAttempts != 0 && uptime >= RESTART_BACKOFF_RESET_MS) {
+            Log.i(TAG, "服务端已稳定运行 ${uptime / 1000}s，清零崩溃重启计数")
+            restartAttempts = 0
+        }
+    }
+
     @Volatile
     private var startupDeadlineMs = 0L
     @Volatile
     private var processStartedAtMs = 0L
+
+    /**
+     * 用户主动请求停止的时间戳。
+     *
+     * ⚠️ 唯一真源在 [TermuxRuntime.lastUserStopRequestAtMs] —— 主动停止的
+     * 入口有多个（App 内停止、通知栏按钮、备份前暂停、删除运行环境），
+     * 它们最终都汇聚到 `TermuxRuntime.stopMc()`，标记打在那里才不会漏。
+     */
+    private val userStopRequestedAtMs: Long
+        get() = termux.lastUserStopRequestAtMs
+
     @Volatile
     private var lastStartupFailure: StartupFailure? = null
     @Volatile
@@ -431,7 +466,13 @@ class McServerController(
             File(jarPath).renameTo(phar)
             phar.name
         } else "server.jar"
-        // 添加到已安装列表
+        // 添加到已安装列表。
+        //
+        // 注意：这里刻意**不使用调用方传入的 [config]** 来拼接新列表。
+        // [config] 往往是 UI 侧的快照，而下载过程可能持续几十秒甚至更久，
+        // 期间用户完全可能删除/新增别的核心。若以那份陈旧快照为基准写回，
+        // 会把用户在下载期间做的其他改动整体覆盖（症状：刚下的核心不在列表里、
+        // 已删的核心又出现）。改为在仓库的权威内存态上原子读改写。
         val newCore = InstalledCore(
             name = customName,
             core = normalizedConfig.selectedCore,
@@ -439,11 +480,12 @@ class McServerController(
             dirName = dirName,
             serverFile = serverFileName
         )
-        val updated = config.installedCores.filter { it.dirName != dirName } + newCore
-        repo.saveConfig(config.copy(
-            installedCores = updated,
-            activeCoreName = customName
-        ))
+        repo.updateAndSaveConfig { current ->
+            current.copy(
+                installedCores = current.installedCores.filter { it.dirName != dirName } + newCore,
+                activeCoreName = customName
+            )
+        }
         dirName
     }
 
@@ -1448,6 +1490,7 @@ class McServerController(
         // ── 完全自定义启动命令模式 ──
         if (config.advancedCustomCommandEnabled && config.advancedCustomCommand.isNotBlank()) {
             termux.emitLog("[startMc] 使用完全自定义启动命令")
+            termux.clearUserStopRequest()
             startupDeadlineMs = System.currentTimeMillis() + 20_000L
             processStartedAtMs = System.currentTimeMillis()
             termux.startMcCustom(
@@ -1520,6 +1563,7 @@ class McServerController(
             val phar = serverDir.listFiles { f -> f.isFile && f.name.endsWith(".phar", ignoreCase = true) }
                 ?.maxByOrNull { it.lastModified() }
                 ?: throw RuntimeException("未找到 PocketMine-MP.phar，请重新下载核心")
+            termux.clearUserStopRequest()
             startupDeadlineMs = System.currentTimeMillis() + 20_000L
             processStartedAtMs = System.currentTimeMillis()
             termux.startPhp(phpBin.absolutePath, File(phpBin.parentFile, "php.ini").absolutePath, phar.absolutePath, dirName, createExitHandler(config, dirName, phar.absolutePath))
@@ -1569,7 +1613,11 @@ class McServerController(
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
         if (coreType == ServerCore.NeoForge && config.selectedJavaVersion != JavaVersion.Java8) {
-            termux.emitLog("[startMc] NeoForge 提示：Android/Termux 原生 Java 不提供 glibc 的 libc.so.6，JNA/OSHI 系统信息警告无法通过字体修复消除")
+            if (config.moduleCompatMode) {
+                termux.emitLog("[startMc] 模组兼容模式已开启：已注入 Android 友好的 OSHI/JNA 属性")
+            } else {
+                termux.emitLog("[startMc] NeoForge 提示：Android 无 glibc 的 libc.so.6，依赖 OSHI/JNA 的模组可能崩服；可在「高级启动选项」开启模组兼容模式")
+            }
             termux.emitLog("[startMc] ReferenceOpenHashSet 或 DistanceManager 异常属于 NeoForge/Minecraft 运行期崩溃，请以 crash-reports 的首个异常为准")
         }
         if ((coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) &&
@@ -1606,6 +1654,9 @@ class McServerController(
         if (launchArgs == null && jarPath == null) {
             throw RuntimeException("未找到可启动的 JAR；导入内容未被修改，请检查服务器目录")
         }
+        // 新一次启动：清掉上一轮的"用户已请求停止"标记，
+        // 否则本轮的真实崩溃会被误判成正常停止而漏报。
+        termux.clearUserStopRequest()
         startupDeadlineMs = System.currentTimeMillis() + 20_000L
         processStartedAtMs = System.currentTimeMillis()
         termux.startMc(
@@ -1615,6 +1666,7 @@ class McServerController(
             javaVersion = finalLaunchJava,
             launchArgs = launchArgs,
             appendNogui = coreType !in setOf(ServerCore.PowerNukkitX, ServerCore.Allay),
+            moduleCompatMode = config.moduleCompatMode,
             onExit = createExitHandler(config, dirName, jarPath)
         )
         repo.updateServerState { markRunningIfAlive(it) }
@@ -1633,17 +1685,53 @@ class McServerController(
 
     /** 提取 onExit 处理器，供 launchMc 和 startMcCustom 共用。 */
     private fun createExitHandler(config: McConfig, dirName: String, jarPath: String?): (Int) -> Unit = { code ->
+        val uptimeMs = System.currentTimeMillis() - processStartedAtMs
         val failedDuringStartup = System.currentTimeMillis() <= startupDeadlineMs
+        // 稳定运行过就先清零退避计数，让"偶发崩溃"和"持续崩溃"区别对待
+        resetRestartBackoffIfStable()
         repo.updateServerState {
             it.copy(
                 isRunning = false,
                 startupPhase = if (code == 0) StartupPhase.Idle else StartupPhase.Failed
             )
         }
-        Log.w(TAG, "MC process exited code=$code, autoRestart=${config.autoRestartOnCrash}")
-        // 启动后极短时间内退出（即使 exit=0）不是正常停止：测试核心/配置错误常表现为退出码 0。
-        val quickCleanExit = code == 0 && System.currentTimeMillis() - processStartedAtMs < 5_000L
-        if (code == 0 && !quickCleanExit) {
+        Log.w(TAG, "MC process exited code=$code, uptime=${uptimeMs}ms, autoRestart=${config.autoRestartOnCrash}")
+        /*
+         * 判定"是否属于异常退出"。
+         *
+         * 历史逻辑是 `code == 0 && uptime < 5000` 才算异常。这条规则有个副作用：
+         * 服务端**确实正常退出**（exit=0）但运行不足 5 秒时，会被判成崩溃，
+         * 于是生成崩溃报告 + 弹通知 + 自动重启。实测日志里出现过
+         * `Done (0.251s)!` 后 2 秒被 `Stopping the server`，MineServe 报
+         * `[crash] 检测到异常退出(exit=0)` —— 服务端其实是被正常停掉的。
+         *
+         * 第二版判定：只有「**启动窗口内**就退出」才按异常处理
+         *   - failedDuringStartup：20s 启动窗口还没过（进程根本没起来）
+         *   - code != 0：非零退出码，本来就是异常
+         *   - exit=0 且已过启动窗口 → 视为用户主动停止，走正常停止路径
+         *
+         * 第二版仍有一个副作用（用户实测反馈）：
+         * **在启动后 20 秒内点「停止」**，服务端几秒后以 exit=0 正常关停，
+         * 但此时启动窗口还没过 → failedDuringStartup 为 true → 误弹崩溃报告。
+         * 报告里那条 `NoClassDefFoundError: com.sun.jna.Native` 是启动过程中
+         * 某个 OSHI/JNA 模组留下的历史日志，被 captureCrash 当作"最近日志"
+         * 一并打包，与"停止"这个动作毫无关系，却极容易被误读成停止导致的崩溃。
+         *
+         * 第三版（当前）：显式记录用户的停止请求 —— 只要在退出前有过一次
+         * 主动停止请求，就**一律按正常停止处理**，不再生成崩溃报告。
+         * 理由：用户已经表达了"我要停"，此时再弹崩溃报告属于纯粹的噪音。
+         */
+        val userStoppedRecently = userStopRequestedAtMs != 0L &&
+            System.currentTimeMillis() - userStopRequestedAtMs <= USER_STOP_GRACE_MS
+        val abnormalExit = !userStoppedRecently && (code != 0 || failedDuringStartup)
+        if (userStoppedRecently) {
+            Log.i(
+                TAG,
+                "exit=$code 发生在用户主动停止请求后 " +
+                    "${System.currentTimeMillis() - userStopRequestedAtMs}ms，按正常停止处理，跳过崩溃判定"
+            )
+        }
+        if (!abnormalExit) {
             val app = McApplication.get()
             ServerEventNotifier.notify(
                 app,
@@ -1652,13 +1740,13 @@ class McServerController(
                 ServerEventNotifier.ID_STOPPED, 1
             )
         }
-        if (code != 0 || quickCleanExit) {
+        if (abnormalExit) {
             // stdout writer 在进程退出哨兵后完成 flush，稍候再读文件避免报告缺失尾部。
             try { Thread.sleep(200) } catch (e: InterruptedException) { Thread.currentThread().interrupt() }
             var reportPath: String? = null
             try {
                 reportPath = crashReportManager.captureCrash(
-                    code, wasRunningBefore = true, dirName = dirName, allowCleanExit = quickCleanExit
+                    code, wasRunningBefore = true, dirName = dirName, allowCleanExit = code == 0
                 )
                 if (reportPath != null) {
                     Log.i(TAG, "崩溃报告已保存: $reportPath")
@@ -1668,10 +1756,11 @@ class McServerController(
                 Log.e(TAG, "捕获崩溃报告失败: ${e.message}", e)
             }
             val willAutoRestart = config.autoRestartOnCrash && restartAttempts < maxRestartAttempts
-            val detail = if (failedDuringStartup) {
+            val detail = if (code != 0 && failedDuringStartup) {
                 "服务端启动后立即退出 (exit=$code)"
-            } else if (quickCleanExit) {
-                "服务端异常快速退出 (exit=$code)"
+            } else if (code == 0) {
+                // 启动窗口内 exit=0：测试核心、缺 EULA、配置错误等常见表现
+                "服务端启动阶段即退出 (exit=$code)，请检查配置或核心是否匹配"
             } else if (willAutoRestart) {
                 "服务端异常退出 (exit=$code)，稍后自动重启"
             } else {
@@ -1689,13 +1778,20 @@ class McServerController(
                 ServerEventNotifier.ID_CRASH, 1
             )
         }
-        if (config.autoRestartOnCrash && (code != 0 || quickCleanExit)) {
+        if (config.autoRestartOnCrash && abnormalExit) {
             if (restartAttempts < maxRestartAttempts) {
                 restartAttempts++
-                Log.i(TAG, "崩溃自动重启中... (attempt $restartAttempts/$maxRestartAttempts)")
+                // 指数退避：连续失败的重启间隔逐次翻倍，避免"秒退"形成启动风暴
+                val backoffMs = restartBackoffMs(restartAttempts)
+                Log.i(
+                    TAG,
+                    "崩溃自动重启中... (attempt $restartAttempts/$maxRestartAttempts, " +
+                        "退避 ${backoffMs / 1000}s)"
+                )
+                termux.emitLog("[restart] 服务端异常退出，${backoffMs / 1000}s 后自动重启（第 $restartAttempts/$maxRestartAttempts 次）")
                 Thread {
                     try {
-                        Thread.sleep(3000)
+                        Thread.sleep(backoffMs)
                         kotlinx.coroutines.runBlocking {
                             launchMc(config, dirName, jarPath)
                             repo.updateServerState { markRunningIfAlive(it) }
@@ -1706,6 +1802,7 @@ class McServerController(
                 }.start()
             } else {
                 Log.e(TAG, "已达到最大重试次数($maxRestartAttempts)，停止重启")
+                termux.emitLog("[restart] 已连续失败 $maxRestartAttempts 次，停止自动重启，请检查服务端配置")
             }
         }
     }
@@ -1850,6 +1947,8 @@ class McServerController(
     }.getOrDefault(false)
 
     suspend fun stop() = withContext(Dispatchers.IO) {
+        // 标记由 TermuxRuntime.stopMc() 内部统一打上（见那里的说明），
+        // 这里只需发出停止请求即可。
         termux.stopMc()
         repo.updateServerState {
             it.copy(isRunning = false, runningSinceMs = 0L, startupPhase = StartupPhase.Idle)
@@ -1863,6 +1962,24 @@ class McServerController(
 
     companion object {
         private const val TAG = "McServerController"
+
+        /** 崩溃重启退避的上限（60s），避免长间隔让用户误以为不再重启。 */
+        private const val MAX_RESTART_BACKOFF_MS = 60_000L
+
+        /**
+         * 「用户已请求停止」标记的有效期。
+         *
+         * 点了停止之后，服务端要先跑完 `stop` 命令、落盘、再退出，实测可能
+         * 花十几秒（大世界尤其慢）。这个宽限窗口必须覆盖这段延迟，否则
+         * 服务端退出时标记已过期，又会被判成异常退出。
+         *
+         * 取 5 分钟：远大于正常关停耗时，同时保证"停完之后过很久才发生的
+         * 真实崩溃"仍能被正确判定为异常（那种情况标记早该失效了）。
+         */
+        private const val USER_STOP_GRACE_MS = 5 * 60_000L
+
+        /** 进程存活超过 5 分钟即视为启动成功，下次崩溃重启从最短间隔重新开始。 */
+        private const val RESTART_BACKOFF_RESET_MS = 5 * 60_000L
 
         /**
          * 该 PHP 构建内置 pmmp/ext-encoding 0.4.x，PocketMine 5.34.0 起要求 ~1.0.0，

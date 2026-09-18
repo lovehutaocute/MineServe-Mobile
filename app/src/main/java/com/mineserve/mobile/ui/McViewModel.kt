@@ -21,7 +21,7 @@ import com.mineserve.mobile.data.MinecraftVersionNormalizer
 import com.mineserve.mobile.data.ServerRepository
 import com.mineserve.mobile.data.ServerState
 import com.mineserve.mobile.data.StartupPhase
-import com.mineserve.mobile.data.startupPhaseForLog
+import com.mineserve.mobile.runtime.ConsoleLineParser
 import com.mineserve.mobile.data.TunnelState
 import com.mineserve.mobile.data.TunnelStatus
 import com.mineserve.mobile.data.TunnelType
@@ -682,6 +682,21 @@ class McViewModel(
     private val _serverResources = MutableStateFlow(ServerResourceStats())
     val serverResources: StateFlow<ServerResourceStats> = _serverResources.asStateFlow()
     private val _statusRefreshInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * 手动刷新是否正在进行（供 UI 显示进度/禁用按钮）。
+     *
+     * 加上这个状态是因为：采集本身很快，而各采样项都有 30s/60s 缓存，
+     * 点一次刷新往往「值没变」——用户无法区分「没反应」和「刷了但没变化」。
+     * 有了明确的进行中状态 + 完成回调，点击就是有反馈的。
+     */
+    private val _isRefreshingStatus = MutableStateFlow(false)
+    val isRefreshingStatus: StateFlow<Boolean> = _isRefreshingStatus.asStateFlow()
+
+    /** 最近一次手动刷新的完成时间（供 UI 显示「刚刚更新」）。 */
+    private val _lastStatusRefreshAtMs = MutableStateFlow(0L)
+    val lastStatusRefreshAtMs: StateFlow<Long> = _lastStatusRefreshAtMs.asStateFlow()
+
     private var cachedResourceDir: String? = null
     private var cachedDirectoryBytes: Long? = null
     private var cachedDirectoryBytesAtMs = 0L
@@ -689,6 +704,13 @@ class McViewModel(
     private var cachedMemoryMb = 0L
     private var cachedJavaAvailable: Boolean? = null
     private var cachedJavaAvailableAtMs = 0L
+
+    /** 使所有采样缓存失效，让下一次采集拿到真实的最新值。 */
+    private fun invalidateResourceCaches() {
+        cachedDirectoryBytesAtMs = 0L
+        cachedMemoryAtMs = 0L
+        cachedJavaAvailableAtMs = 0L
+    }
 
     /** Samples values that belong to the selected server. */
     private fun startServerResourceCollection() {
@@ -702,12 +724,27 @@ class McViewModel(
         }
     }
 
-    /** 手动刷新：立即重新采集服务器状态并请求前台服务查询最新数据。 */
+    /**
+     * 手动刷新：立即重新采集服务器状态并请求前台服务查询最新数据。
+     *
+     * ## 为什么原先「点了没反应」
+     * 采集函数里各采样项都有缓存（内存 30s、目录大小 60s、Java 可用性 60s），
+     * 且有一段「值未变化就不发布新快照」的优化。用户点刷新时通常都在缓存窗口内，
+     * 于是采出的值与上次完全相同 → 不发布 → UI 毫无变化，看起来就是「按钮坏了」。
+     *
+     * 现在手动刷新会：
+     *   1. **清空采样缓存**，强制重新读取 /proc 与目录
+     *   2. 置位 [isRefreshingStatus]，让按钮立刻有视觉反馈
+     *   3. 结束后记录 [lastStatusRefreshAtMs]，UI 可以显示「刚刚更新」
+     *   4. 无论值是否变化都强制发布一次快照，确保订阅方至少收到一次
+     */
     fun refreshServerStatus() {
         if (!_statusRefreshInFlight.compareAndSet(false, true)) return
+        _isRefreshingStatus.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                collectServerResourcesOnce()
+                invalidateResourceCaches()
+                collectServerResourcesOnce(force = true)
                 // 运行中的服务器异步回复 list/tps，由现有解析器更新在线人数与 TPS。
                 val rt = repo.termuxRuntime
                 if (rt.isMcRunning()) {
@@ -718,11 +755,20 @@ class McViewModel(
                 }
             } finally {
                 _statusRefreshInFlight.set(false)
+                _lastStatusRefreshAtMs.value = System.currentTimeMillis()
+                _isRefreshingStatus.value = false
             }
         }
     }
 
-    private fun collectServerResourcesOnce() {
+    /**
+     * 采集一次服务器资源快照。
+     *
+     * @param force 为 true 时忽略「值未变化就不发布」的优化，强制发布一次。
+     *        手动刷新走这条路：即使用户在缓存窗口内点击，UI 也必定收到新快照，
+     *        并且能通过 [ServerResourceStats.sampledAtMs] 观察到刷新确实生效了。
+     */
+    private fun collectServerResourcesOnce(force: Boolean = false) {
         try {
             val cfg = config.value
             val active = cfg.installedCores.find { it.name == cfg.activeCoreName }
@@ -760,8 +806,10 @@ class McViewModel(
                 sampledAtMs = now
             )
             // 值无变化时不发布新快照：避免每 15 秒无谓的重组（后台游戏挤压 CPU 时尤其明显）。
+            // 但 [force]（手动刷新）时必须无条件发布，否则用户会觉得「点了没反应」。
             val prev = _serverResources.value
-            if (prev.processMemoryMb != newStats.processMemoryMb ||
+            if (force ||
+                prev.processMemoryMb != newStats.processMemoryMb ||
                 prev.cpuPercent != newStats.cpuPercent ||
                 prev.availableBytes != newStats.availableBytes ||
                 prev.directoryBytes != newStats.directoryBytes ||
@@ -770,8 +818,14 @@ class McViewModel(
                 _serverResources.value = newStats
             }
             repo.updateServerState { state ->
-                if (state.usedMemoryMb == (effectiveMemory ?: 0L) && state.cpuPercent == cpu) state
-                else state.copy(usedMemoryMb = effectiveMemory ?: 0L, cpuPercent = cpu)
+                if (!force &&
+                    state.usedMemoryMb == (effectiveMemory ?: 0L) &&
+                    state.cpuPercent == cpu
+                ) {
+                    state
+                } else {
+                    state.copy(usedMemoryMb = effectiveMemory ?: 0L, cpuPercent = cpu)
+                }
             }
         } catch (e: Exception) {
             // Keep the last known snapshot when Android or PRoot denies a probe.
@@ -1004,17 +1058,22 @@ class McViewModel(
     companion object {
         private const val MAX_LOG_LINES = 1500
         private const val LOG_FLUSH_MS = 200L
-        private const val CONSOLE_PREVIEW_FLUSH_MS = 750L
+
         /**
-         * 配置合并窗口：略大于 ServerRepository 的 300ms debounce。
-         * 窗口内的连续 updateConfig 会以前一次结果为基准叠加，避免互相覆盖。
+         * 无订阅者时日志刷新循环的空闲周期。
+         *
+         * 200ms 周期只在界面真正可见时才有意义；后台时降为 2s，
+         * 让待机期间的 CPU 唤醒次数从每秒 10 次降到 0.5 次（与原主循环的降频策略一致）。
          */
-        private const val PENDING_WINDOW_MS = 800L
-        /** 下载阶段锁定超时：60 秒无 post-download 消息则强制解锁 */
-        private const val DOWNLOAD_LOCK_TIMEOUT_MS = 60_000L
-        // 预编译正则，避免每行重新编译
-        private val PLAYERS_REGEX = Regex("There are (\\d+) of a max of (\\d+) players online")
-        private val TPS_REGEX = Regex("TPS from last 1m.*?:\\s*([\\d.]+)")
+        private const val IDLE_LOG_FLUSH_MS = 2000L
+        private const val CONSOLE_PREVIEW_FLUSH_MS = 750L
+        // 阶段推进采用了"只增不减"策略，因此不再需要连续命中计数（PHASE_CONFIRM_HITS）
+        // 与单步回退容差（DOUBLE_STEP_TOLERANCE）：前者会因为
+        // "启动 Java / 启动网络"这类只出现一行的阶段被整段吞掉，
+        // 后者只是把震荡的幅度调小而不是消除震荡。
+        // 噪声（异常堆栈）改由 McConfig.isStackFrameLine 在判定源头拦掉。
+        // 玩家数/TPS 等状态正则已收敛到 ConsoleLineParser，此处不再重复持有。
+        // 配置写入的合并窗口已移除：改由 ServerRepository 的原子读改写根治竞态。
 
         val Factory: ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -1032,9 +1091,11 @@ class McViewModel(
 
     private fun parseConsoleLine(line: String) {
         try {
-            val startupPhase = startupPhaseForLog(line)
+            // 状态类信号统一由共享解析器提取（正则只跑一次，与前台服务共用同一份实现）。
+            val signals = ConsoleLineParser.parse(line)
+            val startupPhase = signals.startupPhase
             updateStartupPhaseFromLog(startupPhase)
-            val requiredJava = CrashReportAnalyzer.requiredJavaVersion(line)
+            val requiredJava = signals.requiredJavaVersion
             if (requiredJava != null) {
                 val selected = when (config.value.selectedJavaVersion) {
                     JavaVersion.Java8 -> 8; JavaVersion.Java11 -> 11; JavaVersion.Java17 -> 17; JavaVersion.Java21 -> 21; JavaVersion.Java25 -> 25
@@ -1048,7 +1109,11 @@ class McViewModel(
                     }
                 }
             }
-            // 快速前缀检查：只有包含关键子串的行才进一步处理
+            // 玩家进出服需要副作用（名单、记录、通知），仍在本层处理；
+            // 但只在日志确实提到进出服时才做正则，避免每行都跑。
+            // 玩家事件与「服务端就绪」原本是互斥的 when 分支：某一行只要命中了玩家进出服，
+            // 就不会再去触发就绪。下面用 handled 标记维持这一语义，避免行为漂移。
+            var handled = false
             when {
                 playerManager.extractPowerNukkitPlayerEvent(line) != null -> {
                     val (name, joined) = playerManager.extractPowerNukkitPlayerEvent(line)!!
@@ -1056,6 +1121,7 @@ class McViewModel(
                     if (joined) addOnlinePlayer(name) else removeOnlinePlayer(name)
                     recordPlayerEvent(name, if (joined) "进服" else "离服")
                     notifyPlayerEvent(name, joined)
+                    handled = true
                 }
                 line.contains("joined the game") -> {
                     // 仅当提取到真实玩家名（日志前缀 + 合法名字）时才计数与记录，避免聊天消息误报
@@ -1067,6 +1133,7 @@ class McViewModel(
                         recordPlayerEvent(name, "进服")
                         notifyPlayerEvent(name, true)
                     }
+                    handled = true
                 }
                 line.contains("left the game") -> {
                     playerManager.extractPlayerName(line)?.let { name ->
@@ -1077,34 +1144,30 @@ class McViewModel(
                         recordPlayerEvent(name, "离服")
                         notifyPlayerEvent(name, false)
                     }
+                    handled = true
                 }
-                line.contains("players online") -> {
-                    val m = PLAYERS_REGEX.find(line)
-                    if (m != null) {
-                        val online = m.groupValues[1].toIntOrNull() ?: return
-                        val max = m.groupValues[2].toIntOrNull() ?: return
-                        repo.updateServerState { it.copy(onlinePlayers = online, maxPlayers = max) }
-                        // A valid list response proves the server is already accepting commands.
-                        markServerReady()
-                        // 全量校正在线玩家名单（list 命令响应）
-                        playerManager.parseOnlinePlayers(line)?.let { names ->
-                            _onlinePlayerNames.value = names
-                        }
-                    }
-                }
-                line.contains("TPS from last 1m") -> {
-                    val m = TPS_REGEX.find(line)
-                    if (m != null) {
-                        val tps = m.groupValues[1].toDoubleOrNull() ?: return
-                        val health = ((tps / 20.0) * 100).toInt().coerceIn(0, 100)
-                        repo.updateServerState {
-                            it.copy(tps = tps, healthPercent = health,
-                                maxMemoryMb = config.value.maxHeapMb.toLong())
-                        }
-                    }
-                }
-                startupPhase == StartupPhase.Ready -> markServerReady()
             }
+            if (!handled && signals.players != null) {
+                val p = signals.players
+                repo.updateServerState { it.copy(onlinePlayers = p.online, maxPlayers = p.max) }
+                // A valid list response proves the server is already accepting commands.
+                markServerReady()
+                // 全量校正在线玩家名单（list 命令响应）
+                playerManager.parseOnlinePlayers(line)?.let { names ->
+                    _onlinePlayerNames.value = names
+                }
+                handled = true
+            }
+            if (!handled && signals.tps != null) {
+                val value = signals.tps
+                val health = ((value / 20.0) * 100).toInt().coerceIn(0, 100)
+                repo.updateServerState {
+                    it.copy(tps = value, healthPercent = health,
+                        maxMemoryMb = config.value.maxHeapMb.toLong())
+                }
+                handled = true
+            }
+            if (!handled && startupPhase == StartupPhase.Ready) markServerReady()
         } catch (e: Exception) {
             // 解析失败不影响正常运行
         }
@@ -1147,66 +1210,66 @@ class McViewModel(
         )
     }
 
-    /** 在后台日志解析线程推进启动阶段，UI 不扫描原始日志。
-     * 下载阶段锁定：检测到下载日志后锁定在 DownloadingDependencies，
-     * 直到出现明确的 post-download 消息（LoadingCore 及以上）才解锁；
-     * 若 60 秒内无 post-download 消息则超时强制解锁。 */
+    /**
+     * 在后台日志解析线程推进启动阶段，UI 不扫描原始日志。
+     *
+     * ## 唯一的不变量：**进度只增不减**
+     *
+     * 这条规则是花了四个版本才收敛到的最简形式。前几版分别试过
+     * 「下载锁」「只许前进」「越档回退需连续证据」「下载单向」……
+     * 全都是**局部补丁**，每修一处又漏一处。用户真实日志把这一层彻底暴露了。
+     *
+     * 最典型的两个症状（用户原话）：
+     *   - **"下载核心与加载核心两个左右跳"**：日志里 `Loading Minecraft …`
+     *     这类核心探针行**夹在下载段中间**，随后下载又继续，于是进度条
+     *     在 40% ↔ 62% 之间反复横跳。任何"如实跟随每一行"的实现都必然这样。
+     *   - **"直接进度条完成"**：`Starting Minecraft server on *:25565`（启动网络）
+     *     与 `Preparing level`（创建世界）这类行**各自只出现一两次**。
+     *     之前用"连续 N 行才采纳"的防抖门槛去滤噪声，结果是把这两整档
+     *     直接吞掉，进度条从 62% 一步蹦到 100%。
+     *
+     * 所以这里反过来做：**噪声在判定源头就掐掉，阶段推进则不做防抖**。
+     *   - 源头：`McConfig.isStackFrameLine` 把异常堆栈行（形如
+     *     `at net.fabricmc.installer.ServerLauncher.main(...)`）判为"不参与阶段"。
+     *     这些行含 `server` / `libraries` / `minecraft` 之类的路径片段，
+     *     曾被误判成"下载依赖"，把进度从 82% 拖回 40%。
+     *   - 推进：只要算出来的阶段比当前**高**，立刻采纳；平级或倒退一律忽略。
+     *
+     * 至于 App 自身的引导日志（`[bootstrap] …` → 准备环境 7%）：它会在
+     * `[startMc] java 路径` 之后才打印，如实跟随同样会把进度条拽回 7%。
+     * "只增不减"顺手把这个问题一并解决了。
+     *
+     * 因此这里不再需要连续命中计数（PHASE_CONFIRM_HITS）与单步回退容差
+     * （DOUBLE_STEP_TOLERANCE），两者均已删除。
+     */
     private fun updateStartupPhaseFromLog(phase: StartupPhase?) {
         phase ?: return
         repo.updateServerState { state ->
             if (!state.isRunning || state.startupPhase == StartupPhase.Ready) return@updateServerState state
 
-            // 下载活动检测：无条件更新阶段并记录时间戳
-            if (phase == StartupPhase.DownloadingDependencies) {
-                return@updateServerState state.copy(
-                    startupPhase = phase,
-                    lastDownloadActivityMs = SystemClock.elapsedRealtime()
-                )
-            }
+            // ══════════════════════════════════════════════════════════════
+            // 唯一的不变量：**进度只增不减**。理由详见本函数的 KDoc。
+            // ══════════════════════════════════════════════════════════════
+            // - 低于或等于当前档位 → 忽略（这就是"不回退"，同时消灭 40%↔62% 横跳）
+            // - 高于当前档位       → 立即采纳（不设防抖，所以"只出现 1 行"的
+            //                       启动 Java / 启动网络 不会被吞，进度条不再
+            //                       从 62% 直接蹦到 100%）
+            if (phase.progress <= state.startupPhase.progress) return@updateServerState state
 
-            // 下载阶段锁定：当前处于 DownloadingDependencies 时
-            if (state.startupPhase == StartupPhase.DownloadingDependencies) {
-                // post-download 消息（LoadingCore / CreatingWorld / StartingNetwork）→ 解锁
-                if (phase == StartupPhase.LoadingCore ||
-                    phase == StartupPhase.CreatingWorld ||
-                    phase == StartupPhase.StartingNetwork ||
-                    phase == StartupPhase.Ready
-                ) {
-                    return@updateServerState state.copy(startupPhase = phase)
-                }
-                // 超时保护：60 秒无 post-download 消息则强制解锁
-                val elapsed = SystemClock.elapsedRealtime() - state.lastDownloadActivityMs
-                if (elapsed < DOWNLOAD_LOCK_TIMEOUT_MS) return@updateServerState state
-                // 超时后允许 Ready 跃升
-            }
-
-            if (phase.progress >= state.startupPhase.progress) {
-                state.copy(startupPhase = phase)
-            } else state
+            state.copy(startupPhase = phase)
         }
     }
 
     /**
-     * 待写入的配置快照（仅在 debounce 窗口内有意义）。
+     * 修改配置。
      *
-     * 消除 read-modify-write 竞态：config 落盘带 300ms debounce，若连续两次 updateConfig，
-     * 第二次读到的 config.value 仍是旧值，会把第一次的改动整体覆盖掉
-     * （典型表现：切到 PHP 后 runtimeKind 又被写回 Java）。
+     * 竞态的根治：读改写由 [ServerRepository.updateConfig] 以原子方式完成，
+     * 基准是仓库内的权威内存态，而不是 DataStore 流的最新发射值。
+     * 因此连续快速修改会正确叠加，不再依赖"上次修改是否还在 debounce 窗口内"这一时间假设
+     * （旧实现用 800ms pendingConfig 窗口绕过该问题，窗口边界仍是脆弱假设）。
      */
-    @Volatile
-    private var pendingConfig: McConfig? = null
-
-    @Volatile
-    private var pendingUntilMs: Long = 0L
-
-    @Synchronized
     fun updateConfig(transform: (McConfig) -> McConfig) {
-        // debounce 窗口内的连续修改，基准取上一次的意图值，保证叠加而非互相覆盖
-        val now = System.currentTimeMillis()
-        val base = pendingConfig?.takeIf { now < pendingUntilMs } ?: config.value
-        val updated = transform(base)
-        pendingConfig = updated
-        pendingUntilMs = now + PENDING_WINDOW_MS
+        val updated = repo.updateConfig(transform)
         viewModelScope.launch {
             try {
                 repo.saveConfig(updated)
@@ -1242,7 +1305,21 @@ class McViewModel(
 
     /**
      * 扫描 servers 目录，自动登记未注册的服务器文件夹。
-     * 覆盖 MT 管理器等外部方式直接复制进目录的场景；识别不出核心时按「导入/未知核心」登记（降低识别门槛）。
+     *
+     * 覆盖 MT 管理器等外部方式直接复制进目录的场景；识别不出核心时按
+     * 「导入/未知核心」登记（降低识别门槛）。
+     *
+     * ## 为什么要跳过空目录
+     * 早先只判断「目录名是否已登记」，不判断目录内容，结果**空目录也会被
+     * 登记成一个核心**。空目录的常见来源是删除流程中断或历史残留，
+     * 把它登记进列表只会让用户看到一个点进去什么都没有的幽灵条目，
+     * 而且它会带着 `Unknown` 核心类型、参与「当前选中核心」等逻辑。
+     *
+     * 现在明确区分两种情况：
+     *   - **空目录**（含只有隐藏文件/子目录壳）：不登记，仅记日志。用户可用
+     *     文件管理页自行清理；App 不擅自删用户目录。
+     *   - **有文件但识别不出核心**：仍然登记为「未知核心」。这可能是用户
+     *     手动塞进去的整合包，贸然忽略反而会让人以为导入失败。
      */
     fun scanUnregisteredServers() {
         if (scanningServers) return
@@ -1254,11 +1331,29 @@ class McViewModel(
                         ?.sortedBy { it.name.lowercase() } ?: emptyList()
                 }
                 if (dirs.isEmpty()) return@launch
-                val config = repo.configFlow.first()
-                val known = config.installedCores.map { it.dirName }.toHashSet()
+                val cfg = repo.currentConfig()
+                val known = cfg.installedCores.map { it.dirName }.toHashSet()
                 val fresh = dirs.filter { it.name !in known }
                 if (fresh.isEmpty()) return@launch
-                val registered = fresh.map { dir ->
+
+                // 空目录：跳过登记。用递归判断，避免「只剩一层空壳子目录」也通过。
+                val (emptyDirs, realDirs) = withContext(Dispatchers.IO) {
+                    fresh.partition { dir -> dir.isEffectivelyEmpty() }
+                }
+                if (emptyDirs.isNotEmpty()) {
+                    termux3Log(
+                        "扫描跳过 ${emptyDirs.size} 个空目录（未登记）: " +
+                            emptyDirs.joinToString(", ") { it.name }
+                    )
+                }
+                if (realDirs.isEmpty()) {
+                    _messageFlow.tryEmit(
+                        str(R.string.msg_scan_skipped_empty, emptyDirs.size)
+                    )
+                    return@launch
+                }
+
+                val registered = realDirs.map { dir ->
                     val detected = withContext(Dispatchers.IO) {
                         com.mineserve.mobile.server.ServerCoreDetector.detect(dir)
                     }
@@ -1270,14 +1365,34 @@ class McViewModel(
                         serverFile = detected.serverFile
                     )
                 }
-                updateConfig { it.copy(installedCores = it.installedCores + registered) }
-                _messageFlow.tryEmit(str(R.string.msg_scan_registered, registered.size))
+                val registeredNames = registered.map { it.dirName }.toHashSet()
+                repo.updateAndSaveConfig { current ->
+                    // 二次去重：登记期间可能有别处已登记同名目录，避免出现重复条目
+                    val merged = current.installedCores +
+                        registered.filter { it.dirName !in current.installedCores.map { c -> c.dirName } }
+                    current.copy(installedCores = merged)
+                }
+                _messageFlow.tryEmit(str(R.string.msg_scan_registered, registeredNames.size))
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s191, e.message))
             } finally {
                 scanningServers = false
             }
         }
+    }
+
+    /**
+     * 目录是否「实质为空」：忽略 `.` 开头的隐藏条目后没有任何子项。
+     *
+     * 递归深度设上限，避免异常深/循环软链接把扫描拖死。
+     */
+    private fun java.io.File.isEffectivelyEmpty(depth: Int = 0): Boolean {
+        if (depth > 4) return false        // 太深则按「有内容」处理，宁可登记也不错杀
+        val children = listFiles() ?: return true
+        val visible = children.filterNot { it.name.startsWith(".") }
+        if (visible.isEmpty()) return true
+        // 只有目录壳（没有文件）时也视为空
+        return visible.all { it.isDirectory && it.isEffectivelyEmpty(depth + 1) }
     }
 
     fun refreshJava() {
@@ -1579,7 +1694,9 @@ class McViewModel(
 
     /** 变更定时计划时同步保存并重注册下一次闹钟。 */
     private fun updateScheduleConfig(transform: (McConfig) -> McConfig) {
-        val updated = transform(config.value)
+        // 基于仓库权威内存态读改写，不用 UI 侧 config.value（可能是陈旧快照，
+        // 写回会覆盖用户此间做的其他修改）。ScheduleManager 用的是落盘后的最终值。
+        val updated = repo.updateConfig(transform)
         com.mineserve.mobile.data.ScheduleManager.register(app, updated)
         viewModelScope.launch {
             try {
@@ -1661,6 +1778,8 @@ class McViewModel(
         viewModelScope.launch {
             try {
                 lastJavaCompatibilityWarning = null
+                // 阶段推进已是"只增不减"的无状态规则，无需清理任何防抖残留；
+                // 新一次启动的阶段由 updateServerState 里显式重置为 PreparingEnvironment。
                 _lastRunLog.value = ""
                 val current = config.value
                 val startConfig = current
@@ -1668,8 +1787,7 @@ class McViewModel(
                     it.copy(
                         isRunning = true,
                         runningSinceMs = 0L,
-                        startupPhase = StartupPhase.PreparingEnvironment,
-                        lastDownloadActivityMs = 0L
+                        startupPhase = StartupPhase.PreparingEnvironment
                     )
                 }
                 _messageFlow.tryEmit(str(R.string.s196))
@@ -3645,29 +3763,62 @@ class McViewModel(
         else if (bytes >= 1024) "%.1f KB".format(bytes / 1024.0)
         else "$bytes B"
 
+    /**
+     * 删除一个已安装核心（磁盘目录 + 配置登记）。
+     *
+     * ## 必须用仓库的权威内存态，不能用 UI 侧快照
+     * 原先这里读的是 [config]`.value`（`WhileSubscribed(5s)` 的 StateFlow）。
+     * 用户离开下载页超过 5 秒后该流停止收集，`config.value` 会停留在旧值；
+     * 此时执行删除，写回的就是一份「把已删核心又带回来」的陈旧列表。
+     *
+     * 现在改为 [ServerRepository.updateAndSaveConfig]，读改写全程在仓库的
+     * 权威内存态上原子完成，不存在陈旧快照覆盖新状态的窗口。
+     *
+     * ## 目录不存在时也要清理登记
+     * 磁盘目录可能因删除中断、外部文件管理器操作、或历史 bug 残留而先一步消失。
+     * 这时若直接报错返回，配置里的幽灵记录会永远清不掉（本函数的存在意义之一
+     * 就是让用户能手动清掉这类残留）。因此：目录不存在视为「已经删干净」，
+     * 继续清理登记信息。
+     */
     fun deleteCore(name: String) {
         viewModelScope.launch {
             try {
-                val core = config.value.installedCores.find { it.name == name }
+                val cfg = repo.currentConfig()
+                val core = cfg.installedCores.find { it.name == name }
                     ?: throw RuntimeException(str(R.string.msg_core_not_found, name))
-                // 删除整个文件夹
                 val dir = repo.termuxRuntime.serverDirFor(core.dirName)
-                val deleted = withContext(Dispatchers.IO) { dir.deleteRecursively() }
-                if (!deleted) {
-                    _errorFlow.tryEmit(str(R.string.s299, dir.absolutePath))
-                    return@launch
+                val existed = withContext(Dispatchers.IO) { dir.exists() }
+                if (existed) {
+                    val deleted = withContext(Dispatchers.IO) { dir.deleteRecursively() }
+                    if (!deleted) {
+                        _errorFlow.tryEmit(str(R.string.s299, dir.absolutePath))
+                        return@launch
+                    }
+                } else {
+                    termux3Log("deleteCore: 目录已不存在，仅清理登记 ${dir.absolutePath}")
                 }
-                val updated = config.value.installedCores.filter { it.name != name }
-                val newActive = if (config.value.activeCoreName == name) updated.firstOrNull()?.name else config.value.activeCoreName
-                repo.saveConfig(config.value.copy(
-                    installedCores = updated,
-                    activeCoreName = newActive
-                ))
+                // 原子读改写 + 落盘；based on 权威态，不会把陈旧列表写回去
+                repo.updateAndSaveConfig { current ->
+                    val updated = current.installedCores.filter { it.name != name }
+                    current.copy(
+                        installedCores = updated,
+                        activeCoreName = if (current.activeCoreName == name) {
+                            updated.firstOrNull()?.name
+                        } else {
+                            current.activeCoreName
+                        }
+                    )
+                }
                 _messageFlow.tryEmit(str(R.string.s300, name))
             } catch (e: Exception) {
                 _errorFlow.tryEmit(str(R.string.s301, e.message))
             }
         }
+    }
+
+    /** 轻量日志：删除等关键操作留痕，便于用户排查状态残留问题。 */
+    private fun termux3Log(message: String) {
+        runCatching { repo.termuxRuntime.emitLog("[core] $message") }
     }
 
     // ── 文件管理 ────────────────────────────────────────────────────
@@ -3966,6 +4117,13 @@ class McViewModel(
         }
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
+                // 空闲降频：LogsScreen 不在前台时没有订阅者，此时每 200ms 醒一次纯属浪费
+                // （App 退到后台仍每秒唤醒 5~10 次，是待机耗电的主要来源）。
+                // 注意这里只延长"发布"的间隔，buffer 仍在持续接收，不会丢日志。
+                if (_termuxLines.subscriptionCount.value <= 0) {
+                    delay(IDLE_LOG_FLUSH_MS)
+                    continue
+                }
                 delay(LOG_FLUSH_MS)
                 val batch = legacyTermuxBuffer.snapshotAndClear()
                 if (batch.isNotEmpty()) {
@@ -3976,6 +4134,13 @@ class McViewModel(
         }
         viewModelScope.launch(Dispatchers.Default) {
             while (true) {
+                // 同上：终端会话面板不可见时降频。
+                val terminalVisible = _terminalSessions.subscriptionCount.value > 0 ||
+                    _activeTerminalSessionId.subscriptionCount.value > 0
+                if (!terminalVisible) {
+                    delay(IDLE_LOG_FLUSH_MS)
+                    continue
+                }
                 delay(LOG_FLUSH_MS)
                 val batch = synchronized(terminalOutputBuffers) {
                     terminalOutputBuffers.mapValues { (_, buffer) -> buffer.snapshotAndClear() }

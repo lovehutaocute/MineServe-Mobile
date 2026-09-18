@@ -340,8 +340,7 @@ class McpServerManager(
             it.copy(
                 isRunning = true,
                 runningSinceMs = 0L,
-                startupPhase = StartupPhase.PreparingEnvironment,
-                lastDownloadActivityMs = 0L
+                startupPhase = StartupPhase.PreparingEnvironment
             )
         }
         // 与 McViewModel.startServer 一致：异步启动，立即返回，状态由日志解析与服务推送

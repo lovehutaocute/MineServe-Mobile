@@ -44,8 +44,24 @@ class McProcessCpuMathTest {
     }
 
     @Test
-    fun baselineMissingReturnsNull() {
-        assertNull(McProcessCpuMath.percent(1000L, 0L, 10_000L, 100L))
+    fun zeroBaselineIsValidAndYieldsReading() {
+        // 回归：进程刚启动时 utime+stime 可能为 0，这是**合法基线**而非"缺失"。
+        // 旧实现把它判为 null，导致 CPU 长期显示 0% / --。
+        // 0 → 1000 jiffies(100Hz == 10s CPU)，窗口 10s，单核 → 100%
+        assertEquals(100, McProcessCpuMath.percent(1000L, 0L, 10_000L, 100L))
+    }
+
+    @Test
+    fun zeroBaselineIdleProcessIsZeroPercent() {
+        // 基线为 0 且窗口内没有新增 CPU 时间 → 真实的 0%，而不是"不可用"
+        assertEquals(0, McProcessCpuMath.percent(0L, 0L, 10_000L, 100L))
+    }
+
+    @Test
+    fun negativeValuesReturnNull() {
+        // 负值才是真正的非法输入（计数器异常）
+        assertNull(McProcessCpuMath.percent(1000L, -1L, 10_000L, 100L))
+        assertNull(McProcessCpuMath.percent(-5L, 0L, 10_000L, 100L))
     }
 
     @Test

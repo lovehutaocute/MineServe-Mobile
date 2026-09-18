@@ -62,6 +62,14 @@ jobs:
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
 
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
 
@@ -74,7 +82,8 @@ jobs:
   release:
     name: Release (tag)
     # Release APK is published from the maintainer machine so it keeps the original signing key.
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/')
+    # 触发条件：推送 v* 标签即产出，不再要求同时走 workflow_dispatch（旧条件几乎无法命中）。
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -114,11 +123,34 @@ jobs:
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace
 
+      # R8 mapping 是崩溃堆栈还原的唯一依据，必须随版本一起归档，不能只留在构建机上。
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: r8-mapping
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+
+      - name: Resolve release metadata
+        id: meta
+        run: |
+          # 版本号以 build.gradle.kts 为准，避免发布说明与产物版本脱节
+          VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          NOTES="RELEASE_NOTES_${VERSION}.md"
+          if [ -f "$NOTES" ]; then
+            echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
+          else
+            echo "notes=" >> "$GITHUB_OUTPUT"
+          fi
+          echo "发布版本: $VERSION, 说明文件: ${NOTES}"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: MineServe Mobile 1.2.4
-          body_path: RELEASE_NOTES_1.2.4.md
+          name: MineServe Mobile ${{ steps.meta.outputs.version }}
+          body_path: ${{ steps.meta.outputs.notes }}
           fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/release/*.apk
+            app/build/outputs/mapping/release/mapping.txt

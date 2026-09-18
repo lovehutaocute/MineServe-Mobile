@@ -1,7 +1,6 @@
 package com.mineserve.mobile.data
 
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 
 /**
  * 服务端核心类型：Paper / Purpur / Leaves / Leaf / Spigot / CraftBukkit / Fabric / Forge / NeoForge / Quilt / Vanilla / Velocity / BungeeCord
@@ -290,6 +289,23 @@ data class McConfig(
     val advancedCustomCommandEnabled: Boolean = false,
     /** 完全自定义启动命令（整条 Java 启动指令） */
     val advancedCustomCommand: String = "",
+    /**
+     * 模组兼容模式。
+     *
+     * 背景：部分模组通过 OSHI/JNA 采集硬件信息（崩溃报告、性能面板等）。OSHI 的
+     * `LinuxOperatingSystemJNA` 在静态初始化时就调用 `LinuxLibc.INSTANCE.gettid()`，
+     * 而 JNA 对 libc 的映射在 Linux 上解析为 `libc.so.6` —— 那是 glibc 的名字，
+     * Android（bionic）根本不存在这个库，于是抛
+     * `UnsatisfiedLinkError: dlopen failed: library "libc.so.6" not found` 直接崩服。
+     *
+     * 注意：这不是「缺文件」问题，打包 glibc 也解决不了 —— bionic 的 linker 不识别
+     * glibc 的 ELF（OSABI 不同），强行加载要么被拒要么与系统 libc.so 冲突。
+     * 唯一可行的方向是调整 JVM 参数，让 OSHI 走尽可能少加载原生库的路径。
+     *
+     * 默认关闭：这些参数会改变 JNA 的库查找行为，对不依赖 OSHI/JNA 的服务器无益，
+     * 且个别模组可能依赖被关掉的探测能力，所以只在用户明确遇到该崩溃时开启。
+     */
+    val moduleCompatMode: Boolean = false,
     // ── 定时任务与停止备份 ────────────────────────────────────
     /** 每日定时开服开关 */
     val dailyStartEnabled: Boolean = false,
@@ -334,10 +350,7 @@ data class ServerState(
     val installSteps: List<StepState> = InstallStep.values().map {
         StepState(it, StepStatus.Wait)
     },
-    val currentProgress: Int = 0,           // 0-100 安装进度
-    /** 最近一次检测到下载日志的 SystemClock.elapsedRealtime 时间戳，用于下载冷却期保护 */
-    @Transient
-    val lastDownloadActivityMs: Long = 0L
+    val currentProgress: Int = 0           // 0-100 安装进度
 ) {
     val isInstallComplete: Boolean get() = installSteps.filter { it.step != InstallStep.Jdk }.isNotEmpty() &&
         installSteps.filter { it.step != InstallStep.Jdk }.all { it.status == StepStatus.Done }
@@ -349,44 +362,282 @@ enum class StartupPhase(val label: String, val progress: Float) {
     StartingJava("启动 Java", 0.20f),
     DownloadingDependencies("下载依赖", 0.40f),
     LoadingCore("加载核心", 0.62f),
-    CreatingWorld("创建世界", 0.80f),
-    StartingNetwork("启动网络", 0.92f),
+    /**
+     * 网络监听。
+     *
+     * 进度**低于**"创建世界"是刻意的：真实日志顺序是
+     * `Starting Minecraft server on *:25565`（绑定端口）
+     * **先于** `Preparing level "world"`（创建世界）。
+     * 若这里给更高的值，进度条会先冲到 92% 再跌回 80%，
+     * 出现可见的回退跳动。
+     */
+    StartingNetwork("启动网络", 0.72f),
+    CreatingWorld("创建世界", 0.82f),
     Ready("已完成", 1f),
     Failed("启动失败", 0f)
 }
 
-/** Maps common startup messages from Java, proxy, modded and Bedrock cores. */
+/**
+ * 从一行服务端日志推断当前启动阶段。
+ *
+ * ## 判定顺序 = 优先级（严格按 progress 从高到低）
+ * `when` 是短路求值，所以**先匹配到的赢**。分支顺序必须与
+ * [StartupPhase.progress] 的降序一致，否则一条同时含多个关键词的行
+ * 会被误判到更早的阶段，进度条就会"卡住不动"。
+ *
+ * ## 关键词必须覆盖服务端的**真实输出**
+ * 这是本函数最容易出错的地方。有两类中文日志都要认：
+ *
+ * ### 1. 服务端自己的中文输出
+ * MineServe 打包的服务端（Fabric/Forge 等）在中文环境下会输出：
+ * ```
+ * 正在加载 Minecraft server
+ * 正在加载 required files
+ * 正在加载 library org.ow2.asm:asm:9.10.1
+ * 正在启动 net.fabricmc.loader.impl.game.minecraft.BundlerClassPathCapture
+ * ```
+ * 而早期关键词几乎全是英文（`libraries`、`loading minecraft`），
+ * 结果是**大段日志一行都识别不出来**：
+ *   - `library` 是**单数**，而代码里只写了 `libraries`
+ *   - `正在加载 Minecraft` 是中文，`loading minecraft` 匹配不到
+ *
+ * ### 2. 终端日志汉化插件的译文
+ * 用户开启"终端内日志汉化"后，**服务端与用户的日志全部变成中文**：
+ * ```
+ * 正在下载依赖库 …                        （原 Downloading library …）
+ * 正在正在服务器上安装 Fabric 加载器 …      （原 Installing Fabric Loader …）
+ * 完成（0.924秒）！如需帮助，请输入 "help"   （原 Done (0.924s)! …）
+ * ```
+ * 这类译文的关键词**不能凭空猜**，必须按用户实际贴出的日志原文补
+ * （曾两次因为猜测而翻车）。补词时优先用 `正在加载 ` 这类
+ * **精确到含空格**的短语做兜底，而不是 `加载`、`mixin` 这类过宽的词。
+ *
+ * 所以中英文关键词必须**成对维护**：每加一个英文词，就要确认它的
+ * 中文对应写法（服务端原生 + 汉化译文两种）是否也存在。
+ *
+ * 表现为进度条长期停在某一档不动，然后又突然跳到很后面的阶段
+ * （"阶段被跳过" + "整体都不对"）。
+ *
+ * ## 关键词要够窄，否则会误伤
+ * 曾经有过 `text.contains("jvm")`，`jvm` 出现在太多无关行里
+ * （JVM 参数回显、`[startmc]` 环境信息、mod 的 JVM 检测输出……），
+ * 结果进度被反复钉死在 `StartingJava`(20%)。
+ * 也曾有过 `mixin` / `remapping`，这两个词在资源重载、类编译、报错、
+ * 插件配置路径里都会出现，误伤面极大。
+ * **过宽的词一律不要**，只认明确表达该动作的短语。
+ */
 fun startupPhaseForLog(line: String): StartupPhase? {
     val text = line.lowercase()
+    // 异常堆栈行不参与阶段判定，见 [isStackFrameLine]。
+    if (isStackFrameLine(line)) return null
     return when {
-        text.contains("启动完成") || text.contains("server started") ||
+        // ── 就绪（最高优先级：出现即完成） ────────────────
+        //
+        // ⚠️ 这一档的每个词都必须**限定上下文**，否则会把前面阶段的日志
+        // 误判成"已完成"，进度条直接跳 100%，后面所有阶段全被吞掉。
+        // 踩过的两个真实坑（都由单元测试挡住）：
+        //   - `已就绪`：`[bootstrap] Java 25 wrapper 脚本已创建完成: 6 个命令已就绪`
+        //     含"已就绪"，会在**启动第 2 秒**就判成就绪。
+        //   - `完成(` ：同一行的"已创建完成:"后面正好跟冒号，被 `完成` 前缀匹配。
+        // 所以只认能明确表达"服务端启动完毕"的整句写法。
+        text.contains("启动完成") || text.contains("服务端已启动完成") ||
+            text.contains("启动完毕") || text.contains("服务端已就绪") ||
+            text.contains("服务端就绪") ||
+            text.contains("server started") ||
             text.contains("done (") || text.contains("done!") ||
+            // 汉化插件会把 "Done (2.483s)!" 翻成 "完成（2.483秒）！"
+            // 注意必须是**全角左括号**紧跟"完成"，不能只写"完成"
+            text.contains("完成（") ||
             text.contains("enabled bungeecord") || text.contains("velocity has started") ||
             // Allay：网络接口启动完成即为就绪（空闲期不再输出日志）
-            text.contains("network interface started at") -> StartupPhase.Ready
-        text.contains("listening on") || text.contains("starting minecraft server on") ||
-            text.contains("启动 gs4") || text.contains("query 运行") ||
-            text.contains("server bound") || text.contains("监听") -> StartupPhase.StartingNetwork
+            text.contains("network interface started at") ||
+            text.contains("网络接口已启动于") -> StartupPhase.Ready
+
+        // ── 创建世界 ──────────────────────────────────
+        // 排在网络之前：进度 0.82 > 0.72，`when` 短路要求高进度在前。
         text.contains("preparing level") || text.contains("preparing start region") ||
             text.contains("preparing spawn") || text.contains("preparing world") ||
             text.contains("preparing spawn area") || text.contains("加载世界") ||
-            text.contains("创建世界") -> StartupPhase.CreatingWorld
+            text.contains("正在加载世界") || text.contains("正在准备出生点区域") ||
+            text.contains("创建世界") ||
+            // 汉化插件对应的中文写法
+            text.contains("选择全局世界出生点") ||
+            text.contains("正在准备世界") ||
+            // "Loading 0 persistent chunks..." 的译文。
+            // 注意必须写成"正在加载 %d 个持久化区块"，不能只写"持久化区块"：
+            // 后者会被上面核心档的 `正在加载 ` 抢走
+            text.contains("个持久化区块") -> StartupPhase.CreatingWorld
+
+        // ── 网络监听 ──────────────────────────────────
+        // 排在创建世界**之后**：两者进度分别是 0.72 / 0.82，
+        // `when` 短路要求高进度在前，否则顺序与 progress 不一致。
+        text.contains("listening on") || text.contains("starting minecraft server on") ||
+            // 中文日志："正在启动 Minecraft 服务端" 紧随 "Starting Minecraft server on" 出现。
+            //
+            // ⚠️ 但 "Starting minecraft server **version** 26.3" 的译文中也含
+            // "正在启动 minecraft 服务端"（即 "正在启动 Minecraft 服务端版本 26.3"），
+            // 而那句属于**加载核心**（原始英文含 "version"，靠核心档的
+            // `starting minecraft server version` 命中）。这里显式排除掉，
+            // 否则核心档那句会被网络档抢先，进度条提前跳到 72%。
+            text.contains("正在启动 minecraft 服务端") && !text.contains("版本") ||
+            // 汉化插件译文（注意是"世界"不是"服务端"）
+            text.contains("正在启动 minecraft 世界") ||
+            text.contains("启动 gs4") || text.contains("query 运行") ||
+            text.contains("server bound") || text.contains("监听") -> StartupPhase.StartingNetwork
+
+        // ── 下载依赖 ──────────────────────────────────
+        // 必须排在 LoadingCore 之前：下载阶段的日志会**夹带**核心加载的字样。
+        // 例如 "正在加载 Minecraft server" 同时含 "server" 与 "minecraft"，
+        // 若核心分支在前，这行会被判成"加载核心"，整段下载都被跳过。
+        // "Installing Fabric Loader …" 同理（含 "fabric loader"）。
+        text.contains("[download]") || text.contains("下载依赖") ||
+            text.contains("安装依赖") || text.contains("依赖包") ||
+            text.contains("downloading") || text.contains("downloaded") ||
+            // library 与 libraries 都要认：服务端实际输出的是**单数** library
+            text.contains("library") || text.contains("libraries") ||
+            text.contains("mojang_") ||
+            // 中文下载日志
+            text.contains("正在下载") || text.contains("下载 ") ||
+            text.contains("安装 ") ||
+            text.contains("所需文件") ||
+            text.contains("正在解包") || text.contains("解压 ") ||
+            text.contains("生成服务端启动") || text.contains("服务器启动 jar") ||
+            text.contains("required files") || text.contains("unpacking") ||
+            text.contains("generating server launch jar") ||
+            text.contains("server launch jar") ||
+            // 引导阶段：装核心 / 装加载器 / 展开服务端 jar
+            text.contains("正在加载 minecraft server") ||
+            text.contains("installing ") || text.contains("installing fabric") ||
+            text.contains("正在服务器上安装") ||
+            // ⚠️ 启动器的"环境探测"行：下载阶段会先打
+            //   "Loading Minecraft 26.3 with Fabric Loader…"（译文
+            //   "正在加载 Minecraft 26.3 及依赖"），探完**才继续下载**。
+            // 若把它算成"加载核心"(62%)，在"只增不减"下后面真正的下载行
+            // (40%) 会被整段忽略，进度条卡在 62% 不动 —— 用户看到的正是
+            // "下载和加载核心两个左右跳"。
+            // 判定依据：这句带"及依赖 / with … loader"这类**环境描述**，
+            // 而真正的核心加载是"正在加载 Minecraft 服务端 / mods / 配置"。
+            (text.contains("正在加载 minecraft") && text.contains("依赖")) ||
+            (text.contains("loading minecraft") && text.contains("with")) ||
+            // ── 模糊行下沉（见"加载核心"档顶部的说明）──────────────
+            // 只下沉**确实可能出现在下载阶段**的行。
+            // ⚠️ 下面这些**不下沉**，保留在核心档，因为它们都是核心加载的锚点：
+            //     - `个模组`：模组列表只在核心真正加载时打印
+            //     - `缺少映射 / mappings not present`：这是 Fabric 核心加载器
+            //       启动时打印的，两侧都是"正在加载 Minecraft"/"正在加载 N 个模组"。
+            //       实测把它下沉会造成 62% → 40% → 62% 的一次抖动，
+            //       用户看到的就是"两个左右跳"。
+            text.contains("正在替换旧版本") || text.contains("正在修复") -> StartupPhase.DownloadingDependencies
+
+        // ── 加载核心 ──────────────────────────────────
+        //
+        // ⚠️⚠️ 模糊行一律下沉到"下载依赖"档 ⚠️⚠️
+        //
+        // `Mappings not present!` / `Loading 4 mods:` 这类行在 Fabric 启动器里
+        // **既可能出现在下载阶段（环境探测），也可能出现在真正的核心加载阶段**，
+        // 单看这一行无法区分。
+        //
+        // 遇到这种模糊时**必须选低档（下载 40%）**，不能选高档（核心 62%）：
+        //   - 选低档：只可能让进度条多停在 40% 一会儿 → 用户能接受
+        //   - 选高档：后面真正的下载行（也是 40%）会被"只增不减"全部忽略，
+        //             进度条**彻底卡死**在 62%，直到"启动网络"才动 → 就是
+        //             用户反馈的"两个左右跳 / 卡着不动"
+        //
+        // 所以下面这些行统一由前面的"下载依赖"分支接走（见那里的"模糊行下沉"段），
+        // 这里只保留**无歧义**的核心加载证据。
         text.contains("loading server") || text.contains("loading properties") ||
             text.contains("loading nukkit") || text.contains("loading plugins") ||
             text.contains("loading minecraft") || text.contains("mod loading") ||
             text.contains("modlauncher") || text.contains("quilt loader") ||
             text.contains("fabric loader") || text.contains("booting up velocity") ||
             text.contains("starting bungeecord") || text.contains("正在启动 minecraft") ||
-            text.contains("applying patches") || text.contains("remapping") ||
-            text.contains("starting org.bukkit") -> StartupPhase.LoadingCore
+            // "Starting net.fabricmc.loader…BundlerClassPathCapture" 的译文。
+            // 这句话里没有 "minecraft"，所以必须单独列出（见"启动 Java"档的注释）
+            text.contains("正在启动 net.fabricmc") ||
+            text.contains("starting org.bukkit") ||
+            // 中文核心加载日志（关键补充：这些行以前一行都识别不出来）
+            text.contains("正在加载 minecraft") || text.contains("正在加载服务端配置") ||
+            text.contains("正在加载 mods") || text.contains("mods:") ||
+            // "Loading libraries..." 的译文是"正在加载库 …" → "库"
+            // 注意不能用裸"库"（太宽），用"正在加载库 "带空格限定
+            text.contains("正在加载库 ") ||
+            // "正在加载配置" == "Loading properties" 的译文
+            text.contains("正在加载配置") ||
+            // 汉化插件译文：其余每条都以"正在加载 "开头（注意含空格）。
+            // 上面那些特定写法先被命中，所以这条通配不会误伤；
+            // 而"正在加载 library …"（带引号的下载行）在更前面被下载分支接走。
+            // 这**不会**影响 "[bootstrap] … 已创建完成"：
+            // 那里是"已创建"，不含"正在加载 "，故仍归准备环境。
+            text.contains("正在加载 ") ||
+            text.contains("starting minecraft server version") ||
+            text.contains("generating keypair") || text.contains("no existing world data") ||
+            text.contains("mappings not present") ||
+            // 汉化译文
+            text.contains("没有现有的世界数据") || text.contains("缺少映射") ||
+            text.contains("正在生成密钥对") -> StartupPhase.LoadingCore
+
+        // ── 启动 Java（关键词收窄，不再匹配裸 "jvm"） ──────
         text.contains("[startmc] java 路径") || text.contains("正在启动 java") ||
-            text.contains("starting java") || text.contains("java version") ||
-            text.contains("jvm") -> StartupPhase.StartingJava
-        text.contains("[download]") || text.contains("下载依赖") ||
-            text.contains("安装依赖") || text.contains("依赖包") ||
-            text.contains("downloading") || text.contains("downloaded") ||
-            text.contains("libraries") || text.contains("installer") ||
-            text.contains("mojang_") || text.contains("正在加载") -> StartupPhase.DownloadingDependencies
+            text.contains("starting java") ||
+            // ⚠️ 不要把 "正在启动 net.fabricmc.loader…" 放这里。
+            // 它是 "Starting net.fabricmc.loader…BundlerClassPathCapture" 的译文，
+            // 而那句属于**加载核心**（类加载器已接手，Java 进程早起来了）。
+            // 用户真实日志里它正是「加载核心」段的第一行；若归到这一档(20%)，
+            // 进度条会从 62% 掉回 20%。核心档的 `正在启动 minecraft` 已覆盖它。
+            // 只认带上下文的版本声明，避免命中任意含 "jvm" 的日志。
+            // 汉化插件会把 "version" 翻成"版本"，所以 `openjdk 版本` 也要认。
+            text.contains("openjdk version") || text.contains("openjdk 版本") ||
+            text.contains("java version") || text.contains("java 版本") ||
+            text.contains("java hotspot") -> StartupPhase.StartingJava
+
+        // ── 准备环境（最早期，进度最低，放最后） ──────────
+        // App 自身的引导日志走这里。以前**没有任何关键词覆盖这一段**，
+        // 于是启动的头几秒进度条停在初始值不动（表现为"启动卡住"）。
+        //
+        // 位置说明：`when` 是短路求值，**前面的分支优先**。这一档 progress 最低
+        // （0.07），所以必须放在所有其他阶段之后，否则会抢走更靠后阶段的日志。
+        // 例如 "[startMc] java 路径: ..." 含 "[startmc]" 但不含 [bootstrap]，
+        // 两档不冲突；但任何同时命中的行都会先被判为 Java 启动 —— 这是对的，
+        // 因为出现 java 路径就说明环境准备已经过了。
+        text.contains("[bootstrap]") || text.contains("[repair]") ||
+            text.contains("[jvm]") || text.contains("[proot]") ||
+            text.contains("修复") && text.contains("脚本路径") ||
+            text.contains("wrapper 脚本") || text.contains("脚本已创建") ||
+            text.contains("正在检查环境") || text.contains("准备环境") -> StartupPhase.PreparingEnvironment
+
         else -> null
     }
+}
+
+/**
+ * 判断一行是不是 **Java 异常堆栈帧**（属于堆栈输出，而非服务端的状态播报）。
+ *
+ * ## 为什么必须把堆栈排除掉
+ * 堆栈里的类名/包名会**回显**先前阶段的关键字，而且是在很久之后才回显。
+ * 实测最典型的一条（来自用户的真实日志）：
+ * ```
+ * at net.fabricmc.installer.ServerLauncher.main(ServerLauncher.java:69)
+ * ```
+ * 含 `server`，被判成"下载依赖"(40%)；而它出现在**加载核心阶段之后**，
+ * 于是进度条从 62% 掉回 40%。同类还有
+ * ```
+ * at java.base/jdk.internal.loader.NativeLibraries$NativeLibraryImpl.open(...)   → 含 "libraries"
+ * at knot//net.minecraft.SystemReport.putHardware(SystemReport.java:105)         → 含 "server"
+ * ```
+ * 这些行**一个都不该**推动进度。
+ *
+ * ## 如何识别
+ * 只在行首附近出现 `at `（含 `at java.base/`、`at knot//` 这类 JDK 与
+ * 加载器前缀）才判为堆栈帧。刻意做得保守：
+ *   - 只认行首的 `at`，不认正文里出现的 "at"，否则会误伤正常日志
+ *   - 不把 `Caused by:` / `... 12 more` 也一起拦掉太激进，它们本来就不含
+ *     阶段关键词，靠关键词表即可自然过滤
+ *
+ * 这样 App 自己输出的 `[startMc] … at …` 之类正常行不受影响。
+ */
+internal fun isStackFrameLine(line: String): Boolean {
+    val t = line.trimStart()
+    if (!t.startsWith("at ")) return false
+    // 排除误伤：真正的堆栈帧至少形如 "at xxx.yyy(" 或 "at xxx.yyy.zzz("
+    return t.contains('(') || t.contains('.')
 }

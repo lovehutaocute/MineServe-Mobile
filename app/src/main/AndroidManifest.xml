@@ -41,6 +41,17 @@
     <!-- 可选运行状态悬浮窗，未授权时自动降级，不影响服务器。 -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
+    <!--
+        extractNativeLibs 必须为 true。
+
+        NativeLibraryBundler 依赖它：jniLibs 下随 APK 打包的 Termux 依赖库
+        （libandroid-glob / libtalloc / libiconv 等）需要被系统「解压成真实文件」
+        到 nativeLibraryDir，App 才能把它们复制进 Termux 的库目录。
+
+        targetSdk = 28 时这本来就是默认行为，但 Android 10（API 29）起默认变成
+        false —— 那种情况下 .so 只以 mmap 形式供 dlopen 使用，磁盘上拿不到可读
+        文件，复制会静默失败、退回「缺库」状态且不报错。显式写死以杜绝这种隐患。
+    -->
     <application
         android:name=".McApplication"
         android:allowBackup="false"
@@ -53,7 +64,8 @@
         android:theme="@style/Theme.MineServeMobile"
         android:largeHeap="true"
         android:requestLegacyExternalStorage="false"
-        tools:targetApi="34">
+        tools:targetApi="34"
+        android:extractNativeLibs="true">
 
         <activity
             android:name=".MainActivity"

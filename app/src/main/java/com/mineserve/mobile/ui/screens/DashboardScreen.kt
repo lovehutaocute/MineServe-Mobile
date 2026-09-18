@@ -867,6 +867,7 @@ private fun RuntimeVersionRow(
 private fun AdvancedStartupCard(vm: McViewModel) {
     val customCommandEnabled by vm.config.map { it.advancedCustomCommandEnabled }.distinctUntilChanged().collectAsState(initial = false)
     val customCommand by vm.config.map { it.advancedCustomCommand }.distinctUntilChanged().collectAsState(initial = "")
+    val moduleCompatMode by vm.config.map { it.moduleCompatMode }.distinctUntilChanged().collectAsState(initial = false)
     var showAdvanced by remember { mutableStateOf(false) }
     McCard(
         title = "高级启动选项",
@@ -924,6 +925,39 @@ private fun AdvancedStartupCard(vm: McViewModel) {
                         minLines = 3,
                         maxLines = 6,
                         textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "模组兼容模式",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "修复 OSHI/JNA 类模组因缺少 libc.so.6 导致的崩溃",
+                            color = Muted,
+                            fontSize = 10.sp
+                        )
+                    }
+                    Switch(
+                        checked = moduleCompatMode,
+                        onCheckedChange = { enabled ->
+                            vm.updateConfig { it.copy(moduleCompatMode = enabled) }
+                        }
+                    )
+                }
+                if (moduleCompatMode) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "仅在模组报 dlopen failed: library \"libc.so.6\" not found 时开启。" +
+                            "会关闭 udev/systemd/NFS 探测等原生能力，部分模组的硬件信息将不可用。",
+                        color = Muted,
+                        fontSize = 10.sp
                     )
                 }
             }
@@ -1123,6 +1157,8 @@ private fun DashboardHeroBlock(
         .distinctUntilChanged()
         .collectAsState(initial = ServerState())
     val resources by vm.serverResources.collectAsState()
+    val isRefreshingStatus by vm.isRefreshingStatus.collectAsState()
+    val lastRefreshAtMs by vm.lastStatusRefreshAtMs.collectAsState()
     val serverProperties by vm.serverProperties.collectAsState()
     val onlineModeEnabled = serverProperties["online-mode"]
         ?.trim()
@@ -1132,6 +1168,8 @@ private fun DashboardHeroBlock(
         coreLabel = coreLabel,
         cpuPercent = resources.cpuPercent,
         onlineModeEnabled = onlineModeEnabled,
+        isRefreshing = isRefreshingStatus,
+        lastRefreshAtMs = lastRefreshAtMs,
         onRefresh = onRefresh
     )
 }

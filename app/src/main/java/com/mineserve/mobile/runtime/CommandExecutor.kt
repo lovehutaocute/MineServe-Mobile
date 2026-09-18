@@ -17,7 +17,14 @@ import java.util.concurrent.TimeUnit
  *  - 设置 LD_LIBRARY_PATH 指向 rootfs/lib
  *  - 日志通过文件监视实现（替代 LocalSocket）
  */
-class CommandExecutor(private val installer: BootstrapInstaller) {
+class CommandExecutor(
+    private val installer: BootstrapInstaller,
+    /**
+     * 随 APK 打包的共享库目录（nativeLibraryDir），用于兜底链接缺失的 Termux 依赖。
+     * 为 null 时行为与加这个参数之前完全一致。
+     */
+    private val extraLibraryDir: String? = null
+) {
 
     @Volatile
     private var interactiveInput: java.io.OutputStream? = null
@@ -44,8 +51,17 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         // LD_LIBRARY_PATH 需包含 usr/lib/（Termux compat 实际解压路径），否则 proot 找不到 libtalloc.so.2
         val compatUsr = "$prefix/data/data/com.termux/files/usr"
         val compatUsrLib = "$compatUsr/lib"
+        // java.io.tmpdir 在 Android 上是 app 私有 cache 目录，用于暴露打包进来的 Termux 共享库
+        val bundledLib = extraLibraryDir
+        val libPath = buildList {
+            add("$prefix/lib")
+            add(compatUsrLib)
+            add("$prefix/usr/lib")
+            bundledLib?.let { add(it) }
+            add("/system/lib64")
+        }.joinToString(":")
         val envSetup = "export PATH='$prefix/bin:$prefix/usr/bin:$compatUsr/bin:$prefix/bin/applets:$prefix/libexec:/system/bin:/system/xbin'; " +
-            "export LD_LIBRARY_PATH='$prefix/lib:$prefix/usr/lib:$compatUsrLib:/system/lib64'; " +
+            "export LD_LIBRARY_PATH='$libPath'; " +
             "export FONTCONFIG_PATH='$prefix/etc/fonts'; " +
             "export FONTCONFIG_FILE='$prefix/etc/fonts/fonts.conf'; " +
             "export PREFIX='$prefix'; " +
@@ -70,10 +86,11 @@ class CommandExecutor(private val installer: BootstrapInstaller) {
         // Termux rootfs 的共享库标准位置为 $PREFIX/usr/lib（bash 依赖的 readline/ncurses
         // 等都在这里）；仅靠 $prefix/lib 会导致这些命令启动失败（退出码 126）。
         // 顺序：$prefix/lib → compat 实际落点 → Termux 标准 usr/lib → 系统库
-        val libPath = listOf(
+        val libPath = listOfNotNull(
             "$prefix/lib",
             compatUsrLib,
             "$prefix/usr/lib",
+            extraLibraryDir,
             "/system/lib64"
         ).joinToString(":")
         return mapOf(

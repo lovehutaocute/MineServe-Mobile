@@ -24,7 +24,7 @@
     <string name="s5">异常: %1$s: %2$s</string>
     <string name="s6">[crash] 上次崩溃日志:\n%1$s</string>
     <string name="s7">未知错误</string>
-    <string name="s8">初始化失败，请检查网络后重试</string>
+    <string name="s8">初始化失败，请查看下方日志了解原因后重试</string>
     <string name="s9">自建服务器，功能最全，支持自定义端口</string>
     <string name="s10">自建服务器，协议最简，纯手机端运行无需下载二进制</string>
     <string name="s11">自动（镜像优先）</string>
@@ -1784,6 +1784,7 @@
     <string name="mcp_tools_hint">AI 助手可调用以下工具：</string>
     <string name="mcp_security_note">安全提示：访问令牌等同服务器控制权，请勿泄露；建议仅在可信局域网内使用，不使用时可在上方关闭服务。</string>
     <string name="msg_scan_registered">检测到 %1$d 个未登记的服务器目录，已自动添加到服务器列表</string>
+    <string name="msg_scan_skipped_empty">检测到 %1$d 个空文件夹，已跳过登记。如需清理可在文件管理中删除</string>
     <!-- 依赖与环境管理 -->
     <string name="msg_java_op_deleting">正在卸载 %1$s…</string>
     <string name="msg_java_deleted">%1$s 已卸载</string>

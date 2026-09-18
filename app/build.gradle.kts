@@ -25,8 +25,8 @@ android {
         applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
-        versionCode = 41
-        versionName = "1.2.6"
+        versionCode = 51
+        versionName = "1.2.16"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -75,6 +75,12 @@ android {
     }
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1,DEPENDENCIES}" }
+        // 与 AndroidManifest 的 extractNativeLibs="true" 配对。
+        // jniLibs 里随包附带的 Termux 依赖库必须被解压成真实文件
+        // （nativeLibraryDir/*.so），NativeLibraryBundler 才能复制到 Termux 库目录。
+        // 不显式声明的话，未来 Gradle/AGP 升级可能默认改成"压缩存放"，
+        // 这些库就只会以 mmap 形式存在，复制不出来，apt/dpkg 又会回到链接失败。
+        jniLibs { useLegacyPackaging = true }
     }
     lint {
         abortOnError = false
