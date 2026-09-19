@@ -11,18 +11,30 @@ import kotlinx.serialization.json.Json
 
 data class AppRelease(val tag: String, val notes: String, val apkUrls: List<String>, val releaseUrl: String)
 
-@Serializable private data class ReleaseDto(
+/**
+ * GitHub Release 响应体。
+ *
+ * `body` 必须可空：发布说明为空时 GitHub 返回的是 `"body": null` 而不是 `""`。
+ * kotlinx.serialization 的默认值只在**键缺失**时生效，键存在但值为 null 会直接抛
+ * SerializationException（`Expected string literal but 'null' literal was found at path: $.body`），
+ * 导致整个「检测更新」失败——v1.2.6 的发布说明留空后线上就踩到了这个坑。
+ */
+@Serializable internal data class ReleaseDto(
     val tag_name: String = "",
-    val body: String = "",
+    val body: String? = null,
     val assets: List<AssetDto> = emptyList()
 )
-@Serializable private data class AssetDto(val name: String = "", val browser_download_url: String = "")
+@Serializable internal data class AssetDto(val name: String = "", val browser_download_url: String = "")
 
 object AppUpdateService {
     private const val API = "https://api.github.com/repos/lovehutaocute/MineServe-Mobile/releases/latest"
     const val PROJECT_URL = "https://github.com/lovehutaocute/MineServe-Mobile"
     private const val APK_NAME = "MineServeMobile-arm64-v8a-release.apk"
-    private val json = Json { ignoreUnknownKeys = true }
+    // coerceInputValues：把上游写成 null 的字段归一到默认值，避免个别字段为 null 就整包解析失败。
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
 
     suspend fun latest(currentVersion: String): AppRelease? = withContext(Dispatchers.IO) {
         var lastError: Exception? = null
@@ -37,13 +49,13 @@ object AppUpdateService {
                 if (connection.responseCode !in 200..299) {
                     throw IllegalStateException("update check failed: HTTP ${connection.responseCode}")
                 }
-                val release = json.decodeFromString<ReleaseDto>(connection.inputStream.bufferedReader().use { it.readText() })
+                val release = decodeRelease(connection.inputStream.bufferedReader().use { it.readText() })
                 val tag = release.tag_name.trim().removePrefix("v")
                 val apk = release.assets.firstOrNull { it.name == APK_NAME }
                     ?: release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
                     ?: throw IllegalStateException("release has no ARM64 APK")
                 return@withContext if (compare(tag, currentVersion) <= 0) null
-                else AppRelease(tag, release.body.trim(), downloadUrls(apk.browser_download_url), "$PROJECT_URL/releases/tag/$tag")
+                else AppRelease(tag, release.body?.trim().orEmpty(), downloadUrls(apk.browser_download_url), "$PROJECT_URL/releases/tag/$tag")
             } finally {
                 connection.disconnect()
             }
@@ -95,6 +107,9 @@ object AppUpdateService {
         throw IllegalStateException("update download failed: ${lastError?.message ?: "all sources unavailable"}")
     }
 
+    /** 解析 GitHub Release 响应。独立出来便于单测覆盖 `null` 字段等边界。 */
+    internal fun decodeRelease(raw: String): ReleaseDto = json.decodeFromString(raw)
+
     private fun apiUrls() = listOf(
         "https://gh.api.99988866.xyz/$API",
         "https://ghfast.top/$API",
@@ -114,7 +129,7 @@ object AppUpdateService {
         ZipFile(file).use { it.getEntry("AndroidManifest.xml") != null }
     }.getOrDefault(false)
 
-    private fun compare(a: String, b: String): Int {
+    internal fun compare(a: String, b: String): Int {
         val left = a.split('.').map { it.toIntOrNull() ?: 0 }
         val right = b.removePrefix("v").split('.').map { it.toIntOrNull() ?: 0 }
         repeat(maxOf(left.size, right.size)) { index ->

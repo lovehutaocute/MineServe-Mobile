@@ -178,14 +178,9 @@ jobs:
             || { echo "::error::release APK 的签名证书与发布密钥不一致"; exit 1; }
           echo "签名校验通过：与线上版本同一把密钥"
 
-      # R8 mapping 是崩溃堆栈还原的唯一依据，必须随版本一起归档，不能只留在构建机上。
-      - name: Upload R8 mapping
-        uses: actions/upload-artifact@v4
-        with:
-          name: r8-mapping
-          path: app/build/outputs/mapping/release/mapping.txt
-          if-no-files-found: warn
-
+      # 不上传 R8 mapping.txt：它随混淆表增长体积巨大（本项目约 196 MB，而 APK 仅 14 MB），
+      # 不适合挂在 Release 资产里。需要还原线上崩溃堆栈时，用同一提交本地
+      # `./gradlew assembleRelease` 复现 mapping，或临时把这一步的 upload-artifact 加回来。
       - name: Resolve release metadata
         id: meta
         run: |
@@ -204,4 +199,3 @@ jobs:
           fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/release/*.apk
-            app/build/outputs/mapping/release/mapping.txt
