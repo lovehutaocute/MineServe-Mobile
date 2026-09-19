@@ -29,13 +29,16 @@ import java.io.File
 class BundledLibrariesTest {
 
     /**
-     * 允许「清单里有、但官方 bootstrap rootfs 里确实没有」的库。
+     * 允许「清单里有、但官方 bootstrap rootfs 里确实没有」的**打包名**。
      *
-     * `libtalloc.so.2` 与 `libandroid-shmem.so` 属于 proot 依赖链，官方 rootfs
-     * 不含 proot（`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），
-     * 它们是运行时由 proot-distro 安装的，所以这里只保留兜底条目、不打包。
+     * `libtalloc` 与 `libandroid-shmem` 属于 proot 依赖链，官方 rootfs 不含 proot
+     * （`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），它们是运行时由
+     * proot-distro 安装的，所以这里只保留兜底条目、不打包。
+     *
+     * 注意：这里比对的是 `BUNDLED_LIBRARIES` 的**键**（打包名），
+     * 不是它的值（Termux 侧 SONAME，例如 `libtalloc.so.2`）。
      */
-    private val notInRootfs = setOf("libtalloc.so.2", "libandroid-shmem.so")
+    private val notPackaged = setOf("libtalloc.so", "libandroid-shmem.so")
 
     /** 单元测试的工作目录是模块目录（app/），但兼容从仓库根目录运行的情况。 */
     private fun jniLibsDir(): File {
@@ -51,7 +54,7 @@ class BundledLibrariesTest {
     fun everyBundledLibraryIsActuallyPackaged() {
         val dir = jniLibsDir()
         val missing = NativeLibraryBundler.BUNDLED_LIBRARIES.keys
-            .filter { it !in notInRootfs && !File(dir, it).isFile }
+            .filter { it !in notPackaged && !File(dir, it).isFile }
         assertEquals(
             "清单声明要打包、jniLibs 里却没有的库（设备上会因缺库崩溃）",
             emptySet<String>(),
