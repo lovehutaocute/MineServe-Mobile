@@ -1,18 +1,13 @@
 # 更新日志
 
-## 1.2.7（未发布）
+## 1.2.6
 
 ### 检测更新（重要修复）
 
 - 修复「检测更新」直接报错的问题：v1.2.6 的发布说明留空后，GitHub Releases API 返回的是 `"body": null` 而不是 `""`，而响应模型把 `body` 声明为非空字符串。kotlinx.serialization 的默认值只在**键缺失**时生效，键存在但值为 `null` 会直接抛 `SerializationException`（`Expected string literal but 'null' literal was found at path: $.body`），三个镜像源全部解析失败，整个检测更新流程不可用。
 - `body` 改为可空并统一归一为空字符串；解析器开启 `coerceInputValues`，`tag_name` / `assets` 等字段被上游写成 `null` 时回退到默认值，不再整包失败。
 - 新增 `AppUpdateServiceTest`：用真实响应样本覆盖 `body: null`、字段为 `null`、键缺失三种边界，并补充版本号数字段比较（`1.2.16 > 1.2.6`、`26.2 > 1.21.11`）的回归用例。
-
-### 构建与发布
-
-- Release 不再上传 `mapping.txt`：R8 混淆对照表体积巨大（本项目约 196 MB，而 APK 仅 14 MB），不适合作为 Release 资产分发。需要还原线上崩溃堆栈时，用同一提交本地执行 `assembleRelease` 重新生成。
-
-## 1.2.6
+- 修复 `compare()` 入参不对称：此前只对第二个参数剥 `v` 前缀，`compare("v1.2.6", "1.2.6")` 会得到 -1。当前调用方已归一所以线上不炸，但任何一处忘记归一都会把「有新版本」判成「无更新」而静默漏更新，现改为两侧统一归一。
 
 ### 核心版本检测（重要修复）
 
@@ -58,6 +53,7 @@
 
 - Release 包固定使用维护者密钥签名：CI 从仓库 Secret 还原 keystore 并校验文件哈希，`signingConfig` 优先读取仓库内 `signing/debug.keystore`。此前 release job 会在构建机上现场 `keytool -genkeypair` 生成随机密钥，产出的包与线上版本签名不一致，用户无法覆盖安装。
 - 发布流水线新增产物签名自检：APK 证书 SHA-256 指纹与发布密钥不符时直接终止发布。
+- Release 不再上传 `mapping.txt`：R8 混淆对照表体积巨大（本项目约 196 MB，而 APK 仅 14 MB），不适合作为 Release 资产分发。需要还原线上崩溃堆栈时，用同一提交本地执行 `assembleRelease` 重新生成。
 
 ### 文档
 
