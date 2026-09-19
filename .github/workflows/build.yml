@@ -25,8 +25,26 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # 不用 android-actions/setup-android@v3：它会安装已从 SDK 仓库下架的 legacy `tools` 包，
+      # 报 "Failed to find package 'tools'" 后以退出码 1 结束整个 job。
+      # 运行器镜像已预装 Android SDK，这里只补装构建所需组件并接受许可证。
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMGR=""
+          for candidate in "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager; do
+            [ -x "$candidate" ] && SDKMGR="$candidate"
+          done
+          if [ -z "$SDKMGR" ]; then
+            echo "::error::未找到 sdkmanager（$SDK_ROOT/cmdline-tools/*/bin）"
+            exit 1
+          fi
+          echo "使用 sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Ensure Android debug keystore
         run: |
@@ -98,8 +116,24 @@ jobs:
           distribution: temurin
           java-version: 17
 
+      # 同 build job：避免 setup-android@v3 安装已下架的 tools 包而失败。
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        run: |
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          SDKMGR=""
+          for candidate in "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager; do
+            [ -x "$candidate" ] && SDKMGR="$candidate"
+          done
+          if [ -z "$SDKMGR" ]; then
+            echo "::error::未找到 sdkmanager（$SDK_ROOT/cmdline-tools/*/bin）"
+            exit 1
+          fi
+          echo "使用 sdkmanager: $SDKMGR"
+          yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
+          "$SDKMGR" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Ensure Android debug keystore
         run: |
