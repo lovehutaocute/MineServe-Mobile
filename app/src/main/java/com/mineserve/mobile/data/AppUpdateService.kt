@@ -129,8 +129,14 @@ object AppUpdateService {
         ZipFile(file).use { it.getEntry("AndroidManifest.xml") != null }
     }.getOrDefault(false)
 
+    /**
+     * 按数字段比较版本号。
+     *
+     * 两侧都剥掉 `v` 前缀：此前只剥了 [b]，若调用方忘了归一（例如把原始 tag 直接传进来），
+     * `v1.2.6` 的第一段会解析失败退化成 0，比较结果变成「比当前版本旧」而静默漏掉更新。
+     */
     internal fun compare(a: String, b: String): Int {
-        val left = a.split('.').map { it.toIntOrNull() ?: 0 }
+        val left = a.removePrefix("v").split('.').map { it.toIntOrNull() ?: 0 }
         val right = b.removePrefix("v").split('.').map { it.toIntOrNull() ?: 0 }
         repeat(maxOf(left.size, right.size)) { index ->
             val delta = left.getOrElse(index) { 0 } - right.getOrElse(index) { 0 }
