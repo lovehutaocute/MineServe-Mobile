@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Warning
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -231,18 +232,11 @@ fun DashboardScreen(
                 DashboardJavaInstallCard(vm = vm)
             }
 
-            item {
-                DashboardDiagnosticsCard(
-                    vm = vm,
-                    isBootstrapped = isBootstrapped,
-                    onShowDiagnostics = onShowDiagnostics
-                )
-            }
-
             // 一卡一 item：恢复 LazyColumn 虚拟化。状态刷新只 invalidate 单卡布局，
             // 首屏组合分摊、视口外卡片延迟组合，避免滚动帧与整树重布局冲突（高压环境掉帧根因之一）。
             item {
-                DashboardResourceCard(vm = vm)
+                // 原「运行诊断」卡片已折叠为资源卡片右上角的警示图标入口（点击进入诊断页）。
+                DashboardResourceCard(vm = vm, onShowDiagnostics = onShowDiagnostics)
             }
 
             item {
@@ -1175,60 +1169,6 @@ private fun DashboardHeroBlock(
 }
 
 @Composable
-private fun DashboardDiagnosticsCard(
-    vm: McViewModel,
-    isBootstrapped: Boolean,
-    onShowDiagnostics: () -> Unit
-) {
-    val diagnosticReport by vm.diagnosticReport.collectAsState()
-    val isDiagnosing by vm.isDiagnosing.collectAsState()
-    val isRepairingRuntime by vm.isRepairingRuntime.collectAsState()
-    McCard(title = stringResource(R.string.dash_diag_title), compact = true) {
-        val issues = diagnosticReport.issueCount
-        Text(
-            when {
-                isRepairingRuntime -> stringResource(R.string.dash_diag_repairing)
-                isDiagnosing -> stringResource(R.string.dash_diag_running)
-                diagnosticReport.generatedAtMs == 0L -> stringResource(R.string.dash_diag_not_run)
-                issues == 0 -> stringResource(R.string.dash_diag_pass)
-                else -> stringResource(R.string.dash_diag_issues, issues)
-            },
-            color = when {
-                isRepairingRuntime || isDiagnosing -> Indigo
-                issues == 0 && diagnosticReport.generatedAtMs > 0 -> Mint
-                else -> Coral
-            },
-            fontSize = 12.sp,
-            fontWeight = FontWeight.SemiBold
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = onShowDiagnostics,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Text(stringResource(R.string.dash_diag_detail), color = Indigo, fontSize = 12.sp)
-            }
-            Button(
-                onClick = { vm.safeRepairRuntime() },
-                enabled = !isDiagnosing && !isRepairingRuntime && isBootstrapped,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Indigo)
-            ) {
-                Text(
-                    if (isRepairingRuntime) stringResource(R.string.dash_diag_repairing_btn)
-                    else stringResource(R.string.dash_diag_repair_btn),
-                    color = Color.White,
-                    fontSize = 12.sp
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun DashboardAddressCard(vm: McViewModel) {
     val localPort by vm.config.map { it.localPort }.distinctUntilChanged().collectAsState(initial = 25565)
     val lanIp by vm.lanIp.collectAsState()
@@ -1290,10 +1230,30 @@ private fun DashboardPluginsCard(vm: McViewModel) {
 }
 
 @Composable
-private fun DashboardResourceCard(vm: McViewModel) {
+private fun DashboardResourceCard(vm: McViewModel, onShowDiagnostics: () -> Unit) {
     val maxHeapMb by vm.config.map { it.maxHeapMb }.distinctUntilChanged().collectAsState(initial = 1024)
     val javaVersionName by vm.config.map { it.selectedJavaVersion.displayName }.distinctUntilChanged().collectAsState(initial = JavaVersion.Java17.displayName)
     val resources by vm.serverResources.collectAsState()
+    // 原「运行诊断」卡片折叠为标题栏右侧的警示图标：
+    // 颜色沿用原卡片语义（修复中/诊断中=Indigo，未诊断=Muted，通过=Mint，有问题=Coral），
+    // 原来的结论文案改挂 contentDescription，读屏仍能获知诊断结果。
+    val diagnosticReport by vm.diagnosticReport.collectAsState()
+    val isDiagnosing by vm.isDiagnosing.collectAsState()
+    val isRepairingRuntime by vm.isRepairingRuntime.collectAsState()
+    val diagnosticIssues = diagnosticReport.issueCount
+    val diagnosticSummary = when {
+        isRepairingRuntime -> stringResource(R.string.dash_diag_repairing)
+        isDiagnosing -> stringResource(R.string.dash_diag_running)
+        diagnosticReport.generatedAtMs == 0L -> stringResource(R.string.dash_diag_not_run)
+        diagnosticIssues == 0 -> stringResource(R.string.dash_diag_pass)
+        else -> stringResource(R.string.dash_diag_issues, diagnosticIssues)
+    }
+    val diagnosticTint = when {
+        isRepairingRuntime || isDiagnosing -> Indigo
+        diagnosticReport.generatedAtMs == 0L -> Muted
+        diagnosticIssues == 0 -> Mint
+        else -> Coral
+    }
     val memText = resources.processMemoryMb?.let { "${it} MB / $maxHeapMb MB" } ?: stringResource(R.string.dash_res_not_running)
     val spaceText = resources.availableBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na)
     val javaText = if (resources.javaAvailable) {
@@ -1302,7 +1262,24 @@ private fun DashboardResourceCard(vm: McViewModel) {
         stringResource(R.string.dash_res_java_unavail, javaVersionName)
     }
     val dirText = resources.directoryBytes?.let(::formatServerBytes) ?: stringResource(R.string.dash_res_na)
-    McCard(title = stringResource(R.string.dash_res_title), compact = true) {
+    McCard(
+        title = stringResource(R.string.dash_res_title),
+        compact = true,
+        trailing = {
+            // compact 标题行高度有限，IconButton 默认 48dp 会把标题行撑高，这里收敛到 28dp。
+            IconButton(
+                onClick = onShowDiagnostics,
+                modifier = Modifier.size(28.dp)
+            ) {
+                Icon(
+                    Icons.Outlined.Warning,
+                    contentDescription = diagnosticSummary,
+                    tint = diagnosticTint,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    ) {
         Column(
             modifier = Modifier.clearAndSetSemantics {
                 contentDescription = listOf(memText, spaceText, javaText, dirText).joinToString(", ")
