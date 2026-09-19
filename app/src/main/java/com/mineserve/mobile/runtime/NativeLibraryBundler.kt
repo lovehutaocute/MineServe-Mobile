@@ -56,6 +56,18 @@ object NativeLibraryBundler {
      *
      * 这些库的共同特征：**NEEDED 只有 `libc.so`**（或仅依赖本清单内的其他库），
      * 因此打包它们不会引入新的缺失链。每一项都已用 `readelf -d` 逐一核验。
+     *
+     * ## 来源与已核验的对应关系
+     * 除下面两项外，全部取自 App 自己安装的**同一个** Termux bootstrap rootfs
+     * （`bootstrap-2026.05.24-r1+apt.android-7 / bootstrap-aarch64.zip`，
+     * SHA256 `1f48f4d0…d17b`）的 `lib/` 目录，并已按 SONAME 打成不带版本号的文件名，
+     * 与 `app/src/main/jniLibs/arm64-v8a/` 下的文件名一一对应 ——
+     * [BundledLibrariesTest] 会在 CI 上校验这层一致性（清单有、文件没有就会失败）。
+     *
+     * `libtalloc.so.2` 与 `libandroid-shmem.so` 是 **proot 依赖链**，官方 rootfs 不含
+     * proot（`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），二者由运行时
+     * proot-distro 安装。这里保留条目作为兜底：源文件不存在时 [provision] 会跳过，
+     * 不影响流程；一旦设备上已由包管理器装好，也不会被覆盖。
      */
     val BUNDLED_LIBRARIES: Map<String, String> = linkedMapOf(
         // ── apt 直接依赖 ──────────────────────────────────────

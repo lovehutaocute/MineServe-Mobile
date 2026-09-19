@@ -80,7 +80,13 @@ android {
         // （nativeLibraryDir/*.so），NativeLibraryBundler 才能复制到 Termux 库目录。
         // 不显式声明的话，未来 Gradle/AGP 升级可能默认改成"压缩存放"，
         // 这些库就只会以 mmap 形式存在，复制不出来，apt/dpkg 又会回到链接失败。
-        jniLibs { useLegacyPackaging = true }
+        jniLibs {
+            useLegacyPackaging = true
+            // 这些是第三方预编译库（取自 Termux bootstrap rootfs），本就已经 strip 过；
+            // 再 strip 一次没有收益，却会让构建依赖 NDK 的 llvm-strip（CI 不装 NDK）。
+            // 跳过 strip 后，打包结果与 rootfs 里的库逐字节一致，便于比对与排查。
+            keepDebugSymbols += "**/*.so"
+        }
     }
     lint {
         abortOnError = false
