@@ -181,21 +181,42 @@ jobs:
       # 不上传 R8 mapping.txt：它随混淆表增长体积巨大（本项目约 196 MB，而 APK 仅 14 MB），
       # 不适合挂在 Release 资产里。需要还原线上崩溃堆栈时，用同一提交本地
       # `./gradlew assembleRelease` 复现 mapping，或临时把这一步的 upload-artifact 加回来。
-      - name: Resolve release metadata
+      - name: Resolve release notes
         id: meta
         run: |
-          # 版本号以 build.gradle.kts 为准，避免发布名与产物版本脱节
+          set -euo pipefail
+          # 版本号以 build.gradle.kts 为准，避免发布说明与产物版本脱节
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "发布版本: $VERSION（本次发布说明留空）"
+
+          CURATED="RELEASE_NOTES_${VERSION}.md"
+          if [ -f "$CURATED" ]; then
+            cp "$CURATED" release-notes.md
+            echo "更新说明来源：$CURATED（手写精简版，适合更新弹窗阅读）"
+          else
+            # 回退到 CHANGELOG.md 中该版本的段落（`## <版本>` 到下一个二级标题之前）。
+            # 用字符串等值比较而非正则，避开版本号里的点号被当作通配符。
+            awk -v heading="## $VERSION" '
+              $0 == heading { inside = 1; next }
+              /^## / { inside = 0 }
+              inside { print }
+            ' CHANGELOG.md > release-notes.md
+            echo "更新说明来源：CHANGELOG.md 的 $VERSION 段（未找到 $CURATED）"
+          fi
+
+          if [ ! -s release-notes.md ]; then
+            echo "::error::既没有 $CURATED，CHANGELOG.md 里也找不到 $VERSION 段；拒绝发布空说明"
+            exit 1
+          fi
+          echo "release-notes.md：$(wc -l < release-notes.md) 行 / $(wc -c < release-notes.md) 字节"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: MineServe Mobile ${{ steps.meta.outputs.version }}
-          # 本次发布说明留空：不提供 RELEASE_NOTES_<version>.md，也不传 body_path
-          # （空字符串会被 action 当成无效输入），显式给空 body 最稳。
-          body: ""
+          # 发布说明由上一步生成（RELEASE_NOTES_<版本>.md 或 CHANGELOG 对应段），
+          # 不再留空：空 body 会被 GitHub 存成 null，客户端解析时容易踩坑。
+          body_path: release-notes.md
           fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/release/*.apk
