@@ -25,8 +25,8 @@ android {
         applicationId = "com.mineserve.mobile"
         minSdk = 26
         targetSdk = 28
-        versionCode = 51
-        versionName = "1.2.16"
+        versionCode = 52
+        versionName = "1.2.6"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
@@ -42,10 +42,20 @@ android {
         }
     }
 
-    // 使用 debug keystore 签名 release 包，便于直接安装
+    // 发布包固定用同一把密钥签名，保证新旧版本可以互相覆盖安装。
+    // 优先读仓库内的 signing/debug.keystore（CI 由 GitHub Secret KEYSTORE_BASE64 解码写回，
+    // 见 .github/workflows/build.yml 的 Restore release keystore 步骤），
+    // 本地不存在时回退到 ~/.android/debug.keystore。
+    // 注意：它是本机生成的唯一密钥（PKCS12，SHA-256 F2:29:D2:…:36），
+    // 并非 AOSP 通用调试密钥，私钥不入库。
     signingConfigs {
         getByName("debug") {
-            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            val repoKeystore = rootProject.file("signing/debug.keystore")
+            storeFile = if (repoKeystore.exists()) {
+                repoKeystore
+            } else {
+                file("${System.getProperty("user.home")}/.android/debug.keystore")
+            }
             storePassword = "android"
             keyAlias = "androiddebugkey"
             keyPassword = "android"

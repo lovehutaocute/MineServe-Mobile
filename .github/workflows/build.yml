@@ -135,27 +135,48 @@ jobs:
           yes | "$SDKMGR" --licenses > /dev/null 2>&1 || true
           "$SDKMGR" --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
-      - name: Ensure Android debug keystore
+      # release 包必须用维护者的固定密钥签名，否则用户无法覆盖安装已发布的版本。
+      # 不要像以前那样在 runner 上 `keytool -genkeypair` 现场生成——那会把发布签名换掉。
+      # keystore 以 base64 存在仓库 Secret（KEYSTORE_BASE64），这里解码写回
+      # signing/debug.keystore，由 app/build.gradle.kts 的 signingConfig 优先读取。
+      - name: Restore release keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          mkdir -p "$HOME/.android"
-          if [ ! -f "$HOME/.android/debug.keystore" ]; then
-            keytool -genkeypair -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -storepass android \
-              -storetype JKS \
-              -alias androiddebugkey \
-              -keypass android \
-              -dname "CN=Android Debug,O=Android,C=US" \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000
+          set -euo pipefail
+          if [ -z "${KEYSTORE_BASE64:-}" ]; then
+            echo "::error::缺少 GitHub Secret KEYSTORE_BASE64，无法用发布密钥签名"
+            exit 1
           fi
+          mkdir -p signing
+          echo "$KEYSTORE_BASE64" | base64 -d > signing/debug.keystore
+          EXPECTED="0b629e9ec7390136ae0c204dd95de5614261cd2e37b7b84ac6de402b5985fbdb"
+          ACTUAL=$(sha256sum signing/debug.keystore | cut -d' ' -f1)
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::keystore 文件哈希不匹配（期望 $EXPECTED，实际 $ACTUAL），拒绝用错误密钥签名"
+            exit 1
+          fi
+          keytool -list -keystore signing/debug.keystore -storepass android -alias androiddebugkey > /dev/null
+          echo "发布签名密钥就绪：alias=androiddebugkey，文件 SHA-256=$ACTUAL"
 
       - name: Grant execute permission
         run: chmod +x gradlew
 
       - name: Build release APK
         run: ./gradlew assembleRelease --stacktrace
+
+      # 产物签名自检：证书指纹必须等于发布密钥的 SHA-256，
+      # 否则用户装不上（签名不一致会被 Android 拒绝覆盖安装）。
+      - name: Verify release APK signature
+        run: |
+          set -euo pipefail
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n1)
+          echo "APK: $APK"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$APKSIGNER" verify --print-certs "$APK"
+          "$APKSIGNER" verify --print-certs "$APK" | grep -qi "f229d2aa9ab55b8b2c196fc61e901c8b55fc66b5d21aae6e6cb91042f2526636" \
+            || { echo "::error::release APK 的签名证书与发布密钥不一致"; exit 1; }
+          echo "签名校验通过：与线上版本同一把密钥"
 
       # R8 mapping 是崩溃堆栈还原的唯一依据，必须随版本一起归档，不能只留在构建机上。
       - name: Upload R8 mapping
@@ -168,22 +189,18 @@ jobs:
       - name: Resolve release metadata
         id: meta
         run: |
-          # 版本号以 build.gradle.kts 为准，避免发布说明与产物版本脱节
+          # 版本号以 build.gradle.kts 为准，避免发布名与产物版本脱节
           VERSION=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          NOTES="RELEASE_NOTES_${VERSION}.md"
-          if [ -f "$NOTES" ]; then
-            echo "notes=$NOTES" >> "$GITHUB_OUTPUT"
-          else
-            echo "notes=" >> "$GITHUB_OUTPUT"
-          fi
-          echo "发布版本: $VERSION, 说明文件: ${NOTES}"
+          echo "发布版本: $VERSION（本次发布说明留空）"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: MineServe Mobile ${{ steps.meta.outputs.version }}
-          body_path: ${{ steps.meta.outputs.notes }}
+          # 本次发布说明留空：不提供 RELEASE_NOTES_<version>.md，也不传 body_path
+          # （空字符串会被 action 当成无效输入），显式给空 body 最稳。
+          body: ""
           fail_on_unmatched_files: true
           files: |
             app/build/outputs/apk/release/*.apk
