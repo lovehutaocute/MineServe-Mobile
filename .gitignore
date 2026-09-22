@@ -14,6 +14,10 @@ local.properties
 *.keystore
 !debug.keystore
 
+# 发布签名私钥（signing/debug.keystore）：上面的 !debug.keystore 会把它重新放行，
+# 本仓库为 public，私钥绝不可提交，故整个目录重新忽略。
+signing/
+
 # Kotlin
 *.kotlin_metadata
 .kotlin/
