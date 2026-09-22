@@ -2532,36 +2532,31 @@ class TermuxRuntime(context: Context) {
      *   - java 从未运行 → stdout 为空 → latest.log 0 字节、控制台无输出
      *   - 表现为「点启动秒退、无任何日志」，极难排查
      *
-     * 编译期无法发现这类错误，所以改为**运行期断言**：
-     * 命令里必须出现 `exec `，且必须能看出要启动什么（`-jar` / classpath 主类 / 自定义命令）。
-     * 不满足就直接抛错，并把完整命令打进日志 —— 宁可启动失败且留下明确原因，
-     * 也不要静默秒退。
+     * 编译期无法发现这类错误，所以改为**运行期断言**：判定逻辑见顶层纯函数
+     * [launchCommandProblems]，不满足就直接抛错，并把完整命令打进日志 ——
+     * 宁可启动失败且留下明确原因，也不要静默秒退。
+     *
+     * ## ⚠️ 这条断言只允许对「真的被截断」报警
+     * 1.2.6 曾因为判定过严，把两种**合法**启动方式误判成"命令不完整"，
+     * 用户侧表现为点启动就弹异常、服务端起不来（回退 1.2.5 即正常）：
+     *   1. Forge 1.17+ / NeoForge 用 `@libraries/.../unix_args.txt` 启动（java argfile 语法），
+     *      命令里既没有 `-jar` 也没有 `-cp`，但这是官方启动方式；
+     *   2. 「完全自定义启动命令」模式由用户自己写命令（如 `java -jar server.jar`），
+     *      不会有 `exec `。
+     * 因此前者增加 `@参数文件` 标记放行，后者整组检查关闭。
      *
      * @param command 拼好的完整 shell 命令
      * @param tag 调用方标记，用于日志定位
+     * @param requireExecPrefix 是否要求执行段带 `exec `（自定义命令模式传 false）
      * @param requireLauncherMarker 是否要求出现启动器特征（自定义命令模式传 false）
      */
     private fun assertLaunchCommandComplete(
         command: String,
         tag: String,
+        requireExecPrefix: Boolean = true,
         requireLauncherMarker: Boolean = true
     ) {
-        val problems = mutableListOf<String>()
-        if (!command.contains("exec ")) {
-            problems += "缺少 'exec '（没有任何要执行的程序，shell 会执行完赋值后直接退出）"
-        }
-        if (requireLauncherMarker) {
-            val hasJar = command.contains("-jar ")
-            val hasClasspath = command.contains(" -cp ") || command.contains(" -classpath ")
-            if (!hasJar && !hasClasspath) {
-                problems += "缺少 '-jar' 或 '-cp'（看不出要启动哪个服务端）"
-            }
-        }
-        // 命令必须以可执行语句收尾，而不是以环境变量赋值收尾
-        val tail = command.substringAfterLast("&&").trim()
-        if (tail.isEmpty()) {
-            problems += "命令以 '&&' 结尾，末尾没有可执行语句"
-        }
+        val problems = launchCommandProblems(command, requireExecPrefix, requireLauncherMarker)
         if (problems.isEmpty()) return
 
         val detail = problems.joinToString("；")
@@ -2924,7 +2919,15 @@ class TermuxRuntime(context: Context) {
             "cd '$serverDir' && $command"
 
         Log.i(TAG, "startMcCustom full command: $fullCmd")
-        assertLaunchCommandComplete(fullCmd, "startMcCustom", requireLauncherMarker = false)
+        // 自定义命令由用户自己写（如 `java -jar server.jar`），既不会有 `exec `，
+        // 也不保证出现 `-jar`/`-cp` 标记 —— 只保留「执行段存在且非空」这一项检查，
+        // 用来兜住「字符串拼接漏了 `+` 导致 `cd … && $command` 整段消失」。
+        assertLaunchCommandComplete(
+            fullCmd,
+            "startMcCustom",
+            requireExecPrefix = false,
+            requireLauncherMarker = false
+        )
         emitLog("[startMc] 自定义启动命令: $command")
 
         val pb = ProcessBuilder("/system/bin/sh", "-c", fullCmd).apply {
@@ -3413,4 +3416,52 @@ class TermuxRuntime(context: Context) {
     companion object {
         private const val TAG = "TermuxRuntime"
     }
+}
+
+/**
+ * java argfile 引用标记：`@` 后跟一个不含空白的路径。
+ *
+ * Forge 1.17+ / NeoForge 的官方启动方式是 `java @libraries/.../unix_args.txt`，
+ * 命令里不会出现 `-jar` / `-cp`。识别这个标记是为了不把合法启动判成"命令不完整"。
+ */
+private val ARG_FILE_REFERENCE = Regex("""(^|\s)@[^\s'"]+""")
+
+/**
+ * 判断拼好的启动命令是否**完整**（纯函数，便于单元测试）；返回问题列表，空表示通过。
+ *
+ * 这些命令是十几段字符串用 `+` 拼出来的，漏掉一个 `+` 会让
+ * `cd '<serverDir>' && exec '<java>' ... -jar server.jar nogui` **整段消失**，
+ * 命令只剩一串 `export` 赋值 → shell 执行完自然退出、java 从未运行 →
+ * 表现为「点启动秒退、无任何日志」。见 [TermuxRuntime.assertLaunchCommandComplete]。
+ *
+ * 判定只针对「被截断」这一种故障，必须放行所有合法启动方式：
+ * `-jar` / `-cp` / `@参数文件`（Forge 1.17+、NeoForge）/ 自定义命令（由调用方关掉严格项）。
+ *
+ * @param command 拼好的完整 shell 命令
+ * @param requireExecPrefix 是否要求执行段带 `exec `（自定义命令模式传 false）
+ * @param requireLauncherMarker 是否要求出现启动器特征（自定义命令模式传 false）
+ */
+internal fun launchCommandProblems(
+    command: String,
+    requireExecPrefix: Boolean = true,
+    requireLauncherMarker: Boolean = true
+): List<String> {
+    val problems = mutableListOf<String>()
+    // 执行段 = 最后一个 `&&` 之后的内容。所有自动拼接的命令都以
+    // `cd '<serverDir>' && <exec 启动程序>` 收尾；这段消失即为截断。
+    val tail = command.substringAfterLast("&&").trim()
+    if (!command.contains("&&") || tail.isEmpty()) {
+        problems += "缺少 'cd … && …' 执行段（拼接时被截断，只剩下环境变量赋值）"
+    } else if (requireExecPrefix && !tail.contains("exec ")) {
+        problems += "缺少 'exec '（执行段没有要启动的程序，shell 会执行完赋值后直接退出）"
+    }
+    if (requireLauncherMarker) {
+        val hasJar = command.contains("-jar ")
+        val hasClasspath = command.contains(" -cp ") || command.contains(" -classpath ")
+        val hasArgFile = ARG_FILE_REFERENCE.containsMatchIn(command)
+        if (!hasJar && !hasClasspath && !hasArgFile) {
+            problems += "缺少 '-jar' / '-cp' / '@参数文件'（看不出要启动哪个服务端）"
+        }
+    }
+    return problems
 }
