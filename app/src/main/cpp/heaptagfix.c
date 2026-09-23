@@ -39,6 +39,32 @@
  *   绝不影响 java 正常启动。
  * - 构造函数不调用任何可能触发 malloc 的 API（不用 printf/fprintf 等），
  *   避免在分配器初始化过程中递归进入。
+ *
+ * ## 产物与重新编译（重要）
+ *
+ * 本库**不随常规构建编译**。项目的构建刻意不依赖 NDK（见 app/build.gradle.kts 里
+ * jniLibs.keepDebugSymbols 的说明），所以产物以**预编译形式入库**：
+ *
+ *     app/src/main/jniLibs/arm64-v8a/libheaptagfix.so
+ *
+ * 它和同目录下那 19 个 Termux 依赖库一样，是提交进仓库的二进制。
+ * `./gradlew assembleDebug` **不会**编译本文件 —— 改了这里却不重新生成产物，
+ * 改动不会生效（这正是 1.2.8 之前的状态：Java 侧一直在 LD_PRELOAD 一个
+ * 从未被打进 APK 的库名，功能静默失效）。
+ *
+ * 重新生成：手动触发 GitHub Actions 的「Build heaptagfix native lib」工作流
+ * （.github/workflows/build-heaptagfix.yml），它会编译并把产物提交回 master。
+ *
+ * 等价的手工命令（NDK r27，minSdk 26）：
+ *
+ *     $NDK/toolchains/llvm/prebuilt/<host>/bin/aarch64-linux-android26-clang \
+ *         -shared -fPIC -Oz -fvisibility=hidden \
+ *         -ffunction-sections -fdata-sections \
+ *         -Wl,--gc-sections -Wl,-z,max-page-size=16384 \
+ *         -o libheaptagfix.so heaptagfix.c
+ *
+ * 不链接任何库：`dlsym` 是唯一的未定义符号，由运行时（libc）解析，
+ * 这样产物自身的 NEEDED 为空，绝不会给 java 进程引入新的加载依赖。
  */
 
 /*
