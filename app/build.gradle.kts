@@ -123,7 +123,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.xz)
     implementation(libs.commons.compress)
-    implementation(libs.zstd.jni)
+    implementation(libs.aircompressor)
     implementation(libs.kotlinx.collections.immutable)
     implementation(libs.apache.ftpserver)
 

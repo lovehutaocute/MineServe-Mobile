@@ -6,6 +6,7 @@ import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import com.mineserve.mobile.data.ServerCore
 import com.mineserve.mobile.runtime.TermuxRuntime
+import io.airlift.compress.zstd.ZstdInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -19,7 +20,6 @@ import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream
 import org.apache.commons.compress.compressors.lz4.FramedLZ4CompressorInputStream
 import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
-import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileInputStream
@@ -585,7 +585,12 @@ class ServerImporter(private val context: Context, private val termux: TermuxRun
             ArchiveFormat.TAR_GZ -> TarArchiveInputStream(GzipCompressorInputStream(buffered))
             ArchiveFormat.TAR_XZ -> TarArchiveInputStream(XZCompressorInputStream(buffered))
             ArchiveFormat.TAR_BZ2 -> TarArchiveInputStream(BZip2CompressorInputStream(buffered))
-            ArchiveFormat.TAR_ZST -> TarArchiveInputStream(ZstdCompressorInputStream(buffered))
+            // zstd：用 aircompressor 的**纯 Java** 解码器，而不是 commons-compress 自带的
+            // ZstdCompressorInputStream —— 后者需要 com.github.luben:zstd-jni 的原生库，
+            // 而 zstd-jni 的 aarch64 .so 是 glibc 构建（NEEDED 含 libc.so.6），jar 里也没有
+            // android/ 目录，在 Android 的 bionic 上必然 dlopen 失败。
+            // 也就是说：本 App 的「导入 .tar.zst」在真机上从来没成功过。
+            ArchiveFormat.TAR_ZST -> TarArchiveInputStream(ZstdInputStream(buffered))
             ArchiveFormat.TAR_LZ4 -> TarArchiveInputStream(FramedLZ4CompressorInputStream(buffered))
             else -> throw IOException("不是 tar 格式")
         }

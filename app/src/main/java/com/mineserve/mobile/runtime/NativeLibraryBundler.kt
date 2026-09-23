@@ -40,6 +40,21 @@ object NativeLibraryBundler {
     private const val TAG = "NativeLibraryBundler"
 
     /**
+     * 随 APK 分发、但**不经过 [provision] 落盘**的库：`app/src/main/cpp/heaptagfix.c`
+     * 的编译产物，用来在 java 进程启动时关掉 bionic 的堆指针标签（省内存）。
+     *
+     * 它由 `TermuxRuntime.heapTagPreloadEnv()` 以 nativeLibraryDir 下的**绝对路径**
+     * 交给 `LD_PRELOAD`，不复制到 Termux 库目录，所以不在 [PACKAGED_LIBRARIES] 里。
+     * 登记在这里是为了让「jniLibs 里每个文件都有出处」这条守卫说得通
+     * （见 [BundledLibrariesTest]）。
+     *
+     * 产物**不随常规构建编译**（构建链不依赖 NDK）：改过 heaptagfix.c 之后必须手动跑
+     * `.github/workflows/build-heaptagfix.yml` 重新生成，否则改动不生效 ——
+     * 1.2.8 之前正是这个状态：Java 侧一直在 LD_PRELOAD 一个从未被打进 APK 的库名。
+     */
+    const val HEAP_TAG_FIX_LIB = "libheaptagfix.so"
+
+    /**
      * 打包进 APK 的库清单：**打包文件名 → 运行时的真实文件名（SONAME）**。
      *
      * 键是 `jniLibs/arm64-v8a/` 下的文件名；值是它落到 Termux 库目录后应该叫什么。

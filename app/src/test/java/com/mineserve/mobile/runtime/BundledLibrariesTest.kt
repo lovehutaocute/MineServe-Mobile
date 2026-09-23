@@ -31,14 +31,22 @@ class BundledLibrariesTest {
     /**
      * 允许「清单里有、但官方 bootstrap rootfs 里确实没有」的**打包名**。
      *
-     * `libtalloc` 与 `libandroid-shmem` 属于 proot 依赖链，官方 rootfs 不含 proot
-     * （`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），它们是运行时由
-     * proot-distro 安装的，所以这里只保留兜底条目、不打包。
+     * 直接取自 [NativeLibraryBundler.RUNTIME_OPTIONAL_LIBRARIES] —— 它们属于 proot
+     * 依赖链，官方 rootfs 不含 proot（`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），
+     * 只能由运行时的 proot-distro 安装。从清单派生可避免两张表各自维护、慢慢失步。
      *
      * 注意：这里比对的是 `BUNDLED_LIBRARIES` 的**键**（打包名），
      * 不是它的值（Termux 侧 SONAME，例如 `libtalloc.so.2`）。
      */
-    private val notPackaged = setOf("libtalloc.so", "libandroid-shmem.so")
+    private val notPackaged = NativeLibraryBundler.RUNTIME_OPTIONAL_LIBRARIES.keys
+
+    /**
+     * 不在 [NativeLibraryBundler.BUNDLED_LIBRARIES] 里、但确实该躺在 jniLibs 里的文件：
+     * `heaptagfix.c` 的编译产物（见 [NativeLibraryBundler.HEAP_TAG_FIX_LIB]）。
+     * 它不经 provision 落盘（TermuxRuntime 直接以绝对路径交给 LD_PRELOAD），
+     * 所以不进打包清单。
+     */
+    private val extraJniLibs = setOf(NativeLibraryBundler.HEAP_TAG_FIX_LIB)
 
     /** 单元测试的工作目录是模块目录（app/），但兼容从仓库根目录运行的情况。 */
     private fun jniLibsDir(): File {
@@ -66,18 +74,39 @@ class BundledLibrariesTest {
     fun noUnlistedLibrarySitsInJniLibs() {
         val dir = jniLibsDir()
         val files = dir.listFiles().orEmpty().filter { it.isFile }.map { it.name }.toSet()
-        val unlisted = files - NativeLibraryBundler.BUNDLED_LIBRARIES.keys
+        val unlisted = files - NativeLibraryBundler.BUNDLED_LIBRARIES.keys - extraJniLibs
         assertEquals(
-            "jniLibs 里有未登记进 BUNDLED_LIBRARIES 的文件：它们会被打包却永远不会落盘",
+            "jniLibs 里既没登记进 BUNDLED_LIBRARIES、也不属于 extraJniLibs 的文件：" +
+                "它们会被打进 APK 却没有任何代码会用到",
             emptySet<String>(),
             unlisted
         )
     }
 
+    /**
+     * heaptagfix 的产物必须存在。
+     *
+     * 它是唯一**不经过常规构建**（而由 build-heaptagfix 工作流生成）的文件：
+     * 一旦漏掉，TermuxRuntime 的 LD_PRELOAD 会静默退化成空串 —— 不报错、没日志，
+     * 只是「关闭堆指针标签、省内存」这项优化又变回死的（1.2.8 之前就是这样）。
+     */
+    @Test
+    fun heapTagFixLibraryIsPackaged() {
+        val dir = jniLibsDir()
+        extraJniLibs.forEach { name ->
+            val f = File(dir, name)
+            assertTrue(
+                "$name 不在 jniLibs 里（改过 heaptagfix.c 后要跑一次 build-heaptagfix 工作流）",
+                f.isFile
+            )
+            assertTrue("$name 是空文件", f.length() > 0L)
+        }
+    }
+
     @Test
     fun packagedLibrariesAreNonEmptyArm64Elf() {
         val dir = jniLibsDir()
-        NativeLibraryBundler.BUNDLED_LIBRARIES.keys
+        (NativeLibraryBundler.BUNDLED_LIBRARIES.keys + extraJniLibs)
             .map { File(dir, it) }
             .filter { it.isFile }
             .forEach { f ->

@@ -46,7 +46,7 @@
 -keep public class com.mineserve.mobile.BootReceiver { *; }
 
 # ---------- 数据/工具 ----------
-# xz / commons-compress / zstd-jni 无反射，无需规则
+# xz / commons-compress / aircompressor 无反射，无需规则
 
 # ---------- FTP 服务（Apache FTPServer / Mina） ----------
 -keep class org.apache.ftpserver.** { *; }

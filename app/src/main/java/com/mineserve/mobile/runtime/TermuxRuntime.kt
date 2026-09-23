@@ -68,7 +68,7 @@ class TermuxRuntime(context: Context) {
     private val executor = CommandExecutor(installer, bundledLibDir)
 
     /** 关闭堆指针标签的注入库文件名（随 APK 打包在 jniLibs 下）。 */
-    private val HEAP_TAG_FIX_LIB = "libheaptagfix.so"
+    private val HEAP_TAG_FIX_LIB = NativeLibraryBundler.HEAP_TAG_FIX_LIB
 
     /** 应用侧日志落盘队列上限：异常刷屏时丢弃多余条目，避免内存膨胀。 */
     private val APP_LOG_QUEUE_LIMIT = 4096
