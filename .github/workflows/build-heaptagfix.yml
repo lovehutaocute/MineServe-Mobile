@@ -96,7 +96,10 @@ jobs:
       - name: Commit rebuilt library
         run: |
           set -euo pipefail
-          if git diff --quiet -- "$OUTPUT_PATH"; then
+          # 注意：产物首次生成时是**未跟踪文件**，`git diff` 对它不报告差异，
+          # 会把这一步误判成「无需提交」而静默跳过（实测踩过这个坑）。
+          # 用 status --porcelain 才能同时覆盖「未跟踪」与「已修改」两种情况。
+          if [ -z "$(git status --porcelain -- "$OUTPUT_PATH")" ]; then
             echo "产物与仓库内现有文件逐字节相同，无需提交"
             exit 0
           fi
