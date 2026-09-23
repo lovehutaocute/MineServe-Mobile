@@ -64,12 +64,17 @@ object NativeLibraryBundler {
      * 与 `app/src/main/jniLibs/arm64-v8a/` 下的文件名一一对应 ——
      * [BundledLibrariesTest] 会在 CI 上校验这层一致性（清单有、文件没有就会失败）。
      *
-     * `libtalloc.so.2` 与 `libandroid-shmem.so` 是 **proot 依赖链**，官方 rootfs 不含
-     * proot（`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），二者由运行时
-     * proot-distro 安装。这里保留条目作为兜底：源文件不存在时 [provision] 会跳过，
-     * 不影响流程；一旦设备上已由包管理器装好，也不会被覆盖。
+     * ## 这张表只放「真的随 APK 打包」的库
+     * `libtalloc.so.2` 与 `libandroid-shmem.so` 属于 **proot 依赖链**，官方 rootfs 不含
+     * proot（`bootstrap-aarch64.zip` 里搜不到 proot/talloc/shmem），它们只能由运行时的
+     * proot-distro 提供 —— 因此**不在这张表里**，见 [RUNTIME_OPTIONAL_LIBRARIES]。
+     *
+     * 把它们混进这张表会造成一个持续存在的假警报：由本表派生的
+     * [TermuxRuntime.termuxLibraryCandidates] 会为每一项检查「是否已就位」，
+     * 而这两个库在设备上**永远不会**位于 App 能落盘的位置，于是每次初始化都会打出
+     * 「依赖 libtalloc.so.2 未找到」这类无法消除的警告，把真正缺库时的提示淹没掉。
      */
-    val BUNDLED_LIBRARIES: Map<String, String> = linkedMapOf(
+    val PACKAGED_LIBRARIES: Map<String, String> = linkedMapOf(
         // ── apt 直接依赖 ──────────────────────────────────────
         "libandroid-glob.so" to "libandroid-glob.so",
         "libiconv.so" to "libiconv.so",
@@ -81,7 +86,6 @@ object NativeLibraryBundler {
         "liblz4.so" to "liblz4.so",
         "libpcre2-8.so" to "libpcre2-8.so",          // grep / libandroid-selinux 需要
         // ── dpkg / proot / coreutils 依赖 ─────────────────────
-        "libtalloc.so" to "libtalloc.so.2",          // proot 硬依赖
         "libandroid-support.so" to "libandroid-support.so",
         "libandroid-selinux.so" to "libandroid-selinux.so",
         // ── 第二批：实测体检暴露出的缺口 ─────────────────────
@@ -94,7 +98,6 @@ object NativeLibraryBundler {
         // 这三者又依赖 libgpg-error —— 整条链一并补齐，避免「补一个又缺一个」。
         "libapt-pkg.so" to "libapt-pkg.so",
         "libapt-private.so" to "libapt-private.so",
-        "libandroid-shmem.so" to "libandroid-shmem.so",
         "libacl.so" to "libacl.so",
         "libattr.so" to "libattr.so",                // libacl 的 SONAME 依赖
         "libc++_shared.so" to "libc++_shared.so",    // apt 的 C++ 运行时
@@ -102,6 +105,31 @@ object NativeLibraryBundler {
         "libgpg-error.so" to "libgpg-error.so",      // libgcrypt 的依赖
         "libxxhash.so" to "libxxhash.so.0"           // 见下方注释：打包名不能带版本号
     )
+
+    /**
+     * **不随 APK 打包**、由 Termux 侧包管理器（proot-distro）提供的库。
+     *
+     * 这两个库属于 proot 依赖链，而官方 bootstrap rootfs 里没有 proot
+     * （`bootstrap-aarch64.zip` 中搜不到 proot/talloc/shmem），App 无从提供副本。
+     * 保留它们只是为了把「proot 链路依赖什么」写在一处。
+     *
+     * 它们**不参与落盘，也不参与「缺库就报警告」的静态检查**：
+     * 在官方 rootfs 上它们本来就不存在，静态检查只会每次初始化都报一遍
+     * 「依赖 libtalloc.so.2 未找到」，把真正缺库时的提示淹没掉。
+     * 是否真的缺失，交给 [auditTermuxBinaries] 按 proot 二进制的 DT_NEEDED 动态判断。
+     */
+    val RUNTIME_OPTIONAL_LIBRARIES: Map<String, String> = linkedMapOf(
+        "libtalloc.so" to "libtalloc.so.2",           // proot 硬依赖
+        "libandroid-shmem.so" to "libandroid-shmem.so"
+    )
+
+    /**
+     * 全部登记项 = 打包 + 非打包，仅供「清单 ↔ jniLibs」一致性守卫使用
+     * （见 [BundledLibrariesTest]）。**运行时逻辑一律用 [PACKAGED_LIBRARIES]**，
+     * 否则又会把非打包项当成缺失。
+     */
+    val BUNDLED_LIBRARIES: Map<String, String> =
+        PACKAGED_LIBRARIES + RUNTIME_OPTIONAL_LIBRARIES
 
     /**
      * 返回随 APK 打包的共享库所在目录；目录不存在时返回 null。
@@ -114,12 +142,12 @@ object NativeLibraryBundler {
             Log.w(TAG, "nativeLibraryDir 不可用")
             return null
         }
-        val present = BUNDLED_LIBRARIES.keys.count { File(dir, it).isFile }
+        val present = PACKAGED_LIBRARIES.keys.count { File(dir, it).isFile }
         if (present == 0) {
             Log.w(TAG, "nativeLibraryDir 下未找到任何打包库：$dir")
             return null
         }
-        Log.i(TAG, "打包库可用：$dir（$present/${BUNDLED_LIBRARIES.size}）")
+        Log.i(TAG, "打包库可用：$dir（$present/${PACKAGED_LIBRARIES.size}）")
         return dir
     }
 
@@ -135,7 +163,7 @@ object NativeLibraryBundler {
         if (bundledDir.isNullOrBlank()) return emptyList()
         val written = mutableListOf<String>()
 
-        BUNDLED_LIBRARIES.forEach { (packagedName, runtimeName) ->
+        PACKAGED_LIBRARIES.forEach { (packagedName, runtimeName) ->
             val source = File(bundledDir, packagedName)
             if (!source.isFile) return@forEach
 

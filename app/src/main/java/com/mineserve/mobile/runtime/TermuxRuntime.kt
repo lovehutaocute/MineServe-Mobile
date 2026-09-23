@@ -3,7 +3,7 @@ package com.mineserve.mobile.runtime
 import android.content.Context
 import android.util.Log
 import android.system.Os
-import com.mineserve.mobile.runtime.NativeLibraryBundler.BUNDLED_LIBRARIES
+import com.mineserve.mobile.runtime.NativeLibraryBundler.PACKAGED_LIBRARIES
 import com.mineserve.mobile.data.InstallStep
 import com.mineserve.mobile.data.JavaVersion
 import com.mineserve.mobile.data.PhpVersion
@@ -1044,11 +1044,15 @@ class TermuxRuntime(context: Context) {
      * 每一项：库文件名（运行时名）→ 历史曾出现过的落点（按优先级）。
      * 前者是 Termux 标准库目录，后者是 dpkg-deb -x 解包时 compat 符号链接被覆盖后的实际落点。
      *
-     * 清单直接由 [BUNDLED_LIBRARIES] 派生，保证「打包的库」与「修复时就位的库」永远一致，
+     * 清单由 [PACKAGED_LIBRARIES] 派生，保证「打包的库」与「修复时就位的库」永远一致，
      * 不会出现「打包了但没落盘」或「落盘了但没打包」的错位。
+     *
+     * 刻意**不用** [BUNDLED_LIBRARIES]：它还含 libtalloc / libandroid-shmem 这两个
+     * 只可能由 proot-distro 提供的库，拿它们做「是否已就位」的检查会在每次初始化
+     * 稳定报出两条永远消不掉的「未找到」警告（详见 NativeLibraryBundler 的说明）。
      */
     private val termuxLibraryCandidates: Map<String, List<String>> =
-        BUNDLED_LIBRARIES.values.distinct().associateWith { name ->
+        PACKAGED_LIBRARIES.values.distinct().associateWith { name ->
             listOf(
                 "usr/lib/$name",
                 "data/data/com.termux/files/usr/lib/$name"
@@ -1058,13 +1062,25 @@ class TermuxRuntime(context: Context) {
     /** 把随 APK 打包的共享库落到 Termux 能加载到的位置（幂等）。 */
     private fun provisionBundledLibraries(): List<String> {
         val prefix = installer.rootDir
+        // BootstrapInstaller 会把 `data/data/com.termux/files/usr` 建成指向 rootDir 的
+        // 符号链接（见 BootstrapInstaller 里创建兼容符号链接那段），于是它的 lib/
+        // 就是 rootDir/lib —— 与第一个落点是同一个目录。
+        //
+        // 符号链接已存在时重复落盘毫无意义；而在符号链接建立**之前**执行的话，
+        // 往这个路径写会把它从「链接」变成一个真实目录，回头 BootstrapInstaller
+        // 还得先 deleteRecursively 再重建链接（它已经为此写了兜底逻辑）。
+        // 所以：只有它确实是一个独立目录时才当作落点。
+        val compatUsr = File(prefix, "data/data/com.termux/files/usr")
+        val compatIsSymlink = runCatching {
+            java.nio.file.Files.isSymbolicLink(compatUsr.toPath())
+        }.getOrDefault(false)
         return NativeLibraryBundler.provision(
             bundledDir = bundledLibDir,
-            targetDirs = listOf(
-                File(prefix, "lib"),
-                File(prefix, "usr/lib"),
-                File(prefix, "data/data/com.termux/files/usr/lib")
-            )
+            targetDirs = buildList {
+                add(File(prefix, "lib"))
+                add(File(prefix, "usr/lib"))
+                if (!compatIsSymlink) add(File(compatUsr, "lib"))
+            }
         )
     }
 

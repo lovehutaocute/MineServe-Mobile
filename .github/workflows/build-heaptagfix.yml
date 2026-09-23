@@ -76,16 +76,22 @@ jobs:
             -o "$OUTPUT_PATH" "$SOURCE_PATH"
           ls -l "$OUTPUT_PATH"
           file "$OUTPUT_PATH" || true
-          # 自检：必须是 aarch64 的共享库，且不引入任何 NEEDED 依赖
+          # 自检 1：必须是 aarch64 的共享库
           readelf -h "$OUTPUT_PATH" | grep -q 'AArch64' \
             || { echo "::error::产物架构不是 AArch64"; exit 1; }
-          NEEDED=$(readelf -d "$OUTPUT_PATH" | grep -c '(NEEDED)' || true)
-          if [ "$NEEDED" != "0" ]; then
-            echo "::error::产物引入了 $NEEDED 个 NEEDED 依赖（应为 0）"
+          # 自检 2：依赖只允许 libc.so / libdl.so。
+          # NDK 的 clang 驱动默认给 shared library 记上这两个 NEEDED（它们由 linker
+          # 在进程启动时就已加载），对 java 进程零新增负担；除此之外的任何依赖都意味着
+          # 这个库可能在设备上加载失败，必须拦下。
+          UNEXPECTED=$(readelf -d "$OUTPUT_PATH" \
+            | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' \
+            | grep -vx -e 'libc.so' -e 'libdl.so' || true)
+          if [ -n "$UNEXPECTED" ]; then
+            echo "::error::产物引入了预期外的依赖：$UNEXPECTED"
             readelf -d "$OUTPUT_PATH"
             exit 1
           fi
-          echo "自检通过：aarch64 共享库，无 NEEDED 依赖"
+          echo "自检通过：aarch64 共享库，NEEDED 仅 libc/libdl"
 
       - name: Commit rebuilt library
         run: |

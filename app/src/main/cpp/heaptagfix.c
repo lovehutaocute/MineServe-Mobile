@@ -63,8 +63,9 @@
  *         -Wl,--gc-sections -Wl,-z,max-page-size=16384 \
  *         -o libheaptagfix.so heaptagfix.c
  *
- * 不链接任何库：`dlsym` 是唯一的未定义符号，由运行时（libc）解析，
- * 这样产物自身的 NEEDED 为空，绝不会给 java 进程引入新的加载依赖。
+ * 产物只依赖 libc.so 与 libdl.so（NDK 驱动默认记录这两个 NEEDED）。二者在
+ * Android 上由 linker 在进程启动时就已加载，所以这个库不会给 java 进程引入任何
+ * 新的加载依赖 —— 这一点由工作流里的 readelf 自检把守：出现别的依赖即判定失败。
  */
 
 /*
