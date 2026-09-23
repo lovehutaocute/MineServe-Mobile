@@ -2349,8 +2349,7 @@ class TermuxRuntime(context: Context) {
         onExit: (Int) -> Unit,
         launchArgs: String?,
         logFile: File,
-        appendNogui: Boolean,
-        moduleCompatMode: Boolean = false
+        appendNogui: Boolean
     ): Process {
         if (!java8UbuntuReady()) {
             emitLog("[startMc] Java 8 Ubuntu ARM64 运行环境未安装或不完整")
@@ -2394,7 +2393,7 @@ class TermuxRuntime(context: Context) {
             "export TMPDIR=/tmp; export HOME=/root; export FONTCONFIG_PATH=/etc/fonts; " +
             "cd '$guestDir' && $forgeLibraryRepair$forgeServerClasspath exec /usr/bin/java " +
             "-Djava.io.tmpdir=/tmp " +
-            baseJvmProperties(moduleCompatMode) +
+            baseJvmProperties() +
             "-Xmx${maxHeapMb}m $javaArguments" + if (appendNogui) " nogui" else ""
         val rootfs = java8Rootfs
         // PRoot creates glue files outside the guest rootfs. Keep this path in
@@ -2570,10 +2569,11 @@ class TermuxRuntime(context: Context) {
     /**
      * 组装所有 Java 服务器共用的 JVM 属性。
      *
-     * @param moduleCompatMode 开启后额外注入一组「对 Android/bionic 更友好」的属性，
-     *        用于缓解 OSHI/JNA 系模组因 `libc.so.6` 缺失而崩服的问题。
+     * 其中包含一组「对 Android/bionic 更友好」的 OSHI/JNA 属性，用于缓解 OSHI 系模组
+     * 因 `libc.so.6` 缺失而崩服的问题。该组属性原由「模组兼容模式」开关控制，现改为
+     * **无条件注入**：Android 本就没有 udev/systemd，关掉这些探测只有好处，无需用户判断。
      */
-    private fun baseJvmProperties(moduleCompatMode: Boolean): String = buildString {
+    private fun baseJvmProperties(): String = buildString {
         append("-Djava.awt.headless=true ")
         // Android 没有 /etc/localtime，且未设 TZ 时 JVM 默认时区会回退成 UTC，
         // 导致服务端日志时间戳比本地时间慢 8 小时（东八区）。
@@ -2612,50 +2612,48 @@ class TermuxRuntime(context: Context) {
          */
         append("-Dorg.jline.terminal.providers=exec,jni,ffi ")
         append(memoryFootprintArgs())
-        if (moduleCompatMode) {
-            /*
-             * 这里的取值来自 OSHI 的 GlobalConfig 常量表，只使用真实存在的键。
-             *
-             * 历史遗留的两个参数已移除，它们都是无效的：
-             *   -Doshi.util.use.jna=false   → OSHI 从未定义过该键，纯死参数
-             *   -Djna.nosys=true            → 禁止 JNA 加载「系统库」。libc 在 Android 上
-             *                                 就是系统库 libc.so，被禁后 JNA 只能退回按
-             *                                 Linux 习惯找 libc.so.6 → 必然失败。
-             *                                 这条很可能是崩溃的助推因素，故一并去掉。
-             */
-            // 不加载 udev：Android 无 systemd/udev，探测只会白白触发原生库加载
-            append("-Doshi.os.linux.allowudev=false ")
-            // 不探测 systemd 会话：Android 没有
-            append("-Doshi.os.linux.allowsystemd=false ")
-            // 不做 NFS 可达性探测：默认开启且会发起 TCP:2049 连接、单次最长阻塞 2 秒
-            append("-Doshi.os.linux.filesystem.checknfs=false ")
-            // 不记录 /proc 读取警告：Android 上大量 /proc 节点受限，告警会刷屏
-            append("-Doshi.os.linux.procfs.logwarning=false ")
-            // 关掉 Memoizer 缓存：避免 OSHI 缓存住首次探测失败的结果后反复重试
-            append("-Doshi.util.memoizer.expiration=0 ")
-            /*
-             * 历史遗留参数已移除（保留说明以免再次被加回来）：
-             *
-             *   -Doshi.util.use.jna=false
-             *       OSHI 从未定义过该键，纯死参数。
-             *
-             *   -Djna.nosys=true
-             *       禁止 JNA 加载「系统库」。libc 在 Android 上就是系统库 libc.so，
-             *       被禁后 JNA 只能退回按 Linux 习惯找 libc.so.6 → 必然失败。
-             *       这条是崩溃的助推因素，已去掉。
-             *
-             *   -Djna.nounpack=true   ← 本次移除
-             *       禁止 JNA 从自己的 jar 里解包 libjnidispatch.so。但 jar 解包是
-             *       JNA 三层加载顺序里唯一「还可能成功」的一层：
-             *         1) jna.boot.library.path 目录
-             *         2) 系统库路径（受 jna.nosys 控制）
-             *         3) 从 jar 解包（受 jna.nounpack 控制）
-             *       关掉它并不会让 JNA 变得可用，只会让失败点后移、报错更难定位。
-             *       实测崩溃栈里的 /data/data/com.venti1112.edgecube/cache/jna*.tmp
-             *       就是第 3 步解包出来的文件——这个文件至少能被 dlopen 尝试打开，
-             *       关掉之后就只剩「找不到库」这种更含糊的报错。
-             */
-        }
+        /*
+         * 这里的取值来自 OSHI 的 GlobalConfig 常量表，只使用真实存在的键。
+         *
+         * 历史遗留的两个参数已移除，它们都是无效的：
+         *   -Doshi.util.use.jna=false   → OSHI 从未定义过该键，纯死参数
+         *   -Djna.nosys=true            → 禁止 JNA 加载「系统库」。libc 在 Android 上
+         *                                 就是系统库 libc.so，被禁后 JNA 只能退回按
+         *                                 Linux 习惯找 libc.so.6 → 必然失败。
+         *                                 这条很可能是崩溃的助推因素，故一并去掉。
+         */
+        // 不加载 udev：Android 无 systemd/udev，探测只会白白触发原生库加载
+        append("-Doshi.os.linux.allowudev=false ")
+        // 不探测 systemd 会话：Android 没有
+        append("-Doshi.os.linux.allowsystemd=false ")
+        // 不做 NFS 可达性探测：默认开启且会发起 TCP:2049 连接、单次最长阻塞 2 秒
+        append("-Doshi.os.linux.filesystem.checknfs=false ")
+        // 不记录 /proc 读取警告：Android 上大量 /proc 节点受限，告警会刷屏
+        append("-Doshi.os.linux.procfs.logwarning=false ")
+        // 关掉 Memoizer 缓存：避免 OSHI 缓存住首次探测失败的结果后反复重试
+        append("-Doshi.util.memoizer.expiration=0 ")
+        /*
+         * 历史遗留参数已移除（保留说明以免再次被加回来）：
+         *
+         *   -Doshi.util.use.jna=false
+         *       OSHI 从未定义过该键，纯死参数。
+         *
+         *   -Djna.nosys=true
+         *       禁止 JNA 加载「系统库」。libc 在 Android 上就是系统库 libc.so，
+         *       被禁后 JNA 只能退回按 Linux 习惯找 libc.so.6 → 必然失败。
+         *       这条是崩溃的助推因素，已去掉。
+         *
+         *   -Djna.nounpack=true   ← 本次移除
+         *       禁止 JNA 从自己的 jar 里解包 libjnidispatch.so。但 jar 解包是
+         *       JNA 三层加载顺序里唯一「还可能成功」的一层：
+         *         1) jna.boot.library.path 目录
+         *         2) 系统库路径（受 jna.nosys 控制）
+         *         3) 从 jar 解包（受 jna.nounpack 控制）
+         *       关掉它并不会让 JNA 变得可用，只会让失败点后移、报错更难定位。
+         *       实测崩溃栈里的 /data/data/com.venti1112.edgecube/cache/jna*.tmp
+         *       就是第 3 步解包出来的文件——这个文件至少能被 dlopen 尝试打开，
+         *       关掉之后就只剩「找不到库」这种更含糊的报错。
+         */
     }
 
     /**
@@ -2718,8 +2716,7 @@ class TermuxRuntime(context: Context) {
         javaVersion: JavaVersion = JavaVersion.Java17,
         onExit: (Int) -> Unit,
         launchArgs: String? = null,
-        appendNogui: Boolean = true,
-        moduleCompatMode: Boolean = false
+        appendNogui: Boolean = true
     ): Process {
         Log.i(TAG, "startMc: jar=$jarPath heap=${maxHeapMb}m dirName=$dirName")
 
@@ -2735,7 +2732,7 @@ class TermuxRuntime(context: Context) {
         killOrphanMcProcess(serverDir)
 
         if (javaVersion == JavaVersion.Java8) {
-            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile, appendNogui, moduleCompatMode)
+            return startMcInUbuntu(jarPath, maxHeapMb, serverDir, onExit, launchArgs, logFile, appendNogui)
         }
 
         // Java 17/25 continue to use the existing Termux-hosted launch path.
@@ -2776,7 +2773,7 @@ class TermuxRuntime(context: Context) {
             (systemTimeZoneId()?.let { "export TZ='$it'; " } ?: "") +
             "cd '$serverDir' && " +
             "exec '$javaPath' $nativeAccessArg-Djava.io.tmpdir='$jvmTmpDir' -Djna.tmpdir='$jvmTmpDir' " +
-            baseJvmProperties(moduleCompatMode) +
+            baseJvmProperties() +
             "-Xmx${maxHeapMb}m " + (launchArgs ?: "-jar $jarPath") + if (appendNogui) " nogui" else ""
 
         Log.i(TAG, "startMc command: $javaCmd")

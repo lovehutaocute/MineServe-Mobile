@@ -1613,11 +1613,7 @@ class McServerController(
             needsFonts = coreType == ServerCore.Forge || coreType == ServerCore.NeoForge
         )
         if (coreType == ServerCore.NeoForge && config.selectedJavaVersion != JavaVersion.Java8) {
-            if (config.moduleCompatMode) {
-                termux.emitLog("[startMc] 模组兼容模式已开启：已注入 Android 友好的 OSHI/JNA 属性")
-            } else {
-                termux.emitLog("[startMc] NeoForge 提示：Android 无 glibc 的 libc.so.6，依赖 OSHI/JNA 的模组可能崩服；可在「高级启动选项」开启模组兼容模式")
-            }
+            termux.emitLog("[startMc] NeoForge 提示：Android 无 glibc 的 libc.so.6，依赖 OSHI/JNA 的模组可能崩服；已自动注入 Android 友好的 OSHI/JNA 属性")
             termux.emitLog("[startMc] ReferenceOpenHashSet 或 DistanceManager 异常属于 NeoForge/Minecraft 运行期崩溃，请以 crash-reports 的首个异常为准")
         }
         if ((coreType == ServerCore.Forge || coreType == ServerCore.NeoForge) &&
@@ -1666,7 +1662,6 @@ class McServerController(
             javaVersion = finalLaunchJava,
             launchArgs = launchArgs,
             appendNogui = coreType !in setOf(ServerCore.PowerNukkitX, ServerCore.Allay),
-            moduleCompatMode = config.moduleCompatMode,
             onExit = createExitHandler(config, dirName, jarPath)
         )
         repo.updateServerState { markRunningIfAlive(it) }

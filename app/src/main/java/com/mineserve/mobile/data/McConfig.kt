@@ -289,23 +289,9 @@ data class McConfig(
     val advancedCustomCommandEnabled: Boolean = false,
     /** 完全自定义启动命令（整条 Java 启动指令） */
     val advancedCustomCommand: String = "",
-    /**
-     * 模组兼容模式。
-     *
-     * 背景：部分模组通过 OSHI/JNA 采集硬件信息（崩溃报告、性能面板等）。OSHI 的
-     * `LinuxOperatingSystemJNA` 在静态初始化时就调用 `LinuxLibc.INSTANCE.gettid()`，
-     * 而 JNA 对 libc 的映射在 Linux 上解析为 `libc.so.6` —— 那是 glibc 的名字，
-     * Android（bionic）根本不存在这个库，于是抛
-     * `UnsatisfiedLinkError: dlopen failed: library "libc.so.6" not found` 直接崩服。
-     *
-     * 注意：这不是「缺文件」问题，打包 glibc 也解决不了 —— bionic 的 linker 不识别
-     * glibc 的 ELF（OSABI 不同），强行加载要么被拒要么与系统 libc.so 冲突。
-     * 唯一可行的方向是调整 JVM 参数，让 OSHI 走尽可能少加载原生库的路径。
-     *
-     * 默认关闭：这些参数会改变 JNA 的库查找行为，对不依赖 OSHI/JNA 的服务器无益，
-     * 且个别模组可能依赖被关掉的探测能力，所以只在用户明确遇到该崩溃时开启。
-     */
-    val moduleCompatMode: Boolean = false,
+    // 注：原「模组兼容模式」开关（moduleCompatMode）已删除。那组缓解 OSHI/JNA 崩服的
+    // JVM 属性改为无条件注入（见 TermuxRuntime.baseJvmProperties），用户无需再判断
+    // 何时开启。旧配置文件里的残留键由 Json(ignoreUnknownKeys = true) 自动忽略。
     // ── 定时任务与停止备份 ────────────────────────────────────
     /** 每日定时开服开关 */
     val dailyStartEnabled: Boolean = false,
