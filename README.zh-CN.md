@@ -1,4 +1,4 @@
-# MineServe Mobile
+# Minexa（MineServe Mobile）
 
 <div align="center">
 
